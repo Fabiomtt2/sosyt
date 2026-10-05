@@ -3,7 +3,6 @@ import { z } from "zod";
 
 const booleanString = z
   .enum(["true", "false"])
-  .default("false")
   .transform((value) => value === "true");
 
 const schema = z.object({
@@ -12,8 +11,8 @@ const schema = z.object({
   DATABASE_PATH: z.string().default("./apps/api/data/conexao-youtube.db"),
   JWT_SECRET: z.string().min(16).default("dev-secret-change-before-production"),
   AUTH_CODE_PEPPER: z.string().min(8).default("dev-auth-pepper"),
-  AUTH_DEV_MODE: booleanString.default("true"),
-  PAYMENTS_DEV_MODE: booleanString.default("true"),
+  AUTH_DEV_MODE: booleanString.default(true),
+  PAYMENTS_DEV_MODE: booleanString.default(true),
   WEB_APP_URL: z.string().url().default("http://localhost:5173"),
   API_PUBLIC_URL: z.string().url().default("http://localhost:3333"),
   YOUTUBE_API_KEY: z.string().optional(),
@@ -31,4 +30,3 @@ export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {
   const parsed = schema.parse({ ...process.env, ...overrides });
   return { ...parsed, DATABASE_PATH: parsed.DATABASE_PATH === ":memory:" ? ":memory:" : resolve(parsed.DATABASE_PATH) };
 }
-

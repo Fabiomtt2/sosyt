@@ -8,8 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc -b --pretty false",
-    "android:sync": "cap sync android",
-    "android:apk": "cd android && ./gradlew assembleDebug"
+    "android:sync": "vite build --mode android && cap sync android",
+    "android:apk": "cd android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=../../../.android-sdk GRADLE_USER_HOME=../../../.gradle-home ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",
@@ -31,4 +31,3 @@
     "vitest": "^4.0.8"
   }
 }
-

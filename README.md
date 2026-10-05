@@ -34,9 +34,10 @@ npm run android:apk
 
 O APK de depuração será criado em `apps/client/android/app/build/outputs/apk/debug/`.
 
+O build Android de desenvolvimento usa `http://10.0.2.2:3333`, endereço que aponta do emulador para a API executada no computador. Em aparelho físico, configure uma URL HTTPS acessível ou use encaminhamento de porta de desenvolvimento. O manifesto permite HTTP apenas no build `debug`; builds de produção continuam exigindo HTTPS.
+
 ## Produção
 
 Antes de publicar, são obrigatórios: HTTPS; banco gerenciado; entrega real de OTP pelo WhatsApp; credenciais Google verificadas; credenciais Pix de produção; política de privacidade; termos; fluxo de exclusão de conta/dados; revisão LGPD; auditoria de conformidade do YouTube quando aplicável; logs e monitoramento. Nunca publique `.env` ou tokens.
 
 Veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md) e [PROJECT_STATUS.md](PROJECT_STATUS.md).
-

@@ -115,7 +115,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (error instanceof z.ZodError) return reply.code(400).send({ message: error.issues[0]?.message ?? "Dados inválidos." });
     const status = (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) app.log.error(error);
-    return reply.code(status).send({ message: status >= 500 ? error.message || "Erro interno." : error.message });
+    const message = error instanceof Error ? error.message : "Erro interno.";
+    return reply.code(status).send({ message });
   });
 
   app.get("/health", async () => ({ ok: true }));
@@ -313,4 +314,3 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.addHook("onClose", async () => { if (!providedDb) db.close(); });
   return app;
 }
-
