@@ -54,11 +54,12 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 
 Gate completo executado após regra de moedas, decisão WhatsApp e automação de grupos:
 - `git diff --check`: aprovado;
-- backend: 56/56 testes;
-- cliente: 5/5 testes;
+- backend: 57/57 testes;
+- cliente: 6/6 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
-- Playwright E2E: 1/1 aprovado no fluxo completo.
+- Playwright E2E: 1/1 aprovado no fluxo completo;
+- Android: sync aprovado e APK debug gerado com SDK 35 local do projeto.
 
 ## Pendências externas/produção
 
@@ -68,4 +69,4 @@ Gate completo executado após regra de moedas, decisão WhatsApp e automação d
 - Política de privacidade, termos, retenção/exclusão e revogação de dados.
 - Observabilidade, backup/restauração e implantação.
 - Revisar requisitos contratuais/políticas dos provedores antes de produção.
-- APK permanece fora desta rodada; Android WIP histórico não deve ser destruído.
+- APK debug atualizado foi gerado; instalação automática no aparelho físico ficou pendente porque o transporte USB/ADB oscilou durante a tentativa. Android WIP histórico não foi destruído.

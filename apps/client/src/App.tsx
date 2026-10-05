@@ -62,7 +62,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <p className="eyebrow">SOS YOUTUBER</p>
       <h1>Uma playlist.<br />Dez vozes.</h1>
       <p className="lead">Organize a curadoria do seu grupo e leve a seleção para a sua própria conta do YouTube — sempre por escolha sua.</p>
-      {whatsappJoinUrl ? <a className="intro-join" href={whatsappJoinUrl} target="_blank" rel="noreferrer">Quero participar</a> : <button className="intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>}
+      <button className="intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>
       <div className="trust" aria-label="Compromissos de segurança">
         <span className="security-symbol" aria-hidden="true">🔒</span>
         <div className="trust-lines"><span>Sem views automáticas.</span><span>Sem reprodução oculta.</span><strong>Você mantém o controle.</strong></div>
@@ -89,7 +89,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         {step === "credential" && <button type="button" className="text-button" onClick={returnToProfile}>Corrigir meus dados</button>}
       </form>}
       {step === "profile" && !joined && whatsappJoinUrl && <a className="secondary" href={whatsappJoinUrl} target="_blank" rel="noreferrer">Falar com o SOS YouTube no WhatsApp</a>}
-      {step === "profile" && !joined && <button className="text-button" type="button" onClick={() => { setJoinMode(!joinMode); setError(""); }}>{joinMode ? "Já participo — voltar ao login" : "Quero participar!"}</button>}
+      {step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
     </section>
   </main>;
 }

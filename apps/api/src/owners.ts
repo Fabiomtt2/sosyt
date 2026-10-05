@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import type { Config } from "./config.js";
 export const normalizeOwnerName = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").trim().toLowerCase();
+
+export function ownerNameMatches(configuredName: string, candidate: string) {
+  const configured = normalizeOwnerName(configuredName);
+  const provided = normalizeOwnerName(candidate);
+  return provided === configured || (configured.endsWith("0") && provided === configured.slice(0, -1));
+}
+
 export function ownerAccounts(config: Config) {
   return [
     { id: "fabio", name: config.OWNER_FABIO_NAME, identifier: config.OWNER_FABIO_ID, secret: config.OWNER_FABIO_SECRET, phone: config.OWNER_FABIO_WHATSAPP },

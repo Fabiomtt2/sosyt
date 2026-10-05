@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
-import { ownerAccounts, normalizeOwnerName, ownerCredentialVersion } from "./owners.js";
+import { ownerAccounts, ownerNameMatches, ownerCredentialVersion } from "./owners.js";
 import { whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision, queueWhatsAppOtp } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
 
@@ -67,13 +67,13 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   });
   app.post("/auth/role", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema }).parse(request.body);
-    const account = ownerAccounts(config).find((owner) => owner.phone === body.phone && normalizeOwnerName(owner.name) === normalizeOwnerName(body.name));
+    const account = ownerAccounts(config).find((owner) => owner.phone === body.phone && ownerNameMatches(owner.name, body.name));
     return { role: account ? "owner" as const : "user" as const };
   });
 
   app.post("/admin/login", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = z.object({ secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80), identifier: phoneSchema, groupCode: z.literal("#") }).parse(request.body);
-    const account = ownerAccounts(config).find((o) => normalizeOwnerName(o.name) === normalizeOwnerName(body.name) && o.phone === body.identifier);
+    const account = ownerAccounts(config).find((o) => ownerNameMatches(o.name, body.name) && o.phone === body.identifier);
     if (!account?.secret) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const hash = (value: string) => createHash("sha256").update(value).digest();
     if (!timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });

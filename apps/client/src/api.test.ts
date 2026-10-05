@@ -29,4 +29,12 @@ describe("contrato HTTP do cliente", () => {
     await expect(api.dashboard()).rejects.toMatchObject({ status: 403, message: "Acesso revogado" });
     await expect(api.dashboard()).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("traduz falha de rede para mensagem compreensível", async () => {
+    fetchMock.mockRejectedValue(new TypeError("NetworkError attempting to fetch resource."));
+    await expect(api.dashboard()).rejects.toMatchObject({
+      status: 0,
+      message: expect.stringContaining("Não conseguimos conectar ao SOS YouTube agora")
+    });
+  });
 });

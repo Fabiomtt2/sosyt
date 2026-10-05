@@ -16,12 +16,12 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; letter-spacing: -.04em; }
 .brand-mark { width: 64px; height: 64px; display: grid; place-items: center; background: var(--red); border-radius: 18px; margin-bottom: 50px; box-shadow: 0 18px 35px #0006; }
 .brand-panel h1 { font-size: clamp(3rem, 6vw, 5.7rem); line-height: .98; margin-bottom: 30px; }
 .lead { max-width: 580px; font-size: 1.15rem; color: #cbd0d9; line-height: 1.65; }
-.trust { display: grid; justify-items: center; gap: 12px; max-width: 520px; color: #d3d8e0; margin-top: 28px; font-size: .92rem; line-height: 1.5; text-align: center; }
+.trust { display: grid; justify-items: center; gap: 12px; width: 260px; max-width: 100%; color: #f0f2f5; margin-top: 48px; font-size: .92rem; line-height: 1.5; text-align: center; font-weight: 800; }
 .security-symbol { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: #ffffff10; border: 1px solid #ffffff22; font-size: 1.35rem; box-shadow: 0 10px 26px #0004; }
-.trust-lines { display: grid; gap: 3px; }
-.trust-lines span, .trust-lines strong { display: block; }
+.trust-lines { display: grid; gap: 4px; width: 100%; }
+.trust-lines span, .trust-lines strong { display: block; font-weight: 800; }
 .trust-lines strong { color: white; }
-.intro-join { margin-top: 28px; width: fit-content; min-width: 180px; border: 1px solid #ffffff2a; border-radius: 12px; padding: 14px 20px; background: var(--red); color: white; font-weight: 800; text-decoration: none; text-align: center; cursor: pointer; box-shadow: 0 12px 28px #0004; }
+.intro-join { margin-top: 28px; width: 260px; max-width: 100%; border: 1px solid #ffffff2a; border-radius: 12px; padding: 14px 20px; background: var(--red); color: white; font-weight: 800; text-decoration: none; text-align: center; cursor: pointer; box-shadow: 0 12px 28px #0004; }
 .intro-join:hover { background: #cf2030; }
 .login-card { background: var(--paper); padding: clamp(32px, 8vw, 110px); display: flex; flex-direction: column; justify-content: center; gap: 26px; }
 .login-card h2, .modal h2 { font-size: clamp(2rem, 3vw, 3rem); margin-bottom: 10px; }
