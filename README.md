@@ -4,7 +4,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos 
 
 ## Fluxo implementado
 
-- Uma tela de login: participante usa nome, celular brasileiro e grupo aprovado; Owners `Fabio0` e `Rafael0` usam nome, identificador configurado, marcador/palavra-chave `#` e credencial exclusiva.
+- Uma tela de login: participante usa nome, celular brasileiro e grupo aprovado; Owners `Fabio0` e `Rafael0` usam nome, WhatsApp no formato `+55 DD [9]XXXX-XXXX` (espaço após `[9]` também aceito), marcador/palavra-chave `#` e credencial exclusiva.
 - `Quero participar!` registra solicitação no painel. Com `OWNER_WHATSAPP` configurado, abre uma conversa WhatsApp com mensagem preenchida; o usuário confirma o envio. A Cloud API pode responder e alertar os Owners quando as credenciais/templates Meta estiverem configurados.
 - A conferência de pertencimento ao grupo SOS YOUTUBER permanece administrativa até existir comprovação de que a conta/grupos atuais são elegíveis para automação oficial de grupos.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes no ciclo.
@@ -24,7 +24,7 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os nomes padrão são `Fabio0` e `Rafael0`; ambos usam `#` como marcador/palavra-chave de Owner. Identificadores/telefones reais devem permanecer apenas no `.env` local. Nunca publique o `.env`.
+Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os nomes padrão são `Fabio0` e `Rafael0`; ambos usam `#` como marcador/palavra-chave de Owner. O telefone configurado para cada Owner é a identidade de login e deve permanecer apenas no `.env` local. Nunca publique o `.env`.
 
 Em desenvolvimento, `AUTH_DEV_MODE=true` mostra o OTP na interface e `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção esses modos são recusados pelo carregador de configuração. Para entrega real de OTP e automação de atendimento, configure a Cloud API Meta conforme `docs/WHATSAPP-INTEGRACAO.md`.
 

@@ -16,7 +16,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
   await page.getByRole("button", { name: "Voltar ao login" }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fabio0"); await page.getByLabel("Grupo SOS YOUTUBER").fill("#");
-  await page.getByLabel("WhatsApp / identificador do Owner").fill("+55 71 [9]9999-0001");
+  await page.getByLabel("WhatsApp do Owner").fill("+55 71 [9]9999-0001");
   await page.getByLabel("Credencial do Owner").fill("e2e-owner-secret-32-characters-long");
   await page.getByRole("button", { name: "Entrar como Owner" }).click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();

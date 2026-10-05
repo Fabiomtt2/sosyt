@@ -46,9 +46,14 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const body = z.object({ secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80), identifier: z.string().trim().min(3).max(80), groupCode: z.literal("#") }).parse(request.body);
     const account = ownerAccounts(config).find((o) => normalizeOwnerName(o.name) === normalizeOwnerName(body.name));
     if (!account?.secret) return reply.code(401).send({ message: "Conta ou credencial do Owner inválida." });
+    const ownerPhone = account.phone
+      ? z.string().regex(/^\+55 [1-9]\d \[9\] ?\d{4}-\d{4}$/, "Use o formato +55 DD [9]XXXX-XXXX.").transform(normalizeBrazilMobile).safeParse(body.identifier)
+      : undefined;
+    const identifierMatches = account.phone
+      ? Boolean(ownerPhone?.success && ownerPhone.data === account.phone)
+      : body.identifier.toLowerCase() === account.identifier.toLowerCase();
     const hash = (value: string) => createHash("sha256").update(value).digest();
-    const identifier = /^\d{10,15}$/.test(account.identifier) ? body.identifier.replace(/\D/g, "") : body.identifier.toLowerCase();
-    if (!timingSafeEqual(hash(body.secret),hash(account.secret)) || identifier !== account.identifier.toLowerCase()) return reply.code(401).send({ message: "Conta ou credencial do Owner inválida." });
+    if (!timingSafeEqual(hash(body.secret),hash(account.secret)) || !identifierMatches) return reply.code(401).send({ message: "Conta ou credencial do Owner inválida." });
     return { token: app.jwt.sign({ sub: `owner:${account.id}`, purpose: "owner", aud: "conexao-owner", jti: ownerCredentialVersion(account.secret) }, { expiresIn: "1h" }), role: "owner", owner: { name: account.name, groupCode: "#" } };
   });
 

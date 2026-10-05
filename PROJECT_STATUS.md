@@ -6,13 +6,13 @@ Repositório isolado em `/home/ubuntu-desktop-bootstrap-ubuntu-/Documents/Codex/
 
 Base histórica: `0f09c7b`. Primeiro checkpoint isolado validado: `ae26bf1` (`feat: consolidate audited YouTube Final integration`). A rodada atual parte desse checkpoint.
 
-O `.env` local permanece ignorado pelo Git e contém os identificadores reais dos Owners. O identificador literal de Rafael0 foi preservado para login, mas seu campo de contato WhatsApp de alertas permanece vazio enquanto não houver um celular completo válido para entrega.
+O `.env` local permanece ignorado pelo Git e contém os telefones/identificadores reais dos Owners e seus contatos de alerta. Esses dados não são versionados nem repetidos na documentação.
 
 ## Produto consolidado
 
 - Quadro global com 10 posições sequenciais, URL permanente, autor, grupo e horário.
 - Rejeição de URL não-YouTube e validação externa opcional por YouTube Data API.
-- Owners independentes `Fabio0`/`Rafael0` usando `#`, identificadores/segredos separados e JWT com purpose/audience próprios.
+- Owners independentes `Fabio0`/`Rafael0` usando `#`, telefone brasileiro formatado obrigatório, segredos separados e JWT com purpose/audience próprios.
 - Solicitação de participação via web/WhatsApp, painel de pendências, aprovação/revogação manual e fila WhatsApp persistente.
 - Adaptador Cloud API Meta com verificação de webhook, HMAC, deduplicação, retentativa e alertas aos Owners.
 - 10 créditos iniciais; débito por contribuição; compra de R$20 = 20 créditos + 1 passe; ledger/idempotência e bloqueio após estorno.

@@ -1,4 +1,4 @@
-export const BRAZIL_MOBILE_PATTERN = String.raw`\+55 [1-9][0-9] \[9\][0-9]{4}-[0-9]{4}`;
+export const BRAZIL_MOBILE_PATTERN = String.raw`\+55 [1-9][0-9] \[9\] ?[0-9]{4}-[0-9]{4}`;
 
 export function formatBrazilMobileInput(value: string): string {
   let digits = value.replace(/\D/g, "");
