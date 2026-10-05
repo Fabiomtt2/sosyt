@@ -4,6 +4,8 @@
 
 Repositório autônomo em `/home/ubuntu-desktop-bootstrap-ubuntu-/Documents/Codex/2026-10-04/gostar/Conexão Youtube`, branch main, sem remote configurado. Apesar da descrição inicial como worktree, não está conectado a outro projeto. Não criar outra cópia/worktree nem alterar Clareia ou outros diretórios. Checkpoint do WIP herdado: 37f915c; base original: 07f85b5. Consultar `git log` e `git status` antes de qualquer continuação.
 
+Commit da implementação web auditada: `14f584e` (feat: complete shared web playlist engine and Owner access controls). O commit documental seguinte é a âncora de encerramento; consultar HEAD com git log.
+
 ## Entregue nesta etapa
 
 - Motor central global: dez URLs sequenciais, persistência SQLite, autoria/horário, moedas e passes de compra separados, débito e fechamento atômicos, novo ciclo automático.
@@ -27,6 +29,8 @@ Repositório autônomo em `/home/ubuntu-desktop-bootstrap-ubuntu-/Documents/Code
 ## Estado de execução local
 
 .env local criado com segredos aleatórios e permissão 0600, ignorado pelo Git. Nome provisório Owner, ID owner, grupo 0; a credencial está no próprio arquivo. Nome, identificação e número WhatsApp definitivos ainda precisam ser escolhidos/configurados. Modos OTP e Pix são de demonstração. O banco de testes do navegador é separado do banco da aplicação.
+
+Execução local iniciada nesta sessão via Desktop Commander, PID 56013. Health, HTML, login Owner e overview retornaram HTTP 200 com a configuração local (segredos não exibidos).
 
 Comando: npm run dev. Interface localhost:5173, API localhost:3333. O fato de a execução estar ativa nesta sessão não garante permanência após reinício; relançar o comando dentro do projeto. Não divulgar o segredo em logs/documentos/commits.
 
