@@ -7,8 +7,8 @@ Este arquivo substitui o uso anterior de “especificação canônica” como fo
 | Tema | Decisão |
 | --- | --- |
 | Owners | `Fabio0` e `Rafael0`, contas independentes |
-| Owner marker | `#` no campo/palavra-chave; não concede privilégio sem credencial |
-| Telefone Owner | formato brasileiro com `+55`, DDD, `[9]` e hífen; valores reais só no `.env` |
+| Identificação Owner | automática por nome + WhatsApp configurado; `#` é detalhe interno e não aparece na UI |
+| WhatsApp | entrada internacional com código do país, sem prefixo automático na UI; valores reais de Owners ficam somente no `.env` |
 | Quadro | global entre grupos SOS YOUTUBER |
 | Ciclo | 10 URLs sequenciais e permanentes, com autoria/grupo/horário |
 | YouTube | somente links aceitos; playlist após ciclo completo; OAuth individual |

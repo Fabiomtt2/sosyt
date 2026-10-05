@@ -26,7 +26,7 @@
 
 ## Regras de produto confirmadas em 05/10/2026
 - Quadro global compartilhado entre os grupos SOS YOUTUBER; 10 posições sequenciais e permanentes por ciclo.
-- Owners: `Fabio0` e `Rafael0`, marcador/palavra-chave `#`, telefone formatado e credencial separada.
+- Owners: `Fabio0` e `Rafael0`, identificados automaticamente por nome + WhatsApp configurado e Credencial separada. O marcador `#` é somente interno e nunca deve aparecer como instrução/campo da UI.
 - WhatsApp: onboarding/bot/OTP/alertas/decisão automatizados pela Cloud API quando configurada.
 - Grupos: associação deve ser automatizada pela Groups API oficial quando a conta/grupo forem elegíveis; eventos reais de participante alimentam `group_memberships`. Fallback Owner permanece para grupos não sincronizados.
 - YouTube: criar playlist somente após ciclo pronto, por participante do ciclo e com OAuth explícito.

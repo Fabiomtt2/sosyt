@@ -4,7 +4,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos 
 
 ## Fluxo implementado
 
-- Uma tela de login: participante usa nome, celular brasileiro e grupo aprovado; Owners `Fabio0` e `Rafael0` usam nome, WhatsApp no formato `+55 DD [9]XXXX-XXXX` (espaço após `[9]` também aceito), marcador/palavra-chave `#` e credencial exclusiva.
+- Uma única tela de login usa nome, WhatsApp com código do país e grupo SOS YOUTUBER de 1 a 99. O backend identifica automaticamente se o cadastro corresponde a participante ou Owner; `#` permanece apenas como detalhe interno da API e nunca é exibido na interface.
 - `Quero participar!` registra solicitação no painel. Com `OWNER_WHATSAPP` configurado, abre uma conversa WhatsApp com mensagem preenchida; o usuário confirma o envio. A Cloud API pode responder e alertar os Owners quando as credenciais/templates Meta estiverem configurados.
 - A associação ao grupo SOS YOUTUBER é automatizada quando a Groups API oficial expõe grupos elegíveis: o worker reconhece `SOS YOUTUBER N`, sincroniza participantes e webhooks de entrada/saída atualizam o acesso. Grupos que a Meta não expõe permanecem disponíveis para conferência Owner.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes no ciclo.
@@ -39,7 +39,7 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação final de 05/10/2026: 54 testes de API, 5 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação final de 05/10/2026: 56 testes de API, 5 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Integrações e limites atuais
 

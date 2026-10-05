@@ -24,8 +24,8 @@ A governança corrente está em `AGENTS.md`. `.env` é local/ignorado e não dev
 
 - Quadro global entre todos os grupos SOS YOUTUBER com 10 posições sequenciais, URL, autor, grupo e horário permanentes.
 - URL precisa ser YouTube; validação estrutural sempre e consulta externa quando `YOUTUBE_API_KEY` existe.
-- `Fabio0` e `Rafael0`: contas Owner separadas, `#`, telefone brasileiro formatado e segredo individual.
-- Usuário: nome + WhatsApp + grupo; OTP e vínculo de grupo protegem login.
+- `Fabio0` e `Rafael0`: contas Owner separadas, identificadas automaticamente por nome + WhatsApp configurado; Credencial individual. O `#` permanece apenas como detalhe interno da API.
+- Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–99. O backend resolve automaticamente participante/Owner; participante usa Credencial OTP e vínculo de grupo, Owner usa Credencial privada.
 - 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
 - Ao fechar o ciclo, recompensa de curadoria existente permanece.
 - Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
@@ -35,7 +35,7 @@ A governança corrente está em `AGENTS.md`. `.env` é local/ignorado e não dev
 
 ## WhatsApp
 
-Fluxo atual: `Quero participar` → acolhimento → nome → pendência → alerta aos dois Owners → decisão → retorno automático ao participante → OTP.
+Fluxo atual: `Quero participar` → acolhimento → “Como gostaria de ser chamado?” → pendência no dashboard + alerta administrativo → decisão Owner → retorno automático → Credencial OTP temporária quando o template está configurado.
 
 A decisão do Owner responde por mensagem livre quando a janela de serviço está ativa; fora dela usa `WHATSAPP_DECISION_TEMPLATE` quando configurado. Fila persistente, HMAC, deduplicação, lease, retry/backoff e OTP por template permanecem.
 
@@ -54,7 +54,7 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 
 Gate completo executado após regra de moedas, decisão WhatsApp e automação de grupos:
 - `git diff --check`: aprovado;
-- backend: 54/54 testes;
+- backend: 56/56 testes;
 - cliente: 5/5 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
