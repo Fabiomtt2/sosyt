@@ -1,0 +1,10 @@
+import { spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+const root = fileURLToPath(new URL("../", import.meta.url));
+const scratch = join(root, ".local-tmp"); mkdirSync(scratch, { recursive: true });
+const child = spawn("npm", ["run", "dev:services"], { cwd: root, stdio: "inherit", env: { ...process.env, TMPDIR: scratch, npm_config_cache: join(root, ".npm-cache") } });
+child.on("error", (error) => { console.error(error.message); process.exitCode = 1; });
+child.on("exit", (code) => { process.exitCode = code ?? 1; });
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));

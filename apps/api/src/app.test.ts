@@ -22,7 +22,7 @@ describe("fluxo colaborativo", () => {
 
   beforeEach(async () => {
     db = createDatabase(":memory:");
-    app = await buildApp(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", JWT_SECRET: "test-secret-with-enough-length", AUTH_CODE_PEPPER: "test-pepper", AUTH_DEV_MODE: "true" }), db);
+    app = await buildApp(loadConfig({ REQUIRE_GROUP_MEMBERSHIP: "false", NODE_ENV: "test", DATABASE_PATH: ":memory:", JWT_SECRET: "test-secret-with-enough-length", AUTH_CODE_PEPPER: "test-pepper", AUTH_DEV_MODE: "true" }), db);
   });
   afterEach(async () => { await app.close(); db.close(); });
 
@@ -42,6 +42,12 @@ describe("fluxo colaborativo", () => {
     const dashboard = await app.inject({ method: "GET", url: "/dashboard", headers: { authorization: `Bearer ${token}` } });
     expect(dashboard.json().openRound.slots[0].userName).toBe("Ana Teste");
     expect(dashboard.json().wallet.total).toBe(9);
+    expect(dashboard.headers["cache-control"]).toBe("no-store");
+    expect(dashboard.headers["x-content-type-options"]).toBe("nosniff");
+    db.prepare("UPDATE users SET name='Nome Alterado', group_code='456' WHERE phone=?").run("71999990001");
+    const preserved = await app.inject({ method: "GET", url: "/dashboard", headers: { authorization: `Bearer ${token}` } });
+    expect(preserved.json().openRound.slots[0]).toMatchObject({ userName: "Ana Teste", groupCode: "123" });
+
   });
 });
 

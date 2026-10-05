@@ -33,7 +33,7 @@ export async function verifyYouTubeVideo(input: string, apiKey?: string): Promis
   if (apiKey) {
     const endpoint = new URL("https://www.googleapis.com/youtube/v3/videos");
     endpoint.search = new URLSearchParams({ part: "id,status", id: videoId, key: apiKey }).toString();
-    const response = await fetch(endpoint);
+    const response = await fetch(endpoint, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error("Não foi possível validar o vídeo no YouTube.");
     const payload = (await response.json()) as { items?: Array<{ status?: { embeddable?: boolean } }> };
     if (!payload.items?.length) throw new Error("O vídeo não existe ou não está acessível.");
@@ -86,7 +86,7 @@ export function googleAuthorizationUrl(config: Config, state: string): string {
 export async function exchangeGoogleCode(config: Config, code: string): Promise<{ refreshToken: string; scope: string }> {
   if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) throw new Error("Integração Google ainda não configurada.");
   const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
+    method: "POST", signal: AbortSignal.timeout(15_000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: config.GOOGLE_CLIENT_ID,
@@ -104,7 +104,7 @@ export async function exchangeGoogleCode(config: Config, code: string): Promise<
 async function accessToken(config: Config, refreshToken: string): Promise<string> {
   if (!config.GOOGLE_CLIENT_ID || !config.GOOGLE_CLIENT_SECRET) throw new Error("Integração Google ainda não configurada.");
   const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
+    method: "POST", signal: AbortSignal.timeout(15_000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: config.GOOGLE_CLIENT_ID,
@@ -120,7 +120,7 @@ async function accessToken(config: Config, refreshToken: string): Promise<string
 
 async function youtubeRequest<T>(path: string, token: string, body: unknown): Promise<T> {
   const response = await fetch(`https://www.googleapis.com/youtube/v3/${path}`, {
-    method: "POST",
+    method: "POST", signal: AbortSignal.timeout(15_000),
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify(body)
   });
@@ -129,33 +129,62 @@ async function youtubeRequest<T>(path: string, token: string, body: unknown): Pr
   return payload;
 }
 
+async function youtubeGet<T>(path: string, token: string): Promise<T> {
+  const response = await fetch(`https://www.googleapis.com/youtube/v3/${path}`, {
+    signal: AbortSignal.timeout(15_000), headers: { authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) throw new Error("Não foi possível conferir a playlist no YouTube.");
+  return await response.json() as T;
+}
+
 export async function createPrivatePlaylist(
   config: Config,
   refreshToken: string,
   title: string,
   videoIds: string[],
-  existing?: { playlistId?: string; addedCount: number },
+  existing?: { playlistId?: string; addedCount: number; exportId?: string },
   onProgress?: (playlistId: string, addedCount: number) => void
 ): Promise<string> {
   const token = await accessToken(config, refreshToken);
   let playlistId = existing?.playlistId;
-  let addedCount = existing?.addedCount ?? 0;
-  if (!playlistId) {
+  const marker = existing?.exportId ? `Referência Conexão: ${existing.exportId}` : undefined;
+  // Recover a remotely created playlist if the process stopped before its ID was persisted.
+  if (!playlistId && marker) {
+    let pageToken: string | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const params = new URLSearchParams({ part: "snippet", mine: "true", maxResults: "50" });
+      if (pageToken) params.set("pageToken", pageToken);
+      const result = await youtubeGet<{ items?: Array<{ id: string; snippet?: { description?: string } }>; nextPageToken?: string }>(`playlists?${params}`, token);
+      const found = result.items?.find((item) => item.snippet?.description?.split("\n").includes(marker));
+      if (found) { playlistId = found.id; break; }
+      pageToken = result.nextPageToken;
+      if (!pageToken) break;
+      if (page === 9) throw new Error("Muitas playlists para conferir automaticamente. Nenhuma nova playlist foi criada.");
+    }
+  }
+  let addedCount = 0;
+  if (playlistId) {
+    const params = new URLSearchParams({ part: "snippet", playlistId, maxResults: "50" });
+    const result = await youtubeGet<{ items?: Array<{ snippet?: { position?: number; resourceId?: { videoId?: string } } }>; nextPageToken?: string }>(`playlistItems?${params}`, token);
+    const items = [...(result.items ?? [])].sort((a, b) => (a.snippet?.position ?? 0) - (b.snippet?.position ?? 0));
+    if (result.nextPageToken || items.length > videoIds.length || items.some((item, index) => item.snippet?.resourceId?.videoId !== videoIds[index])) {
+      throw new Error("A playlist foi alterada no YouTube. Confira os vídeos antes de tentar novamente.");
+    }
+    addedCount = items.length;
+    onProgress?.(playlistId, addedCount);
+  } else {
     const playlist = await youtubeRequest<{ id: string }>("playlists?part=snippet,status", token, {
-      snippet: { title, description: "Curadoria colaborativa criada pelo Conexão Youtube. Nenhuma visualização foi automatizada ou recompensada." },
+      snippet: { title, description: ["Curadoria colaborativa criada pelo Conexão Youtube.", marker].filter(Boolean).join("\n") },
       status: { privacyStatus: "private" }
     });
     playlistId = playlist.id;
     onProgress?.(playlistId, 0);
   }
-
   for (let index = addedCount; index < videoIds.length; index += 1) {
     await youtubeRequest("playlistItems?part=snippet", token, {
       snippet: { playlistId, position: index, resourceId: { kind: "youtube#video", videoId: videoIds[index] } }
     });
-    addedCount = index + 1;
-    onProgress?.(playlistId, addedCount);
+    onProgress?.(playlistId, index + 1);
   }
   return playlistId;
 }
-

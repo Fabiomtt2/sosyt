@@ -1,43 +1,47 @@
 # Conexão Youtube
 
-MVP web + Android para grupos colaborarem na curadoria de ciclos com 10 vídeos e, por decisão explícita de cada participante, exportarem esses vídeos para uma playlist privada na própria conta do YouTube.
+Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos globais de 10 vídeos e criarem, voluntariamente, uma playlist privada na própria conta Google. Android/Capacitor está preservado; APK adiado a pedido do usuário.
 
-## Limite de produto
+## Fluxo implementado
 
-O projeto **não** automatiza visualizações, não reproduz vídeos em segundo plano e não concede créditos por assistir, curtir, compartilhar ou executar qualquer outra ação no YouTube. Esses mecanismos violariam as políticas de integridade de reprodução e engajamento da plataforma. Os créditos servem apenas para organizar contribuições dentro do próprio aplicativo.
+- Uma tela de login: participante usa nome, WhatsApp e grupo aprovado; Owner usa nome e WhatsApp/ID configurados, grupo 0 e credencial exclusiva.
+- Quero participar! registra solicitação no painel. Com OWNER_WHATSAPP configurado, oferece mensagem pronta para o usuário enviar no WhatsApp. A conferência de participação no grupo é manual pelo Owner.
+- Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; autoria histórica é preservada.
+- Cada usuário começa com 10 moedas. Salvar custa 1; a primeira contribuição de cada ciclo usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
+- Ao completar 10, o ciclo fica pronto, cada participante distinto recebe 1 moeda interna de curadoria e um novo ciclo abre. Cada participante pode conferir os 10 registros, conectar YouTube e usar Compartilhar em Playlist.
+- Painel Owner: aprova/revoga números, gerencia grupos, lista usuários/compras, exporta CSV, conta atividade nos últimos 30 dias, solicitações, ciclos e playlists mensais. Pix real e simulado são separados.
 
-## O que já está desenhado
+## Executar no computador
 
-- Login obrigatório com nome, telefone WhatsApp e código do grupo `SOS YOUTUBER`.
-- Código de acesso de uso único; em desenvolvimento ele é devolvido na tela, e em produção deve ser entregue por um provedor WhatsApp aprovado.
-- Quadro compartilhado, persistente e sequencial com 10 posições.
-- Uma contribuição-base por usuário em cada ciclo; cada pacote Pix aprovado acrescenta 20 créditos e um passe para uma contribuição adicional.
-- Saldo inicial de 10 créditos e custo de 1 crédito por link salvo.
-- Validação estrutural da URL e, quando `YOUTUBE_API_KEY` estiver configurada, validação do vídeo na API oficial.
-- Integração Pix via Mercado Pago, com confirmação no servidor e modo local de demonstração.
-- OAuth Google/YouTube por usuário e exportação voluntária para playlist privada.
-- Um único cliente React/PWA, empacotado no Android com Capacitor.
-
-## Como executar
-
-1. Copie `.env.example` para `.env` e troque os segredos.
-2. Execute `npm install`.
-3. Execute `npm run dev`.
-4. Abra `http://localhost:5173`.
-
-Para gerar o APK depois da primeira sincronização Android:
+Requer Node 22 ou superior. Dentro desta pasta:
 
 ```sh
-npm run android:sync
-npm run android:apk
+npm install --legacy-peer-deps --cache .npm-cache
+node scripts/setup-local.mjs
+npm run dev
 ```
 
-O APK de depuração será criado em `apps/client/android/app/build/outputs/apk/debug/`.
+Abra http://localhost:5173. A configuração local usa nome `Owner`, ID `owner`, grupo `0`. A credencial aleatória está no campo OWNER_ADMIN_SECRET do `.env`; o script não sobrescreve configuração existente. Ajuste OWNER_NAME, OWNER_LOGIN_ID e OWNER_WHATSAPP conforme a conta desejada. Nunca publique o `.env`.
 
-O build Android de desenvolvimento usa `http://10.0.2.2:3333`, endereço que aponta do emulador para a API executada no computador. Em aparelho físico, configure uma URL HTTPS acessível ou use encaminhamento de porta de desenvolvimento. O manifesto permite HTTP apenas no build `debug`; builds de produção continuam exigindo HTTPS.
+O modo local mostra o OTP na tela e permite simular aprovação Pix; não envia WhatsApp nem movimenta dinheiro. Primeiro entre como Owner e autorize um número, ou aprove sua solicitação. Use sempre o mesmo formato de telefone no cadastro e na aprovação, preferencialmente DDI+DDD+número.
 
-## Produção
+A API lê o `.env` da raiz e mantém o banco em `apps/api/data/conexao-youtube.db`, independentemente do diretório de execução. O cliente usa VITE_API_URL=http://localhost:3333 por padrão; para outro endereço, configure essa variável no ambiente do Vite.
 
-Antes de publicar, são obrigatórios: HTTPS; banco gerenciado; entrega real de OTP pelo WhatsApp; credenciais Google verificadas; credenciais Pix de produção; política de privacidade; termos; fluxo de exclusão de conta/dados; revisão LGPD; auditoria de conformidade do YouTube quando aplicável; logs e monitoramento. Nunca publique `.env` ou tokens.
+## Verificação
 
-Veja [docs/ARQUITETURA.md](docs/ARQUITETURA.md) e [PROJECT_STATUS.md](PROJECT_STATUS.md).
+```sh
+npm test
+npm run lint
+npm run build
+npm run test:e2e --workspace apps/client
+```
+
+O teste de navegador usa banco separado em `.local-tmp`. Para instalar o navegador dentro do projeto: `PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" TMPDIR="$PWD/.local-tmp" node node_modules/@playwright/test/cli.js install chromium --only-shell`. Alternativamente, configure PLAYWRIGHT_CHROMIUM_EXECUTABLE com um navegador compatível. As capturas com dados fictícios ficam em docs/evidencias. O cliente inclui testes do contrato HTTP e do isolamento dos tokens; seu fluxo completo é verificado pelo Playwright.
+
+## Integrações e limites atuais
+
+Google OAuth, YouTube Data API e Mercado Pago possuem adaptadores, mas ainda exigem credenciais e teste real. Sem YOUTUBE_API_KEY, a validação é estrutural e não comprova existência/disponibilidade do vídeo. OTP de produção está bloqueado com resposta 501 até implementação do provedor de entrega. Aprovação de grupo é autorização administrativa, sem leitura automática de membros do WhatsApp.
+
+A recompensa por tempo assistido e reprodução em segundo plano do pedido original não estão implementadas: as políticas oficiais do YouTube proíbem esses mecanismos em clientes da API. A moeda atual é de curadoria, não é resgatável em reais, e R$1 é apenas sua taxa de compra. O app não garante visualizações nem tempo assistido.
+
+Antes de produção ainda faltam entrega real de OTP, validação das integrações, reconciliação de estornos, exclusão/retensão de dados, documentação de privacidade, monitoramento e revisão operacional. Consulte PROJECT_STATUS.md, docs/ARQUITETURA.md e docs/AUDITORIA-ASTRA-20261005.md.

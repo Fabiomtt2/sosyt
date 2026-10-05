@@ -2,17 +2,18 @@
   "name": "conexao-youtube",
   "version": "0.1.0",
   "private": true,
-  "description": "Plataforma colaborativa para curadoria e exportação voluntária de playlists do YouTube.",
+  "description": "Plataforma colaborativa para curadoria e exporta\u00e7\u00e3o volunt\u00e1ria de playlists do YouTube.",
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev -w @conexao/api\" \"npm run dev -w @conexao/client\"",
+    "dev": "node scripts/dev.mjs",
     "build": "npm run build -w @conexao/api && npm run build -w @conexao/client",
     "test": "npm run test -w @conexao/api && npm run test -w @conexao/client",
     "lint": "npm run lint -w @conexao/api && npm run lint -w @conexao/client",
     "android:sync": "npm run build -w @conexao/client && npm run android:sync -w @conexao/client",
-    "android:apk": "npm run android:apk -w @conexao/client"
+    "android:apk": "npm run android:apk -w @conexao/client",
+    "dev:services": "concurrently -n api,web -c blue,magenta \"npm run dev -w @conexao/api\" \"npm run dev -w @conexao/client\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
@@ -21,4 +22,3 @@
     "node": ">=22"
   }
 }
-

@@ -17,3 +17,14 @@ apps/client/android/.gradle/
 apps/client/android/app/build/
 apps/client/android/build/
 apps/client/android/local.properties
+
+.npm-cache/
+.android-home/
+.local-tmp/
+*.jks
+*.keystore
+
+apps/client/test-results/
+apps/client/playwright-report/
+
+.playwright-browsers/

@@ -5,6 +5,40 @@ import { mkdirSync } from "node:fs";
 export type AppDatabase = Database.Database;
 
 const schema = `
+CREATE TABLE IF NOT EXISTS groups (
+  code TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS group_memberships (
+  phone TEXT PRIMARY KEY,
+  group_code TEXT NOT NULL REFERENCES groups(code),
+  approved_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE TABLE IF NOT EXISTS participation_requests (
+  id TEXT PRIMARY KEY,
+  phone TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  preferred_group TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','DECLINED')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+  state_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS export_locks (
+  round_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  PRIMARY KEY(round_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -22,6 +56,7 @@ CREATE TABLE IF NOT EXISTS login_codes (
   code_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   used_at TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_login_codes_phone ON login_codes(phone, created_at DESC);
@@ -32,6 +67,7 @@ CREATE TABLE IF NOT EXISTS wallets (
   purchased_millis INTEGER NOT NULL DEFAULT 0 CHECK (purchased_millis >= 0),
   reward_millis INTEGER NOT NULL DEFAULT 0 CHECK (reward_millis >= 0),
   extra_slot_passes INTEGER NOT NULL DEFAULT 0 CHECK (extra_slot_passes >= 0),
+  payment_hold INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
 
@@ -109,6 +145,18 @@ export function createDatabase(filename: string): AppDatabase {
   db.pragma("foreign_keys = ON");
   if (filename !== ":memory:") db.pragma("journal_mode = WAL");
   db.exec(schema);
+  // Additive migration: preserve existing MVP data.
+  const addColumn = (table: string, name: string, definition: string) => {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  };
+  addColumn("login_codes", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("wallets", "payment_hold", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("users", "last_seen_at", "TEXT");
+  addColumn("submissions", "author_name", "TEXT");
+  addColumn("submissions", "author_group", "TEXT");
+  db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
+    UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);
   return db;
 }

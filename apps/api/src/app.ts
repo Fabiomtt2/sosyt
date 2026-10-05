@@ -1,11 +1,14 @@
-import { createHash, randomInt, randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
+import rateLimit from "@fastify/rate-limit";
+import helmet from "@fastify/helmet";
 import { z } from "zod";
+import { registerOwnerRoutes, hasMembership } from "./owner.js";
 import type { Config } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
-import { createPixPayment, fetchMercadoPagoPayment } from "./payments.js";
+import { createPixPayment, fetchMercadoPagoPayment, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
 import {
   createPrivatePlaylist,
   decryptToken,
@@ -17,8 +20,8 @@ import {
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: { sub: string; purpose?: string; returnTo?: string };
-    user: { sub: string; purpose?: string; returnTo?: string };
+    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string };
+    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string };
   }
 }
 
@@ -44,8 +47,13 @@ function centsToCredits(millis: number): number {
   return millis / 1000;
 }
 
-function authGuard(request: FastifyRequest, reply: FastifyReply) {
-  return request.jwtVerify().catch(() => reply.code(401).send({ message: "Sessão inválida ou expirada." }));
+async function verifySession(request: FastifyRequest, reply: FastifyReply) {
+  try {
+    await request.jwtVerify();
+    if (request.user.purpose !== "session" || request.user.aud !== "conexao-session") throw new Error("Wrong token purpose");
+  } catch {
+    return reply.code(401).send({ message: "Sessão inválida ou expirada." });
+  }
 }
 
 function getUser(db: AppDatabase, userId: string) {
@@ -54,22 +62,23 @@ function getUser(db: AppDatabase, userId: string) {
 
 function walletView(db: AppDatabase, userId: string) {
   const wallet = db.prepare(`SELECT promo_millis AS promo, purchased_millis AS purchased,
-    reward_millis AS reward, extra_slot_passes AS extraPasses FROM wallets WHERE user_id = ?`).get(userId) as {
-      promo: number; purchased: number; reward: number; extraPasses: number;
+    reward_millis AS reward, extra_slot_passes AS extraPasses, payment_hold AS paymentHold FROM wallets WHERE user_id = ?`).get(userId) as {
+      promo: number; purchased: number; reward: number; extraPasses: number; paymentHold: number;
     };
   return {
     promo: centsToCredits(wallet.promo),
     purchased: centsToCredits(wallet.purchased),
     reward: centsToCredits(wallet.reward),
     total: centsToCredits(wallet.promo + wallet.purchased + wallet.reward),
-    extraPasses: wallet.extraPasses
+    extraPasses: wallet.extraPasses,
+    paymentHold: Boolean(wallet.paymentHold)
   };
 }
 
 function roundView(db: AppDatabase, roundId: string) {
   const round = db.prepare("SELECT id, sequence, status, created_at AS createdAt, completed_at AS completedAt FROM rounds WHERE id = ?").get(roundId) as Row;
   const submissions = db.prepare(`SELECT s.id, s.slot, s.youtube_url AS youtubeUrl, s.video_id AS videoId,
-    s.created_at AS createdAt, u.id AS userId, u.name AS userName, u.group_code AS groupCode
+    s.created_at AS createdAt, u.id AS userId, COALESCE(s.author_name, u.name) AS userName, COALESCE(s.author_group, u.group_code) AS groupCode
     FROM submissions s JOIN users u ON u.id = s.user_id WHERE s.round_id = ? ORDER BY s.slot`).all(roundId) as Row[];
   const bySlot = new Map(submissions.map((item) => [item.slot, item]));
   return { ...round, slots: Array.from({ length: 10 }, (_, index) => bySlot.get(index + 1) ?? { slot: index + 1 }) };
@@ -80,7 +89,10 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
     const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId) as {
       id: string; user_id: string; status: string; credits_millis: number; extra_passes: number;
     } | undefined;
-    if (!payment || payment.status === "APPROVED") return false;
+    if (!payment) return false;
+    const credited = db.prepare("SELECT 1 FROM wallet_ledger WHERE user_id = ? AND kind = 'PIX_PURCHASE' AND reference_id = ?").get(payment.user_id, payment.id);
+    if (credited) return false;
+    if (payment.status === "CANCELLED") return false;
     const now = new Date().toISOString();
     db.prepare("UPDATE payments SET status = 'APPROVED', approved_at = ? WHERE id = ?").run(now, payment.id);
     db.prepare(`UPDATE wallets SET purchased_millis = purchased_millis + ?, extra_slot_passes = extra_slot_passes + ?, updated_at = ?
@@ -95,6 +107,8 @@ function debitContribution(db: AppDatabase, userId: string) {
   const wallet = db.prepare("SELECT promo_millis AS promo, reward_millis AS reward, purchased_millis AS purchased FROM wallets WHERE user_id = ?").get(userId) as {
     promo: number; reward: number; purchased: number;
   };
+  const held = db.prepare("SELECT payment_hold FROM wallets WHERE user_id = ?").get(userId) as { payment_hold: number };
+  if (held.payment_hold) throw new Error("Carteira aguardando revisão de pagamento. Nenhum novo débito foi realizado.");
   if (wallet.promo + wallet.reward + wallet.purchased < 1000) throw new Error("Saldo insuficiente para salvar este link.");
   let remaining = 1000;
   const promo = Math.min(wallet.promo, remaining); remaining -= promo;
@@ -107,23 +121,44 @@ function debitContribution(db: AppDatabase, userId: string) {
 
 export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const db = providedDb ?? createDatabase(config.DATABASE_PATH);
-  const app = Fastify({ logger: config.NODE_ENV !== "test" });
-  await app.register(cors, { origin: config.WEB_APP_URL, credentials: false });
-  await app.register(jwt, { secret: config.JWT_SECRET, sign: { expiresIn: "30d" } });
+  const app = Fastify({ logger: config.NODE_ENV === "test" ? false : { redact: ["req.headers.authorization", "req.headers.cookie", "req.url", "res.headers.location"] } });
+  await app.register(cors, { origin: [config.WEB_APP_URL, config.ANDROID_APP_ORIGIN], credentials: false });
+  await app.register(helmet);
+  await app.register(rateLimit, { global: false, errorResponseBuilder: () => ({ statusCode: 429, message: "Muitas tentativas. Aguarde antes de tentar novamente." }) });
+  await app.register(jwt, { secret: config.JWT_SECRET, sign: { expiresIn: "8h" } });
+
+  async function authGuard(request: FastifyRequest, reply: FastifyReply) {
+    await verifySession(request, reply);
+    if (reply.sent) return;
+    const user = getUser(db, request.user.sub);
+    if (!user) return reply.code(401).send({ message: "Sessão inválida ou expirada." });
+    if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, String(user.phone), String(user.groupCode))) return reply.code(403).send({ message: "Seu acesso precisa da aprovação do Owner em um grupo SOS YOUTUBER." });
+    db.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").run(new Date().toISOString(), request.user.sub);
+  }
+  await registerOwnerRoutes(app, db, config);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ message: error.issues[0]?.message ?? "Dados inválidos." });
     const status = (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) app.log.error(error);
-    const message = error instanceof Error ? error.message : "Erro interno.";
+    const message = status >= 500 ? "Não foi possível concluir a operação. Tente novamente." : error instanceof Error ? error.message : "Dados inválidos.";
     return reply.code(status).send({ message });
   });
 
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (!request.url.startsWith("/health") && !request.url.startsWith("/public/")) reply.header("cache-control", "no-store");
+    return payload;
+  });
   app.get("/health", async () => ({ ok: true }));
 
-  app.post("/auth/request-code", async (request, reply) => {
+  app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!config.AUTH_DEV_MODE) return reply.code(501).send({ message: "Conecte um provedor WhatsApp para entregar o código em produção." });
     const body = requestCodeSchema.parse(request.body);
+    if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, body.groupCode)) return reply.code(403).send({ message: "Número e grupo ainda não aprovados. Use Quero participar! para solicitar acesso ao Owner." });
+    const recent = db.prepare("SELECT created_at FROM login_codes WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(body.phone) as { created_at: string } | undefined;
+    if (recent && Date.now() - Date.parse(recent.created_at) < 60_000) return reply.code(429).send({ message: "Aguarde um minuto para pedir outro código." });
+    db.prepare("DELETE FROM login_codes WHERE expires_at < ?").run(new Date().toISOString());
+    db.prepare("UPDATE login_codes SET used_at = ? WHERE phone = ? AND used_at IS NULL").run(new Date().toISOString(), body.phone);
     const code = String(randomInt(100000, 1_000_000));
     const now = new Date();
     db.prepare(`INSERT INTO login_codes (id, phone, name, group_code, code_hash, expires_at, created_at)
@@ -132,13 +167,19 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return reply.send({ ok: true, expiresInSeconds: 600, devCode: code });
   });
 
-  app.post("/auth/verify", async (request, reply) => {
+  app.post("/auth/verify", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = verifyCodeSchema.parse(request.body);
     const row = db.prepare(`SELECT * FROM login_codes WHERE phone = ? AND used_at IS NULL AND expires_at > ?
       ORDER BY created_at DESC LIMIT 1`).get(body.phone, new Date().toISOString()) as {
-        id: string; name: string; phone: string; group_code: string; code_hash: string;
+        id: string; name: string; phone: string; group_code: string; code_hash: string; attempts: number;
       } | undefined;
-    if (!row || row.code_hash !== codeHash(config, body.phone, body.code)) return reply.code(401).send({ message: "Código inválido ou expirado." });
+    if (!row) return reply.code(401).send({ message: "Código inválido ou expirado." });
+    if (row.attempts >= 5) return reply.code(429).send({ message: "Limite de tentativas atingido. Solicite um novo código." });
+    if (!timingSafeEqual(Buffer.from(row.code_hash, "hex"), Buffer.from(codeHash(config, body.phone, body.code), "hex"))) {
+      db.prepare("UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?").run(row.id);
+      return reply.code(401).send({ message: "Código inválido ou expirado." });
+    }
+    if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, row.phone, row.group_code)) return reply.code(403).send({ message: "Seu número precisa de aprovação para este grupo." });
     const now = new Date().toISOString();
     let user = db.prepare("SELECT id FROM users WHERE phone = ?").get(body.phone) as { id: string } | undefined;
     db.transaction(() => {
@@ -154,14 +195,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         db.prepare("UPDATE users SET name = ?, group_code = ?, updated_at = ? WHERE id = ?").run(row.name, row.group_code, now, user.id);
       }
     })();
-    return reply.send({ token: app.jwt.sign({ sub: user!.id }), user: getUser(db, user!.id) });
+    return reply.send({ token: app.jwt.sign({ sub: user!.id, purpose: "session", aud: "conexao-session" }), user: getUser(db, user!.id) });
   });
 
   app.get("/dashboard", { preHandler: authGuard }, async (request) => {
     ensureOpenRound(db);
     const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
     const ready = db.prepare(`SELECT DISTINCT r.id FROM rounds r JOIN submissions s ON s.round_id = r.id
-      WHERE r.status = 'READY' AND s.user_id = ? ORDER BY r.sequence DESC LIMIT 5`).all(request.user.sub) as Array<{ id: string }>;
+      WHERE r.status = 'READY' AND s.user_id = ? ORDER BY r.sequence DESC`).all(request.user.sub) as Array<{ id: string }>;
     const contributionCount = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?")
       .get(open.id, request.user.sub) as { count: number };
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
@@ -178,7 +219,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/current/submissions", { preHandler: authGuard }, async (request, reply) => {
     const body = submitSchema.parse(request.body);
-    const verified = await verifyYouTubeVideo(body.url, config.YOUTUBE_API_KEY);
+    let verified: Awaited<ReturnType<typeof verifyYouTubeVideo>>;
+    try { verified = await verifyYouTubeVideo(body.url, config.YOUTUBE_API_KEY); }
+    catch { return reply.code(400).send({ message: "Informe um vídeo válido e acessível do YouTube." }); }
     try {
       const result = db.transaction(() => {
         const open = db.prepare("SELECT id, sequence FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string; sequence: number };
@@ -193,9 +236,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         debitContribution(db, request.user.sub);
         const submissionId = randomUUID();
         const now = new Date().toISOString();
-        db.prepare(`INSERT INTO submissions (id, round_id, slot, user_id, youtube_url, video_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`)
-          .run(submissionId, open.id, next.slot, request.user.sub, verified.canonicalUrl, verified.videoId, now);
+        db.prepare(`INSERT INTO submissions (id, round_id, slot, user_id, youtube_url, video_id, created_at, author_name, author_group)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(submissionId, open.id, next.slot, request.user.sub, verified.canonicalUrl, verified.videoId, now, String(getUser(db, request.user.sub)!.name), String(getUser(db, request.user.sub)!.groupCode));
         db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'SUBMISSION', -1000, ?, ?)")
           .run(randomUUID(), request.user.sub, submissionId, now);
 
@@ -218,7 +261,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     }
   });
 
-  app.post("/payments/pix", { preHandler: authGuard }, async (request, reply) => {
+  app.post("/payments/pix", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = pixSchema.parse(request.body);
     const user = getUser(db, request.user.sub)!;
     const paymentId = randomUUID();
@@ -229,7 +272,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     try {
       const pix = await createPixPayment(config, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name) });
       db.prepare(`UPDATE payments SET provider_payment_id = ?, status = ?, qr_code = ?, qr_code_base64 = ?, ticket_url = ? WHERE id = ?`)
-        .run(pix.providerPaymentId, pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
+        .run(pix.providerPaymentId, pix.status === "APPROVED" ? "PENDING" : pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
       if (pix.status === "APPROVED") settlePayment(db, paymentId);
       return reply.code(201).send({ id: paymentId, ...pix });
     } catch (error) {
@@ -247,26 +290,74 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return { ok: true };
   });
 
-  app.post("/payments/webhooks/mercado-pago", async (request, reply) => {
-    const body = request.body as { data?: { id?: string } };
-    const query = request.query as { id?: string; "data.id"?: string };
-    const providerId = body?.data?.id ?? query["data.id"] ?? query.id;
-    if (!providerId) return reply.code(200).send({ ok: true });
+  function applyPaymentConfirmation(result: PaymentConfirmation) {
+    const local = db.prepare("SELECT id, user_id, amount_cents, status, approved_at FROM payments WHERE provider = 'MERCADO_PAGO' AND provider_payment_id = ?").get(result.providerPaymentId) as {
+      id: string; user_id: string; amount_cents: number; status: string; approved_at?: string;
+    } | undefined;
+    if (!local) return;
+    if (result.internalId !== local.id || result.amountCents !== local.amount_cents || result.currency !== "BRL" || result.paymentMethod !== "pix") {
+      throw Object.assign(new Error("Pagamento não corresponde ao pedido registrado."), { statusCode: 409 });
+    }
+    if (result.status === "APPROVED") {
+      settlePayment(db, local.id);
+    } else if (result.status === "CANCELLED" && local.approved_at) {
+      // Spent credits require manual reconciliation; freeze further spending instead of silently creating debt.
+      db.transaction(() => {
+        db.prepare("UPDATE payments SET status = 'CANCELLED' WHERE id = ?").run(local.id);
+        db.prepare("UPDATE wallets SET payment_hold = 1 WHERE user_id = ?").run(local.user_id);
+        db.prepare("INSERT OR IGNORE INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'PAYMENT_REVIEW', 0, ?, ?)").run(randomUUID(), local.user_id, local.id, new Date().toISOString());
+      })();
+    } else if (!local.approved_at) {
+      db.prepare("UPDATE payments SET status = ? WHERE id = ?").run(result.status, local.id);
+    }
+  }
+
+  app.get("/payments/:id", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const id = z.string().uuid().parse((request.params as { id: string }).id);
+    const payment = db.prepare("SELECT provider, provider_payment_id, status FROM payments WHERE id = ? AND user_id = ?").get(id, request.user.sub) as { provider: string; provider_payment_id: string; status: string } | undefined;
+    if (!payment) return reply.code(404).send({ message: "Pagamento não encontrado." });
+    if (payment.provider === "MERCADO_PAGO" && payment.provider_payment_id && payment.status === "PENDING") {
+      const confirmation = await fetchMercadoPagoPayment(config, payment.provider_payment_id);
+      if (confirmation.providerPaymentId !== payment.provider_payment_id) return reply.code(409).send({ message: "Identificador do pagamento divergente." });
+      applyPaymentConfirmation(confirmation);
+    }
+    const updated = db.prepare("SELECT status FROM payments WHERE id = ?").get(id) as { status: string };
+    return { id, status: updated.status };
+  });
+
+  app.post("/payments/webhooks/mercado-pago", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
+    if (!config.MERCADO_PAGO_ACCESS_TOKEN || !config.MERCADO_PAGO_WEBHOOK_SECRET) return reply.code(503).send({ message: "Webhook de pagamento não configurado." });
+    const query = z.object({ "data.id": z.string().regex(/^\d{1,30}$/) }).safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ message: "Notificação sem identificador assinado." });
+    const providerId = query.data["data.id"];
+    const bodyId = (request.body as { data?: { id?: string | number } } | undefined)?.data?.id;
+    if (bodyId !== undefined && String(bodyId) !== providerId) return reply.code(400).send({ message: "Identificador da notificação divergente." });
+    if (!verifyWebhookSignature(config.MERCADO_PAGO_WEBHOOK_SECRET, providerId, request.headers["x-request-id"] as string | undefined, request.headers["x-signature"] as string | undefined)) {
+      return reply.code(401).send({ message: "Assinatura de notificação inválida." });
+    }
+    const known = db.prepare("SELECT 1 FROM payments WHERE provider = 'MERCADO_PAGO' AND provider_payment_id = ?").get(providerId);
+    if (!known) return { ok: true };
     const confirmation = await fetchMercadoPagoPayment(config, providerId);
-    if (confirmation.internalId && confirmation.status === "APPROVED") settlePayment(db, confirmation.internalId);
-    return reply.code(200).send({ ok: true });
+    if (confirmation.providerPaymentId !== providerId) return reply.code(409).send({ message: "Identificador do pagamento divergente." });
+    applyPaymentConfirmation(confirmation);
+    return { ok: true };
   });
 
   app.get("/youtube/connect", { preHandler: authGuard }, async (request) => {
     const returnTo = (request.query as { returnTo?: string }).returnTo === "app" ? "app" : "web";
-    const state = app.jwt.sign({ sub: request.user.sub, purpose: "youtube-oauth", returnTo }, { expiresIn: "10m" });
-    return { url: googleAuthorizationUrl(config, state) };
+    const state = app.jwt.sign({ sub: request.user.sub, purpose: "youtube-oauth", aud: "conexao-oauth", returnTo, jti: randomUUID() }, { expiresIn: "10m" });
+    const url = googleAuthorizationUrl(config, state);
+    db.prepare("DELETE FROM oauth_states WHERE expires_at < ?").run(new Date().toISOString());
+    db.prepare("INSERT INTO oauth_states (state_hash, user_id, expires_at) VALUES (?, ?, ?)").run(createHash("sha256").update(state).digest("hex"), request.user.sub, new Date(Date.now() + 600_000).toISOString());
+    return { url };
   });
 
   app.get("/youtube/callback", async (request, reply) => {
     const query = z.object({ code: z.string(), state: z.string() }).parse(request.query);
-    const state = app.jwt.verify<{ sub: string; purpose?: string; returnTo?: string }>(query.state);
-    if (state.purpose !== "youtube-oauth") return reply.code(400).send("Estado OAuth inválido.");
+    const state = app.jwt.verify<{ sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string }>(query.state);
+    if (state.purpose !== "youtube-oauth" || state.aud !== "conexao-oauth") return reply.code(400).send("Estado OAuth inválido.");
+    const consumed = db.prepare("UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?").run(new Date().toISOString(), createHash("sha256").update(query.state).digest("hex"), state.sub, new Date().toISOString());
+    if (!consumed.changes) return reply.code(400).send("Autorização expirada ou já utilizada. Conecte novamente.");
     const tokens = await exchangeGoogleCode(config, query.code);
     db.prepare(`INSERT INTO youtube_connections (user_id, refresh_token_cipher, scope, updated_at) VALUES (?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET refresh_token_cipher = excluded.refresh_token_cipher, scope = excluded.scope, updated_at = excluded.updated_at`)
@@ -284,6 +375,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (!connection) return reply.code(409).send({ message: "Conecte sua conta do YouTube primeiro." });
     const videos = db.prepare("SELECT video_id AS videoId FROM submissions WHERE round_id = ? ORDER BY slot").all(roundId) as Array<{ videoId: string }>;
     const now = new Date().toISOString();
+    const lockOwner = randomUUID();
+    const acquired = db.prepare(`INSERT INTO export_locks (round_id, user_id, owner, expires_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(round_id, user_id) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at WHERE export_locks.expires_at < ?`)
+      .run(roundId, request.user.sub, lockOwner, new Date(Date.now() + 600_000).toISOString(), now);
+    if (!acquired.changes) return reply.code(409).send({ message: "Sua playlist já está sendo criada. Aguarde e atualize o quadro." });
+    try {
     let exportRow = db.prepare("SELECT id, youtube_playlist_id AS playlistId, added_count AS addedCount, status FROM playlist_exports WHERE round_id = ? AND user_id = ?")
       .get(roundId, request.user.sub) as { id: string; playlistId?: string; addedCount: number; status: string } | undefined;
     if (exportRow?.status === "SUCCESS") return { ok: true, playlistId: exportRow.playlistId };
@@ -298,7 +395,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         decryptToken(connection.token, config),
         `Conexão Youtube — Ciclo ${round.sequence}`,
         videos.map((video) => video.videoId),
-        { playlistId: exportRow.playlistId, addedCount: exportRow.addedCount },
+        { playlistId: exportRow.playlistId, addedCount: exportRow.addedCount, exportId: exportRow.id },
         (id, count) => db.prepare("UPDATE playlist_exports SET youtube_playlist_id = ?, added_count = ?, status = 'PENDING', updated_at = ? WHERE id = ?")
           .run(id, count, new Date().toISOString(), exportRow!.id)
       );
@@ -308,6 +405,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare("UPDATE playlist_exports SET status = 'FAILED', error = ?, updated_at = ? WHERE id = ?")
         .run(error instanceof Error ? error.message : "Falha desconhecida", new Date().toISOString(), exportRow.id);
       throw error;
+    }
+    } finally {
+      db.prepare("DELETE FROM export_locks WHERE round_id = ? AND user_id = ? AND owner = ?").run(roundId, request.user.sub, lockOwner);
     }
   });
 

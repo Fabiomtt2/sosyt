@@ -68,3 +68,13 @@ O input original passa a ser a referência de intenção do produto. A auditoria
 Fonte oficial consultada: https://developers.google.com/youtube/terms/developer-policies-guide e políticas vinculadas. Proíbem incentivar/recompensar usuários por assistir vídeos e permitir reprodução do player em segundo plano. Isso explica o limite técnico de produto, mas não torna automaticamente aprovada a substituição da regra de recompensa. Curadoria/exportação não constituem promessa de aumento ou garantia de views. Validar qualquer regra de recompensa remanescente em seu contexto.
 
 Sem evidência aqui de aprovação anterior do usuário para essas mudanças de escopo. Preservar e explicitar a diferença entre intenção original, limite da plataforma e decisão tomada na implementação. Não reintroduzir recompensas por assistir ou mecanismos destinados a gerar engajamento artificial.
+
+## Fechamento da implementação web — 2026-10-05
+
+O quadro de dez espaços voltou ao centro da implementação: formulário dentro da próxima posição, links canônicos e autoria persistidos, detalhes de todos os dez vídeos no histórico e ação de exportação em cada contribuição própria quando a conta Google estiver conectada. Ciclos prontos antigos deixam de desaparecer pelo limite de cinco registros.
+
+Login Owner/participante compartilham tela; privilégio exige credencial de servidor e token com propósito exclusivo. A autorização manual de telefone/grupo protege cadastro e sessões existentes. Os indicadores distinguem ciclo completo, playlist exportada e dinheiro simulado/real.
+
+Validação final: 33 testes API, 3 de cliente, verificação TypeScript, build API/web e cenário completo Playwright aprovados. As etapas externas do Google foram simuladas na UI e na API; Pix de navegador foi DEMO. Nenhuma credencial externa real foi utilizada. Evidências em docs/evidencias; estado operacional e limites detalhados em PROJECT_STATUS.md.
+
+O pedido original de pagamento por watch time NÃO foi entregue como tal: mantém-se a decisão registrada de curadoria sem incentivo de visualização e sem reprodução em segundo plano. APK está adiado por instrução expressa. Há pendências de OTP real, conciliação de estornos e pagamentos órfãos, normalização internacional de telefone e produção.
