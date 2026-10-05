@@ -6,8 +6,10 @@ A pesquisa priorizou projetos oficiais e compatibilidade com o motor existente, 
 | --- | --- | --- |
 | https://github.com/fastify/fastify-rate-limit | Incorporado: versão 10, compatível com Fastify 5 | Limites de tentativas de OTP, Owner e solicitação |
 | https://github.com/fastify/fastify-helmet | Incorporado: versão 13, compatível com Fastify 5 | Cabeçalhos de segurança na API |
-| https://github.com/fbsamples/whatsapp-api-examples | Referência; nenhum código copiado | Exemplos oficiais Meta de mensagens, templates e webhooks para futura entrega OTP; licença Meta Platform Policy |
+| https://github.com/fbsamples/whatsapp-api-examples | Referência oficial Meta; nenhum código copiado | O exemplo de assinatura valida o corpo bruto com HMAC SHA-256 e `X-Hub-Signature-256`, mesmo padrão já usado em `whatsapp.ts`; não há motivo para substituir o motor atual |
+| https://github.com/gajus/youtube-player | Referência; dependência não adicionada | Abstrai a IFrame Player API, fila chamadas até `onReady` e expõe eventos; o monitor atual já faz isso diretamente e evita uma dependência extra |
 | https://github.com/mercadopago/sdk-nodejs | Referência; SDK não instalado | SDK oficial MIT com timeout/idempotência; mantido o adaptador existente, com confirmação e assinatura |
+| https://developers.google.com/youtube/iframe_api_reference | Aplicado no monitor local | `getPlayerState()`, `getCurrentTime()`, `getDuration()` e índice da playlist sustentam o acompanhamento local sem OCR nem captura da tela |
 | https://developers.google.com/youtube/v3/docs/playlists/list | Aplicado no adaptador | Procurar playlist de uma tentativa anterior pelo marcador de exportação |
 | https://developers.google.com/youtube/v3/docs/playlistItems/list | Aplicado no adaptador | Conferir prefixo remoto e retomar inclusão sem duplicar vídeos já criados |
 | https://developers.google.com/youtube/terms/developer-policies-guide | Limite de produto registrado | Proíbe incentivar assistir e reprodução em segundo plano; não construir recompensa de watch time |
