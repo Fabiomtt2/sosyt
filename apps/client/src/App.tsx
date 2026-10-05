@@ -94,13 +94,16 @@ function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own, c
 
 function ReadyRound({ round, userId, connected, onConnect, onExport, onWatch, busy }: { round: Round; userId: string; connected: boolean; onConnect: () => void; onExport: () => void; onWatch: () => void; busy: boolean }) {
   const success = round.export?.status === "SUCCESS";
-  const watchPercent = success && round.export?.playlistId ? readSavedWatchPercent(userId, round.id, round.export.playlistId) : 0;
+  const watchPercent = success && round.export?.playlistId
+    ? Math.max(readSavedWatchPercent(userId, round.id, round.export.playlistId), round.export.watchProgress?.percent ?? 0)
+    : 0;
+  const watchCoins = round.export?.watchProgress?.rewardCoins ?? Math.floor(watchPercent / 10);
   return <article className="ready-card">
     <div className="ready-icon"><Check /></div>
     <div><p className="eyebrow dark">CICLO {round.sequence} COMPLETO</p><h3>10 vídeos prontos para sua playlist</h3><p className="muted">A playlist será criada como privada. Você decide no YouTube se e quando deseja alterar a visibilidade.</p></div>
     {round.export && <p className="creation-progress" role="status">{round.export.status === "SUCCESS" ? "Playlist criada · 10 de 10 vídeos incluídos" : `${round.export.addedCount ?? 0} de 10 vídeos incluídos · ${Math.min(100,(round.export.addedCount ?? 0)*10)}% da criação${round.export.status === "FAILED" ? " · tentativa interrompida; você pode retomar" : ""}`}</p>}
     <details className="cycle-details"><summary>Ver os 10 vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={false} eligible={false} own={slot.userId === userId} completed exported={success} connected={connected} onConnect={onConnect} onExport={onExport} busy={busy} />)}</section></details>
-    {success ? <div className="ready-actions"><a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir no YouTube <ExternalLink size={16} /></a><button className="secondary" onClick={onWatch}>Acompanhar reprodução · {watchPercent}%</button></div>
+    {success ? <div className="ready-actions"><a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir no YouTube <ExternalLink size={16} /></a><button className="secondary" onClick={onWatch}>Acompanhar reprodução · {watchPercent}% · +{watchCoins} moedas</button></div>
       : <button className="primary compact" onClick={connected ? onExport : onConnect} disabled={busy}>{busy ? <LoaderCircle className="spin" /> : "Criar playlist"}</button>}
   </article>;
 }
@@ -205,11 +208,11 @@ function DashboardPage({ onLogout }: { onLogout: () => void }) {
       {error && <p className="error banner">{error}</p>}
       <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} />)}</section>
       {data.readyRounds.length > 0 && <section className="completed"><div className="section-title"><div><p className="eyebrow dark">SUAS SELEÇÕES</p><h2>Ciclos prontos</h2></div><span>Exportação voluntária e privada</span></div>{data.readyRounds.map((round) => <ReadyRound key={round.id} round={round} userId={data.user.id} connected={data.viewer.youtubeConnected} busy={busy} onConnect={() => setCreationRound(round)} onExport={() => setCreationRound(round)} onWatch={() => setWatchRound(round)} />)}</section>}
-      <footer><ShieldCheck size={17} /><span>O Conexão Youtube não compra, troca ou recompensa visualizações. A reprodução acontece sob controle do usuário no YouTube.</span></footer>
+      <footer><ShieldCheck size={17} /><span>As moedas são créditos internos do Conexão Youtube para controlar contribuições; não são dinheiro, saque ou pagamento por visualização.</span></footer>
     </main>
     {creationRound && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="Criação de playlist"><button className="close" aria-label="Cancelar criação" disabled={busy} onClick={() => setCreationRound(undefined)}>×</button><p className="eyebrow dark">CICLO {creationRound.sequence} · 10 VÍDEOS</p><h2>Criar playlist na sua conta</h2><p className="muted">{data.viewer.youtubeConnected ? "Você autorizou o acesso ao YouTube. Ao confirmar, os dez links salvos serão incluídos em uma playlist privada na sua conta." : "Você será direcionado à autenticação oficial do Google/YouTube. Após autorizar, criaremos uma playlist privada com os dez links permanentes deste ciclo."}</p><p className="muted">Você pode cancelar. Os registros de autoria e links do ciclo continuam preservados.</p>{busy && data.viewer.youtubeConnected && <div role="status"><progress max={10} value={included} /><p>{included} de 10 vídeos incluídos · {Math.min(100,included*10)}% da criação</p></div>}{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => { setError(""); if (data.viewer.youtubeConnected) void exportRound(creationRound.id); else { sessionStorage.setItem("conexao_creation_intent",JSON.stringify({userId:data.user.id,roundId:creationRound.id,at:Date.now()})); void connectYoutube(creationRound.id); } }}>{busy ? data.viewer.youtubeConnected ? "Criando…" : "Abrindo autenticação…" : data.viewer.youtubeConnected ? "Confirmar criação" : "Continuar para Google/YouTube"}</button></section></div>}
     {showPix && <PixPanel onClose={() => setShowPix(false)} onApproved={() => { setShowPix(false); setNotice("Pagamento confirmado: 20 créditos e 1 passe extra adicionados."); void load(); }} />}
-    {watchRound?.export?.playlistId && <WatchProgress playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} onClose={() => setWatchRound(undefined)} />}
+    {watchRound?.export?.playlistId && <WatchProgress playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} initialProgress={watchRound.export.watchProgress} initialBalance={data.wallet.total} onClose={() => { setWatchRound(undefined); void load(); }} />}
   </div>;
 }
 

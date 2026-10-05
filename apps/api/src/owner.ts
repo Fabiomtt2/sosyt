@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { ownerAccounts, normalizeOwnerName, ownerCredentialVersion } from "./owners.js";
-import { whatsappJoinUrl, whatsappStatus, queueOwnerAlerts } from "./whatsapp.js";
+import { whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizeBrazilMobile } from "./phone.js";
 
 const phoneSchema = z.string().transform(normalizeBrazilMobile).pipe(z.string().regex(/^55[1-9]\d9\d{8}$/, "Informe um celular brasileiro no formato +55 DD 9XXXX-XXXX."));
@@ -81,12 +81,12 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
         demoPurchasesMonth: count("SELECT COUNT(*) AS n FROM payments WHERE provider = 'DEMO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?", start, end),
         revenueCentsMonth: revenue.n
       },
-      groups: db.prepare("SELECT code, enabled FROM groups ORDER BY length(code), code").all(),
+      groups: db.prepare("SELECT code, enabled, whatsapp_group_id AS whatsappGroupId, membership_mode AS membershipMode, last_synced_at AS lastSyncedAt FROM groups ORDER BY length(code), code").all(),
       requests: db.prepare("SELECT id, name, phone, preferred_group AS preferredGroup, status, source, whatsapp_verified_at AS whatsappVerifiedAt, created_at AS createdAt FROM participation_requests ORDER BY CASE status WHEN 'PENDING' THEN 0 ELSE 1 END, updated_at DESC LIMIT 200").all(),
       users: db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode,u.created_at AS createdAt,u.last_seen_at AS lastSeenAt,
         w.promo_millis + w.reward_millis + w.purchased_millis AS balanceMillis,w.extra_slot_passes AS extraPasses,w.payment_hold AS paymentHold
         FROM users u JOIN wallets w ON w.user_id = u.id ORDER BY u.created_at DESC LIMIT 200`).all(),
-      members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, revoked_at AS revokedAt FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
+      members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, revoked_at AS revokedAt, source FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
       purchases: db.prepare("SELECT p.id,u.name,u.phone,p.provider,p.status,p.amount_cents AS amountCents,p.created_at AS createdAt,p.approved_at AS approvedAt FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC LIMIT 200").all()
     };
   });
@@ -109,8 +109,13 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   app.post("/admin/members", { preHandler: ownerGuard }, async (request, reply) => {
     const body = z.object({ phone: phoneSchema, groupCode: groupSchema }).parse(request.body);
     if (!db.prepare("SELECT 1 FROM groups WHERE code = ? AND enabled = 1").get(body.groupCode)) return reply.code(400).send({ message: "Grupo inexistente ou desativado." });
-    db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at) VALUES (?,?,?) ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL").run(body.phone,body.groupCode,new Date().toISOString());
-    db.prepare("UPDATE participation_requests SET status='APPROVED',updated_at=? WHERE phone=?").run(new Date().toISOString(),body.phone);
+    const pending = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(body.phone) as { id: string } | undefined;
+    const stamp = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?,?,?,'OWNER') ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='OWNER'").run(body.phone,body.groupCode,stamp);
+      db.prepare("UPDATE participation_requests SET status='APPROVED',updated_at=? WHERE phone=?").run(stamp,body.phone);
+    })();
+    if (pending) queueParticipationDecision(db,config,pending.id,"APPROVED",body.groupCode);
     return { ok: true };
   });
   app.delete("/admin/members/:phone", { preHandler: ownerGuard }, async (request) => {
@@ -127,10 +132,11 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     if (body.status === "APPROVED" && (!group || !db.prepare("SELECT 1 FROM groups WHERE code=? AND enabled=1").get(group))) return reply.code(400).send({ message: "Escolha um grupo ativo para aprovar." });
     db.transaction(() => {
       const now = new Date().toISOString();
-      if (body.status === "APPROVED") db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at) VALUES (?,?,?) ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL").run(row.phone,group!,now);
+      if (body.status === "APPROVED") db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?,?,?,'OWNER') ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='OWNER'").run(row.phone,group!,now);
       else db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(now,row.phone);
       db.prepare("UPDATE participation_requests SET status=?,updated_at=? WHERE id=?").run(body.status,now,id);
     })();
+    queueParticipationDecision(db,config,id,body.status,group);
     return { ok: true };
   });
   return { ownerGuard };

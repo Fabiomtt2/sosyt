@@ -3,14 +3,14 @@ import { createHmac } from "node:crypto";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
-import { flushWhatsAppOutbox } from "./whatsapp.js";
+import { flushWhatsAppOutbox, queueParticipationDecision, syncOfficialWhatsAppGroups } from "./whatsapp.js";
 
 describe("bot oficial WhatsApp", () => {
   let db: AppDatabase, config: Config, app: Awaited<ReturnType<typeof buildApp>>;
   beforeEach(async () => {
     config = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", AUTH_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP:"true", ALLOWED_GROUP_CODES:"1,2,10",
       OWNER_FABIO_SECRET:"fabio-secret-exclusive-32-characters", OWNER_RAFAEL_SECRET:"rafael-secret-exclusive-32-characters", OWNER_FABIO_WHATSAPP:"5571999999101",OWNER_RAFAEL_WHATSAPP:"5571999999102",
-      OWNER_WHATSAPP:"5571999999103", WHATSAPP_APP_SECRET:"test-meta-application-secret", WHATSAPP_ACCESS_TOKEN:"test-provider-token", WHATSAPP_VERIFY_TOKEN:"test-webhook-verify-token",WHATSAPP_PHONE_NUMBER_ID:"123456",WHATSAPP_BUSINESS_ACCOUNT_ID:"654321",WHATSAPP_OTP_TEMPLATE:"sos_codigo",WHATSAPP_OWNER_ALERT_TEMPLATE:"sos_pendente" });
+      OWNER_WHATSAPP:"5571999999103", WHATSAPP_APP_SECRET:"test-meta-application-secret", WHATSAPP_ACCESS_TOKEN:"test-provider-token", WHATSAPP_VERIFY_TOKEN:"test-webhook-verify-token",WHATSAPP_PHONE_NUMBER_ID:"123456",WHATSAPP_BUSINESS_ACCOUNT_ID:"654321",WHATSAPP_OTP_TEMPLATE:"sos_codigo",WHATSAPP_OWNER_ALERT_TEMPLATE:"sos_pendente",WHATSAPP_DECISION_TEMPLATE:"sos_decisao" });
     db=createDatabase(":memory:"); app=await buildApp(config,db);
   });
   afterEach(async () => { await app.close(); db.close(); vi.unstubAllGlobals(); });
@@ -40,6 +40,59 @@ describe("bot oficial WhatsApp", () => {
     expect(sent).toHaveLength(5); expect(sent.filter((s)=>s.type==="template").map((s)=>s.to).sort()).toEqual(["5571999999101","5571999999102"]);
     expect(sent.find((s)=>s.type==="template").template.components[0].parameters.map((p:any)=>p.text)).toEqual(["1","Luiza","5571999999001"]);
     await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(5);
+  });
+  it("notifica automaticamente a decisão do Owner e atualiza o estágio da conversa",async () => {
+    await post(payload("decision-m1","Quero participar"));
+    await post(payload("decision-m2","Luiza"));
+    const requestRow=db.prepare("SELECT id FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string};
+    const login=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Fabio0",identifier:"+55 71 [9]9999-9101",groupCode:"#",secret:"fabio-secret-exclusive-32-characters"}});
+    expect(login.statusCode).toBe(200);
+    const decision=await app.inject({method:"POST",url:`/admin/requests/${requestRow.id}/decision`,headers:{authorization:`Bearer ${login.json().token}`},payload:{status:"APPROVED",groupCode:"1"}});
+    expect(decision.statusCode).toBe(200);
+    const stage=db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get("5571999999001") as {stage:string};
+    expect(stage.stage).toBe("APPROVED");
+    const job=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'decision:%'").get() as {payload:string};
+    const decisionPayload=JSON.parse(job.payload);
+    expect(decisionPayload.type).toBe("text");
+    expect(decisionPayload.text.body).toContain("aprovado no SOS YOUTUBER 1");
+  });
+  it("usa template de decisão fora da janela e deduplica o aviso",async () => {
+    await post(payload("late-m1","Quero participar"));
+    await post(payload("late-m2","Caio"));
+    const row=db.prepare("SELECT id FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string};
+    db.prepare("UPDATE participation_requests SET whatsapp_verified_at=? WHERE id=?").run(new Date(Date.now()-25*3600_000).toISOString(),row.id);
+    expect(queueParticipationDecision(db,config,row.id,"DECLINED")).toBe(true);
+    expect(queueParticipationDecision(db,config,row.id,"DECLINED")).toBe(true);
+    const jobs=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'decision:%'").all() as Array<{payload:string}>;
+    expect(jobs).toHaveLength(1);
+    const decisionPayload=JSON.parse(jobs[0].payload);
+    expect(decisionPayload.type).toBe("template");
+    expect(decisionPayload.template.name).toBe("sos_decisao");
+    expect(decisionPayload.template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Caio","NÃO APROVADO","-",config.WEB_APP_URL]);
+  });
+  it("descobre grupos SOS oficiais e sincroniza participantes automaticamente",async () => {
+    let detailParticipants=[{wa_id:"5571999999001"}];
+    vi.stubGlobal("fetch",vi.fn(async (url:string) => {
+      if (url.includes("/123456/groups?")) return new Response(JSON.stringify({data:{groups:[{id:"group-2",subject:"SOS YOUTUBER 2"},{id:"other",subject:"Outro grupo"}]}}),{status:200});
+      if (url.includes("/group-2?")) return new Response(JSON.stringify({id:"group-2",subject:"SOS YOUTUBER 2",participants:detailParticipants}),{status:200});
+      return new Response("{}",{status:404});
+    }));
+    expect(await syncOfficialWhatsAppGroups(db,config)).toEqual({discovered:2,linked:1,memberships:1});
+    expect(db.prepare("SELECT whatsapp_group_id AS groupId,membership_mode AS mode FROM groups WHERE code='2'").get()).toEqual({groupId:"group-2",mode:"META_GROUPS_API"});
+    expect(db.prepare("SELECT group_code AS groupCode,source,revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get()).toEqual({groupCode:"2",source:"META_GROUPS_API",revokedAt:null});
+    detailParticipants=[];
+    await syncOfficialWhatsAppGroups(db,config);
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
+  });
+  it("webhook oficial de participantes concede e revoga associação sem duplicar evento",async () => {
+    db.prepare("UPDATE groups SET whatsapp_group_id='group-1',membership_mode='META_GROUPS_API' WHERE code='1'").run();
+    const groupPayload=(id:string,type:string,key:string) => ({object:"whatsapp_business_account",entry:[{id:"654321",changes:[{field:"group_participants_update",value:{metadata:{phone_number_id:"123456"},groups:[{timestamp:id,group_id:"group-1",type,[key]:[{wa_id:"5571999999001"}]}]}}]}]});
+    const add=groupPayload("100","group_participants_add","added_participants");
+    expect((await post(add)).statusCode).toBe(200); await post(add);
+    expect(count("whatsapp_group_events")).toBe(1);
+    expect(db.prepare("SELECT group_code AS groupCode,source,revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get()).toEqual({groupCode:"1",source:"META_GROUPS_API",revokedAt:null});
+    expect((await post(groupPayload("101","group_participants_remove","removed_participants"))).statusCode).toBe(200);
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
   });
   it("ignora outro número de atendimento e nome sem contexto; recusa payload malformado",async () => {
     await post(payload("m1","Quero participar","99999")); await post(payload("m2","Pessoa"));

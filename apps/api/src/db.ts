@@ -6,6 +6,7 @@ export type AppDatabase = Database.Database;
 
 const schema = `
 CREATE TABLE IF NOT EXISTS whatsapp_received (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS whatsapp_group_events (event_key TEXT PRIMARY KEY, received_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS whatsapp_conversations (phone TEXT PRIMARY KEY, stage TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS whatsapp_outbox (
  id TEXT PRIMARY KEY, dedupe_key TEXT NOT NULL UNIQUE, recipient TEXT NOT NULL, payload TEXT NOT NULL,
@@ -15,13 +16,17 @@ CREATE TABLE IF NOT EXISTS whatsapp_outbox (
 
 CREATE TABLE IF NOT EXISTS groups (
   code TEXT PRIMARY KEY,
-  enabled INTEGER NOT NULL DEFAULT 1
+  enabled INTEGER NOT NULL DEFAULT 1,
+  whatsapp_group_id TEXT,
+  membership_mode TEXT NOT NULL DEFAULT 'OWNER_VERIFIED',
+  last_synced_at TEXT
 );
 CREATE TABLE IF NOT EXISTS group_memberships (
   phone TEXT PRIMARY KEY,
   group_code TEXT NOT NULL REFERENCES groups(code),
   approved_at TEXT NOT NULL,
-  revoked_at TEXT
+  revoked_at TEXT,
+  source TEXT NOT NULL DEFAULT 'OWNER'
 );
 CREATE TABLE IF NOT EXISTS participation_requests (
   id TEXT PRIMARY KEY,
@@ -145,6 +150,16 @@ CREATE TABLE IF NOT EXISTS playlist_exports (
   updated_at TEXT NOT NULL,
   UNIQUE(round_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS playlist_watch_progress (
+  round_id TEXT NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  watched_seconds_json TEXT NOT NULL,
+  durations_json TEXT NOT NULL,
+  percent INTEGER NOT NULL CHECK (percent BETWEEN 0 AND 100),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(round_id, user_id)
+);
 `;
 
 export function createDatabase(filename: string): AppDatabase {
@@ -160,12 +175,17 @@ export function createDatabase(filename: string): AppDatabase {
   };
   addColumn("login_codes", "attempts", "INTEGER NOT NULL DEFAULT 0");
   addColumn("wallets", "payment_hold", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("groups", "whatsapp_group_id", "TEXT");
+  addColumn("groups", "membership_mode", "TEXT NOT NULL DEFAULT 'OWNER_VERIFIED'");
+  addColumn("groups", "last_synced_at", "TEXT");
+  addColumn("group_memberships", "source", "TEXT NOT NULL DEFAULT 'OWNER'");
   addColumn("users", "last_seen_at", "TEXT");
   addColumn("participation_requests", "source", "TEXT NOT NULL DEFAULT 'WEB'");
   addColumn("participation_requests", "whatsapp_verified_at", "TEXT");
   addColumn("submissions", "author_name", "TEXT");
   addColumn("submissions", "author_group", "TEXT");
   addColumn("oauth_states", "round_id", "TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_whatsapp_group_id ON groups(whatsapp_group_id) WHERE whatsapp_group_id IS NOT NULL;");
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);

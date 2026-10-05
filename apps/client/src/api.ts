@@ -28,11 +28,14 @@ export const api = {
   paymentStatus: (id: string) => request<{ id: string; status: string }>(`/payments/${id}`),
   approveDemoPix: (id: string) => request(`/payments/${id}/demo-approve`, { method: "POST" }),
   youtubeConnect: (returnTo: "web" | "app", roundId?: string) => request<{ url: string }>(`/youtube/connect?returnTo=${returnTo}${roundId ? `&roundId=${encodeURIComponent(roundId)}` : ""}`),
-  exportRound: (id: string) => request<{ playlistId: string }>(`/rounds/${id}/export`, { method: "POST" })
+  exportRound: (id: string) => request<{ playlistId: string }>(`/rounds/${id}/export`, { method: "POST" }),
+  saveWatchProgress: (id: string, progress: Pick<WatchProgressState, "watchedSeconds" | "durations">) =>
+    request<WatchProgressState>(`/rounds/${id}/watch-progress`, { method: "PUT", body: JSON.stringify(progress) })
 };
 
 export type Slot = { userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string };
-export type Round = { id: string; sequence: number; status: "OPEN" | "READY"; slots: Slot[]; completedAt?: string; export?: { status: string; playlistId?: string; addedCount?: number } };
+export type WatchProgressState = { watchedSeconds: number[]; durations: number[]; percent: number; rewardCoins?: number; rewardDeltaCoins?: number; walletTotal?: number; updatedAt?: string };
+export type Round = { id: string; sequence: number; status: "OPEN" | "READY"; slots: Slot[]; completedAt?: string; export?: { status: string; playlistId?: string; addedCount?: number; watchProgress?: WatchProgressState } };
 export type Dashboard = {
   user: { id: string; name: string; phone: string; groupCode: string };
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
@@ -44,13 +47,13 @@ export type Pix = { id: string; providerPaymentId: string; status: string; qrCod
 
 
 export type OwnerOverview = {
-  whatsapp: { configured: boolean; otpConfigured: boolean; ownerAlertsConfigured: boolean; queued: number; failed: number; sent: number; membershipMode: string };
+  whatsapp: { configured: boolean; otpConfigured: boolean; ownerAlertsConfigured: boolean; decisionTemplateConfigured: boolean; groupsSyncEnabled: boolean; groupsLinked: number; automaticMemberships: number; queued: number; failed: number; sent: number; membershipMode: string };
   month: string; owner: { name: string; groupCode: string };
   metrics: { registeredUsers: number; activeUsers30d: number; approvedMembers: number; requestsTotal: number; pendingRequests: number; requestsMonth: number; completedCyclesMonth: number; playlistsCreatedMonth: number; approvedPurchasesMonth: number; demoPurchasesMonth: number; revenueCentsMonth: number };
-  groups: Array<{ code: string; enabled: number }>;
+  groups: Array<{ code: string; enabled: number; whatsappGroupId?: string; membershipMode?: string; lastSyncedAt?: string }>;
   requests: Array<{ id: string; name: string; phone: string; preferredGroup?: string; status: string; source?: string; whatsappVerifiedAt?: string; createdAt: string }>;
   users: Array<{ id: string; name: string; phone: string; groupCode: string; lastSeenAt?: string; balanceMillis: number; extraPasses: number; paymentHold: number }>;
-  members: Array<{ phone: string; groupCode: string; revokedAt?: string }>;
+  members: Array<{ phone: string; groupCode: string; revokedAt?: string; source?: string }>;
   purchases: Array<{ id: string; name: string; phone: string; provider: string; status: string; amountCents: number; createdAt: string }>;
 };
 function ownerRequest<T>(path: string, options: RequestInit = {}) {
@@ -62,6 +65,7 @@ export const ownerApi = {
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
   approveMember: (phone: string, groupCode: string) => ownerRequest("/admin/members", { method: "POST", body: JSON.stringify({ phone, groupCode }) }),
   retryWhatsApp: () => ownerRequest("/admin/whatsapp/retry", { method: "POST" }),
+  syncWhatsAppGroups: () => ownerRequest<{ discovered: number; linked: number; memberships: number }>("/admin/whatsapp/groups/sync", { method: "POST" }),
   revoke: (phone: string) => ownerRequest(`/admin/members/${phone}`, { method: "DELETE" }),
   decide: (id: string, status: "APPROVED" | "DECLINED", groupCode?: string) => ownerRequest(`/admin/requests/${id}/decision`, { method: "POST", body: JSON.stringify({ status, groupCode }) }),
   exportUsers: async () => {

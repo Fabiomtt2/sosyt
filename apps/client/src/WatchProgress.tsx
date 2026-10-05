@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Eye, PauseCircle } from "lucide-react";
+import { api, type WatchProgressState } from "./api";
 
 type PlayerState = -1 | 0 | 1 | 2 | 3 | 5;
 
@@ -72,6 +73,15 @@ function readSaved(key: string): SavedProgress {
   }
 }
 
+function mergeProgress(...sources: Array<Partial<SavedProgress> | undefined>): SavedProgress {
+  const durations = Array.from({ length: 10 }, (_, index) => Math.max(...sources.map((source) => Number(source?.durations?.[index] ?? 0))));
+  const watchedSeconds = Array.from({ length: 10 }, (_, index) => {
+    const watched = Math.max(...sources.map((source) => Number(source?.watchedSeconds?.[index] ?? 0)));
+    return durations[index] > 0 ? Math.min(durations[index], watched) : 0;
+  });
+  return { watchedSeconds, durations };
+}
+
 function progressPercent(progress: SavedProgress): number {
   return Math.min(
     100,
@@ -92,22 +102,71 @@ export function WatchProgress({
   playlistId,
   roundId,
   userId,
+  initialProgress,
+  initialBalance,
   onClose
 }: {
   playlistId: string;
   roundId: string;
   userId: string;
+  initialProgress?: WatchProgressState;
+  initialBalance: number;
   onClose: () => void;
 }) {
   const storageKey = useMemo(() => `conexao_watch_progress:${userId}:${roundId}:${playlistId}`, [playlistId, roundId, userId]);
-  const [progress, setProgress] = useState<SavedProgress>(() => readSaved(storageKey));
+  const [progress, setProgress] = useState<SavedProgress>(() => mergeProgress(readSaved(storageKey), initialProgress));
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(false);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "saved" | "offline">("idle");
+  const [confirmedCoins, setConfirmedCoins] = useState(initialProgress?.rewardCoins ?? 0);
+  const [walletTotal, setWalletTotal] = useState(initialBalance);
   const playerHost = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | undefined>(undefined);
   const lastSample = useRef<{ wallMs: number; playerSeconds: number; index: number } | undefined>(undefined);
+  const latestProgress = useRef(progress);
+  const lastSynced = useRef("");
 
   const percent = progressPercent(progress);
+  const earnedCoins = Math.floor(percent / 10);
+
+  useEffect(() => {
+    latestProgress.current = progress;
+  }, [progress]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sync = async () => {
+      const snapshot = latestProgress.current;
+      const signature = JSON.stringify(snapshot);
+      if (signature === lastSynced.current) return;
+      setSyncState("syncing");
+      try {
+        const saved = await api.saveWatchProgress(roundId, snapshot);
+        if (cancelled) return;
+        const merged = mergeProgress(snapshot, saved);
+        const mergedSignature = JSON.stringify(merged);
+        localStorage.setItem(storageKey, mergedSignature);
+        latestProgress.current = merged;
+        lastSynced.current = mergedSignature;
+        if (mergedSignature !== signature) setProgress(merged);
+        setConfirmedCoins(saved.rewardCoins ?? Math.floor(saved.percent / 10));
+        if (typeof saved.walletTotal === "number") setWalletTotal(saved.walletTotal);
+        setSyncState("saved");
+      } catch {
+        if (!cancelled) setSyncState("offline");
+      }
+    };
+    void sync();
+    const timer = window.setInterval(() => { void sync(); }, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [roundId, storageKey]);
+
+  function close() {
+    const snapshot = latestProgress.current;
+    localStorage.setItem(storageKey, JSON.stringify(snapshot));
+    void api.saveWatchProgress(roundId, snapshot).catch(() => undefined);
+    onClose();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -201,9 +260,9 @@ export function WatchProgress({
   }, [playlistId, storageKey]);
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={close}>
       <section className="modal watch-modal" role="dialog" aria-modal="true" aria-label="Acompanhar reprodução" onMouseDown={(event) => event.stopPropagation()}>
-        <button className="close" aria-label="Fechar acompanhamento" onClick={onClose}>×</button>
+        <button className="close" aria-label="Fechar acompanhamento" onClick={close}>×</button>
         <p className="eyebrow dark">ACOMPANHAMENTO LOCAL</p>
         <h2>Progresso da playlist</h2>
         <p className="muted">
@@ -212,13 +271,14 @@ export function WatchProgress({
         </p>
         <div className="watch-player-shell"><div ref={playerHost} className="watch-player" /></div>
         <div className="watch-progress-card" role="status">
-          <div><strong>{percent}% concluído</strong><span>{active ? " reprodução ativa" : ready ? " pausado ou fora de foco" : " carregando player"}</span></div>
+          <div><strong>{percent}% concluído · +{earnedCoins} moedas</strong><span>{active ? " reprodução ativa" : ready ? " pausado ou fora de foco" : " carregando player"}</span></div>
           <progress max={100} value={percent} />
           <small>{active ? <><Eye size={14} /> Verificação ativa</> : <><PauseCircle size={14} /> Verificação interrompida</>}</small>
+          <small>{syncState === "syncing" ? "Sincronizando com sua conta…" : syncState === "saved" ? `Progresso salvo · ${confirmedCoins} moedas confirmadas · saldo ${walletTotal}` : syncState === "offline" ? `Sem sincronização agora · ${Math.max(0, earnedCoins - confirmedCoins)} moeda(s) pendente(s)` : `Saldo ${walletTotal}`}</small>
         </div>
-        {percent >= 100 && <div className="notice"><Check size={18} /><span>Os dez vídeos atingiram 100% de reprodução verificada neste navegador.</span></div>}
+        {percent >= 100 && <div className="notice"><Check size={18} /><span>Os dez vídeos atingiram 100% de reprodução acompanhada nesta conta.</span></div>}
         <p className="muted">
-          Este indicador é informativo e não altera o saldo de créditos. Fechar este popup interrompe a verificação e preserva o progresso já registrado neste dispositivo.
+          A cada 10% consolidado, 1 moeda interna é adicionada ao saldo usado para salvar links. Cada marco é único: fechar, reabrir ou sincronizar novamente não duplica moedas.
         </p>
       </section>
     </div>

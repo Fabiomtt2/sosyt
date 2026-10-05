@@ -38,8 +38,17 @@ const verifyCodeSchema = z.object({
 });
 const submitSchema = z.object({ url: z.string().trim().min(1).max(500) });
 const pixSchema = z.object({ email: z.string().email(), cpf: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().length(11)) });
+const watchVectorSchema = z.array(z.number().finite().min(0).max(86_400)).length(10);
+const watchProgressSchema = z.object({ watchedSeconds: watchVectorSchema, durations: watchVectorSchema });
 
 type Row = Record<string, unknown>;
+
+function watchPercent(watchedSeconds: number[], durations: number[]): number {
+  return Math.min(100, Math.round(watchedSeconds.reduce((sum, watched, index) => {
+    const duration = durations[index] ?? 0;
+    return sum + (duration > 0 ? Math.min(1, watched / duration) : 0);
+  }, 0) * 10));
+}
 
 function codeHash(config: Config, phone: string, code: string): string {
   return createHash("sha256").update(`${config.AUTH_CODE_PEPPER}:${phone}:${code}`).digest("hex");
@@ -215,13 +224,82 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
     const exports = db.prepare("SELECT round_id AS roundId, status, added_count AS addedCount, youtube_playlist_id AS playlistId FROM playlist_exports WHERE user_id = ?")
       .all(request.user.sub) as Array<{ roundId: string; status: string; playlistId?: string }>;
+    const watchRows = db.prepare("SELECT round_id AS roundId, watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson, percent, updated_at AS updatedAt FROM playlist_watch_progress WHERE user_id = ?")
+      .all(request.user.sub) as Array<{ roundId: string; watchedSecondsJson: string; durationsJson: string; percent: number; updatedAt: string }>;
+    const watchRewardRefs = db.prepare("SELECT reference_id AS referenceId FROM wallet_ledger WHERE user_id = ? AND kind = 'WATCH_PROGRESS'")
+      .all(request.user.sub) as Array<{ referenceId?: string }>;
     return {
       user: getUser(db, request.user.sub),
       wallet: walletView(db, request.user.sub),
       openRound: roundView(db, open.id),
-      readyRounds: ready.map(({ id }) => ({ ...roundView(db, id), export: exports.find((entry) => entry.roundId === id) })),
+      readyRounds: ready.map(({ id }) => {
+        const exportRow = exports.find((entry) => entry.roundId === id);
+        const watch = watchRows.find((entry) => entry.roundId === id);
+        return {
+          ...roundView(db, id),
+          export: exportRow ? {
+            ...exportRow,
+            watchProgress: watch ? {
+              watchedSeconds: JSON.parse(watch.watchedSecondsJson) as number[],
+              durations: JSON.parse(watch.durationsJson) as number[],
+              percent: watch.percent,
+              rewardCoins: watchRewardRefs.filter((entry) => entry.referenceId?.startsWith(id + ":")).length,
+              updatedAt: watch.updatedAt
+            } : undefined
+          } : undefined
+        };
+      }),
       viewer: { contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection) }
     };
+  });
+
+  app.put("/rounds/:id/watch-progress", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const roundId = z.string().uuid().parse((request.params as { id: string }).id);
+    const body = watchProgressSchema.parse(request.body);
+    const exported = db.prepare("SELECT 1 FROM playlist_exports WHERE round_id = ? AND user_id = ? AND status = 'SUCCESS' AND youtube_playlist_id IS NOT NULL")
+      .get(roundId, request.user.sub);
+    if (!exported) return reply.code(409).send({ message: "Crie sua playlist deste ciclo antes de salvar o acompanhamento." });
+
+    const existing = db.prepare("SELECT watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson FROM playlist_watch_progress WHERE round_id = ? AND user_id = ?")
+      .get(roundId, request.user.sub) as { watchedSecondsJson: string; durationsJson: string } | undefined;
+    const previousWatched = existing ? JSON.parse(existing.watchedSecondsJson) as number[] : Array(10).fill(0);
+    const previousDurations = existing ? JSON.parse(existing.durationsJson) as number[] : Array(10).fill(0);
+    const durations = body.durations.map((duration, index) => Math.max(duration, previousDurations[index] ?? 0));
+    const watchedSeconds = body.watchedSeconds.map((watched, index) => {
+      const maximum = durations[index] ?? 0;
+      const merged = Math.max(watched, previousWatched[index] ?? 0);
+      return maximum > 0 ? Math.min(maximum, merged) : 0;
+    });
+    const percent = watchPercent(watchedSeconds, durations);
+    const now = new Date().toISOString();
+
+    const rewardTargetCoins = Math.floor(percent / 10);
+    const rewardDeltaCoins = db.transaction(() => {
+      db.prepare(`INSERT INTO playlist_watch_progress (round_id, user_id, watched_seconds_json, durations_json, percent, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(round_id, user_id) DO UPDATE SET
+          watched_seconds_json = excluded.watched_seconds_json,
+          durations_json = excluded.durations_json,
+          percent = excluded.percent,
+          updated_at = excluded.updated_at`)
+        .run(roundId, request.user.sub, JSON.stringify(watchedSeconds), JSON.stringify(durations), percent, now);
+
+      let credited = 0;
+      for (let coin = 1; coin <= rewardTargetCoins; coin++) {
+        const inserted = db.prepare("INSERT OR IGNORE INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WATCH_PROGRESS', 1000, ?, ?)")
+          .run(randomUUID(), request.user.sub, `${roundId}:${coin}`, now);
+        credited += inserted.changes;
+      }
+      if (credited) {
+        db.prepare("UPDATE wallets SET reward_millis = reward_millis + ?, updated_at = ? WHERE user_id = ?")
+          .run(credited * 1000, now, request.user.sub);
+      }
+      return credited;
+    })();
+    const rewardCoins = (db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id = ? AND kind = 'WATCH_PROGRESS' AND reference_id LIKE ?")
+      .get(request.user.sub, `${roundId}:%`) as { n: number }).n;
+
+    return { watchedSeconds, durations, percent, rewardCoins, rewardDeltaCoins, walletTotal: walletView(db, request.user.sub).total, updatedAt: now };
   });
 
   app.post("/rounds/current/submissions", { preHandler: authGuard }, async (request, reply) => {
