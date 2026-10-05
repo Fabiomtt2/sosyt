@@ -15,8 +15,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Solicitação registrada.", { exact: false })).toBeVisible();
   await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
   await page.getByRole("button", { name: "Voltar ao login" }).click();
-  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fábio"); await page.getByLabel("Grupo SOS YOUTUBER").fill("#");
-  await page.getByLabel("WhatsApp ou ID do Owner").fill("fabio");
+  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fabio0"); await page.getByLabel("Grupo SOS YOUTUBER").fill("#");
+  await page.getByLabel("WhatsApp / identificador do Owner").fill("+55 71 [9]9999-0001");
   await page.getByLabel("Credencial do Owner").fill("e2e-owner-secret-32-characters-long");
   await page.getByRole("button", { name: "Entrar como Owner" }).click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
@@ -27,7 +27,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Solicitação aprovada.", { exact: false })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: resolve(evidence, "owner-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: /Fábio/ }).click();
+  await page.getByRole("button", { name: /Fabio0/ }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await page.getByLabel("Número do WhatsApp").fill("5571900000001");
   await page.getByLabel("Grupo SOS YOUTUBER").fill("1"); await page.getByRole("button", { name: "Receber código" }).click();
   const code = await page.locator(".dev-code strong").innerText();
@@ -46,7 +46,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("2 de 10 vídeos", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({ path: resolve(evidence, "participante-mobile.png"), fullPage: true });
-  const owner = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fábio", identifier: "fabio", groupCode: "#", secret: "e2e-owner-secret-32-characters-long" } });
+  const owner = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "e2e-owner-secret-32-characters-long" } });
   expect(owner.ok()).toBeTruthy(); const ownerToken = (await owner.json()).token;
   for (let n = 3; n <= 10; n++) {
     const phone = `55719000000${String(n).padStart(2, "0")}`;
@@ -85,6 +85,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("dialog", {name:"Criação de playlist"})).toBeVisible();
   await page.getByRole("button",{name:"Confirmar criação"}).click();
   await expect(page.getByRole("link", { name: "Abrir no YouTube" })).toHaveAttribute("href", "https://www.youtube.com/playlist?list=e2e-private-playlist");
+  await expect(page.getByRole("button", { name: "Acompanhar reprodução" })).toBeVisible();
+  await page.getByRole("button", { name: "Acompanhar reprodução" }).click();
+  await expect(page.getByRole("dialog", { name: "Acompanhar reprodução" })).toBeVisible();
+  await expect(page.getByText("0% concluído")).toBeVisible();
+  await page.getByRole("button", { name: "Fechar acompanhamento" }).click();
   expect(exported).toBe(true);
   // Simulate the Google round-trip, keeping the real local consent intent and automatic return flow.
   exported = false;

@@ -4,7 +4,9 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Check, CircleDollarSign, Clock3, ExternalLink, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
 import { OwnerDashboard } from "./OwnerDashboard";
+import { WatchProgress, readSavedWatchPercent } from "./WatchProgress";
 import { api, ownerApi, participationApi, ApiError, type Dashboard, type Pix, type Round } from "./api";
+import { BRAZIL_MOBILE_PATTERN, formatBrazilMobileInput } from "./phone";
 
 function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [step, setStep] = useState<"profile" | "code">("profile");
@@ -52,13 +54,13 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <div>
         <p className="eyebrow dark">ACESSO DO PARTICIPANTE</p>
         <h2>{step === "profile" ? joinMode ? "Quero participar!" : "Entre na sua conexão" : "Confirme seu número"}</h2>
-        <p className="muted">{step === "profile" ? joinMode ? "Peça ao Owner sua entrada em um grupo SOS YOUTUBER e a liberação do aplicativo." : "Participantes entram com o grupo aprovado. Fábio e Rafael entram com # e sua credencial exclusiva." : devCode ? "Use o código de demonstração exibido abaixo. Não houve envio pelo WhatsApp." : `Digite o código enviado para ${form.phone}.`}</p>
+        <p className="muted">{step === "profile" ? joinMode ? "Peça ao Owner sua entrada em um grupo SOS YOUTUBER e a liberação do aplicativo." : "Participantes entram com o grupo aprovado. Fabio0 e Rafael0 usam # como marcador de Owner e mantêm credencial exclusiva." : devCode ? "Use o código de demonstração exibido abaixo. Não houve envio pelo WhatsApp." : `Digite o código enviado para ${form.phone}.`}</p>
       </div>
       {joined ? <div className="join-success" role="status"><ShieldCheck size={30} /><p>{joined.message}</p>{joined.whatsappUrl && <a className="primary" href={joined.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp do Owner</a>}<p className="muted">A solicitação já está no painel. No WhatsApp, confirme o envio da mensagem.</p><button className="secondary" onClick={() => { setJoined(undefined); setJoinMode(false); }}>Voltar ao login</button></div> : <form onSubmit={submit}>
         {step === "profile" ? <>
           <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
-          <label>{!joinMode && form.groupCode === "#" ? "WhatsApp ou ID do Owner" : "Número do WhatsApp"}<input inputMode={!joinMode && form.groupCode === "#" ? "text" : "tel"} autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="DDI + DDD + número" required /></label>
-          <label>Grupo SOS YOUTUBER<input inputMode="text" maxLength={8} pattern={joinMode ? "[1-9][0-9]*" : "#|[1-9][0-9]*"} value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(joinMode ? /[^0-9]/g : /[^0-9#]/g, "") })} placeholder={joinMode ? "Opcional: grupo desejado" : "Número do grupo; # para Owner"} required={!joinMode} /></label>
+          <label>{!joinMode && form.groupCode === "#" ? "WhatsApp / identificador do Owner" : "Número do WhatsApp"}<input inputMode={!joinMode && form.groupCode === "#" ? "text" : "tel"} autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: !joinMode && form.groupCode === "#" ? e.target.value : formatBrazilMobileInput(e.target.value) })} pattern={!joinMode && form.groupCode === "#" ? undefined : BRAZIL_MOBILE_PATTERN} placeholder="+55 DD [9]XXXX-XXXX" required /></label>
+          <label>{!joinMode && form.groupCode === "#" ? "Palavra-chave / grupo Owner" : "Grupo SOS YOUTUBER"}<input inputMode="text" maxLength={8} pattern={joinMode ? "[1-9][0-9]*" : "#|[1-9][0-9]*"} value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(joinMode ? /[^0-9]/g : /[^0-9#]/g, "") })} placeholder={joinMode ? "Opcional: grupo desejado" : "Número do grupo; # para Owner"} required={!joinMode} /></label>
           {!joinMode && form.groupCode === "#" && <label>Credencial do Owner<input type="password" autoComplete="current-password" value={ownerSecret} onChange={(e) => setOwnerSecret(e.target.value)} required /></label>}
           {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o Owner a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
         </> : <>
@@ -90,14 +92,15 @@ function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own, c
   return <article className="slot empty"><div className="slot-number">{String(slot.slot).padStart(2, "0")}</div><div className="slot-main"><LockKeyhole size={19} /><div><strong>Aguardando</strong><span>{next ? "É necessário um passe extra ou saldo disponível." : "Libera após o espaço anterior."}</span></div></div></article>;
 }
 
-function ReadyRound({ round, userId, connected, onConnect, onExport, busy }: { round: Round; userId: string; connected: boolean; onConnect: () => void; onExport: () => void; busy: boolean }) {
+function ReadyRound({ round, userId, connected, onConnect, onExport, onWatch, busy }: { round: Round; userId: string; connected: boolean; onConnect: () => void; onExport: () => void; onWatch: () => void; busy: boolean }) {
   const success = round.export?.status === "SUCCESS";
+  const watchPercent = success && round.export?.playlistId ? readSavedWatchPercent(userId, round.id, round.export.playlistId) : 0;
   return <article className="ready-card">
     <div className="ready-icon"><Check /></div>
     <div><p className="eyebrow dark">CICLO {round.sequence} COMPLETO</p><h3>10 vídeos prontos para sua playlist</h3><p className="muted">A playlist será criada como privada. Você decide no YouTube se e quando deseja alterar a visibilidade.</p></div>
     {round.export && <p className="creation-progress" role="status">{round.export.status === "SUCCESS" ? "Playlist criada · 10 de 10 vídeos incluídos" : `${round.export.addedCount ?? 0} de 10 vídeos incluídos · ${Math.min(100,(round.export.addedCount ?? 0)*10)}% da criação${round.export.status === "FAILED" ? " · tentativa interrompida; você pode retomar" : ""}`}</p>}
     <details className="cycle-details"><summary>Ver os 10 vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={false} eligible={false} own={slot.userId === userId} completed exported={success} connected={connected} onConnect={onConnect} onExport={onExport} busy={busy} />)}</section></details>
-    {success ? <a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir no YouTube <ExternalLink size={16} /></a>
+    {success ? <div className="ready-actions"><a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir no YouTube <ExternalLink size={16} /></a><button className="secondary" onClick={onWatch}>Acompanhar reprodução · {watchPercent}%</button></div>
       : <button className="primary compact" onClick={connected ? onExport : onConnect} disabled={busy}>{busy ? <LoaderCircle className="spin" /> : "Criar playlist"}</button>}
   </article>;
 }
@@ -158,6 +161,7 @@ function DashboardPage({ onLogout }: { onLogout: () => void }) {
   const [showPix, setShowPix] = useState(false);
   const [notice, setNotice] = useState("");
   const [creationRound, setCreationRound] = useState<Round>();
+  const [watchRound, setWatchRound] = useState<Round>();
   const returnedIntentHandled = useRef(false);
   const load = useCallback(async () => { try { setData(await api.dashboard()); setError(""); } catch (cause) { if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) onLogout(); else setError(cause instanceof Error ? cause.message : "Falha ao carregar."); } }, [onLogout]);
   useEffect(() => { void load(); const timer = window.setInterval(load, 20_000); return () => window.clearInterval(timer); }, [load]);
@@ -200,11 +204,12 @@ function DashboardPage({ onLogout }: { onLogout: () => void }) {
       {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
       {error && <p className="error banner">{error}</p>}
       <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} />)}</section>
-      {data.readyRounds.length > 0 && <section className="completed"><div className="section-title"><div><p className="eyebrow dark">SUAS SELEÇÕES</p><h2>Ciclos prontos</h2></div><span>Exportação voluntária e privada</span></div>{data.readyRounds.map((round) => <ReadyRound key={round.id} round={round} userId={data.user.id} connected={data.viewer.youtubeConnected} busy={busy} onConnect={() => setCreationRound(round)} onExport={() => setCreationRound(round)} />)}</section>}
+      {data.readyRounds.length > 0 && <section className="completed"><div className="section-title"><div><p className="eyebrow dark">SUAS SELEÇÕES</p><h2>Ciclos prontos</h2></div><span>Exportação voluntária e privada</span></div>{data.readyRounds.map((round) => <ReadyRound key={round.id} round={round} userId={data.user.id} connected={data.viewer.youtubeConnected} busy={busy} onConnect={() => setCreationRound(round)} onExport={() => setCreationRound(round)} onWatch={() => setWatchRound(round)} />)}</section>}
       <footer><ShieldCheck size={17} /><span>O Conexão Youtube não compra, troca ou recompensa visualizações. A reprodução acontece sob controle do usuário no YouTube.</span></footer>
     </main>
     {creationRound && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="Criação de playlist"><button className="close" aria-label="Cancelar criação" disabled={busy} onClick={() => setCreationRound(undefined)}>×</button><p className="eyebrow dark">CICLO {creationRound.sequence} · 10 VÍDEOS</p><h2>Criar playlist na sua conta</h2><p className="muted">{data.viewer.youtubeConnected ? "Você autorizou o acesso ao YouTube. Ao confirmar, os dez links salvos serão incluídos em uma playlist privada na sua conta." : "Você será direcionado à autenticação oficial do Google/YouTube. Após autorizar, criaremos uma playlist privada com os dez links permanentes deste ciclo."}</p><p className="muted">Você pode cancelar. Os registros de autoria e links do ciclo continuam preservados.</p>{busy && data.viewer.youtubeConnected && <div role="status"><progress max={10} value={included} /><p>{included} de 10 vídeos incluídos · {Math.min(100,included*10)}% da criação</p></div>}{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => { setError(""); if (data.viewer.youtubeConnected) void exportRound(creationRound.id); else { sessionStorage.setItem("conexao_creation_intent",JSON.stringify({userId:data.user.id,roundId:creationRound.id,at:Date.now()})); void connectYoutube(creationRound.id); } }}>{busy ? data.viewer.youtubeConnected ? "Criando…" : "Abrindo autenticação…" : data.viewer.youtubeConnected ? "Confirmar criação" : "Continuar para Google/YouTube"}</button></section></div>}
     {showPix && <PixPanel onClose={() => setShowPix(false)} onApproved={() => { setShowPix(false); setNotice("Pagamento confirmado: 20 créditos e 1 passe extra adicionados."); void load(); }} />}
+    {watchRound?.export?.playlistId && <WatchProgress playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} onClose={() => setWatchRound(undefined)} />}
   </div>;
 }
 

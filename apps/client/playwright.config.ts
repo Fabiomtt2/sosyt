@@ -14,7 +14,7 @@ export default defineConfig({
     { command: "node --import tsx apps/api/src/server.ts", cwd: root, url: "http://127.0.0.1:17333/health", timeout: 120_000, reuseExistingServer: false,
       env: { NODE_ENV: "test", PORT: "17333", DATABASE_PATH: database, WEB_APP_URL: "http://127.0.0.1:17517", API_PUBLIC_URL: "http://127.0.0.1:17333",
         AUTH_DEV_MODE: "true", PAYMENTS_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP: "true", ALLOWED_GROUP_CODES: "1,2",
-        OWNER_FABIO_ID: "fabio", OWNER_FABIO_SECRET: "e2e-owner-secret-32-characters-long", OWNER_WHATSAPP: "",
+        OWNER_FABIO_NAME: "Fabio0", OWNER_FABIO_ID: "+55 71 [9]9999-0001", OWNER_FABIO_SECRET: "e2e-owner-secret-32-characters-long", OWNER_WHATSAPP: "",
         YOUTUBE_API_KEY: "", MERCADO_PAGO_ACCESS_TOKEN: "", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "", TMPDIR: scratch } },
     { command: "npm run dev -- --host 127.0.0.1 --port 17517 --strictPort", url: "http://127.0.0.1:17517", timeout: 120_000, reuseExistingServer: false,
       env: { VITE_API_URL: "http://127.0.0.1:17333", TMPDIR: scratch } }

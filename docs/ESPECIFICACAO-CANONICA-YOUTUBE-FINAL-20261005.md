@@ -6,7 +6,7 @@ Data: 05/10/2026. Esta especificação consolida a intenção de produto do usu�
 
 | Requisito | Estado final |
 | --- | --- |
-| Owners Fábio e Rafael | Implementado; contas independentes |
+| Owners Fabio0 e Rafael0 | Implementado; contas independentes, marcador `#` e credenciais separadas |
 | Marcador Owner `#` | Implementado |
 | Nome/WhatsApp/grupo para participante | Implementado |
 | Quadro compartilhado entre todos os grupos | Implementado |
@@ -23,7 +23,7 @@ Data: 05/10/2026. Esta especificação consolida a intenção de produto do usu�
 | Resposta automática acolhedora | Adaptador implementado; depende de Meta real |
 | Capturar nome autodeclarado pelo WhatsApp | Implementado no webhook |
 | Mostrar solicitação pendente ao Owner | Implementado |
-| Alertar Fábio/Rafael sobre novas pendências | Implementado via template/fila; depende de Meta real |
+| Alertar Fabio0/Rafael0 sobre novas pendências | Implementado via template/fila; depende de Meta real e de contato válido configurado |
 | OTP via WhatsApp | Adaptador implementado; depende de template/credenciais Meta |
 | Pix e créditos/passes | Implementado; teste real ainda pendente |
 
@@ -47,7 +47,12 @@ A alternativa canônica é recompensar ações independentes de consumo de víde
 
 ## Progresso permitido na interface
 
-A barra de percentual no modal `Criar playlist` pode representar somente o progresso técnico de inclusão dos 10 itens na playlist (0–10 / 0–100%). Ela não deve ser descrita como “percentual assistido”, “atenção” ou “tarefa de visualização”.
+Há dois indicadores distintos:
+
+1. No modal `Criar playlist`, a barra representa somente o progresso técnico de inclusão dos 10 itens (0–10 / 0–100%).
+2. Depois de uma playlist criada, `Acompanhar reprodução` usa a IFrame Player API oficial para exibir progresso local informativo. Só contabiliza avanço natural enquanto o player está em estado de reprodução e a aba está visível; saltos grandes/seek não são creditados. A continuidade é salva localmente por usuário, ciclo e playlist.
+
+O segundo indicador não é prova absoluta de atenção humana e não pode ser convertido automaticamente em moedas/recompensa por visualização.
 
 ## Segurança e privacidade
 

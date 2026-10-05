@@ -5,8 +5,9 @@ import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { ownerAccounts, normalizeOwnerName, ownerCredentialVersion } from "./owners.js";
 import { whatsappJoinUrl, whatsappStatus, queueOwnerAlerts } from "./whatsapp.js";
+import { normalizeBrazilMobile } from "./phone.js";
 
-const phoneSchema = z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().regex(/^\d{10,15}$/));
+const phoneSchema = z.string().transform(normalizeBrazilMobile).pipe(z.string().regex(/^55[1-9]\d9\d{8}$/, "Informe um celular brasileiro no formato +55 DD 9XXXX-XXXX."));
 const groupSchema = z.string().regex(/^[1-9]\d*$/).max(8);
 export function hasMembership(db: AppDatabase, phone: string, group?: string): boolean {
   const member = db.prepare("SELECT m.group_code FROM group_memberships m JOIN groups g ON g.code = m.group_code WHERE m.phone = ? AND m.revoked_at IS NULL AND g.enabled = 1").get(phone) as { group_code: string } | undefined;

@@ -4,7 +4,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos 
 
 ## Fluxo implementado
 
-- Uma tela de login: participante usa nome, WhatsApp e grupo aprovado; Owners Fábio e Rafael usam nome, WhatsApp/ID configurado, marcador `#` no campo de grupo e credencial exclusiva.
+- Uma tela de login: participante usa nome, celular brasileiro e grupo aprovado; Owners `Fabio0` e `Rafael0` usam nome, identificador configurado, marcador/palavra-chave `#` e credencial exclusiva.
 - `Quero participar!` registra solicitação no painel. Com `OWNER_WHATSAPP` configurado, abre uma conversa WhatsApp com mensagem preenchida; o usuário confirma o envio. A Cloud API pode responder e alertar os Owners quando as credenciais/templates Meta estiverem configurados.
 - A conferência de pertencimento ao grupo SOS YOUTUBER permanece administrativa até existir comprovação de que a conta/grupos atuais são elegíveis para automação oficial de grupos.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes no ciclo.
@@ -24,7 +24,7 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os IDs padrão são `fabio` e `rafael`; ambos usam `#` no campo Grupo. Nunca publique o `.env`.
+Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os nomes padrão são `Fabio0` e `Rafael0`; ambos usam `#` como marcador/palavra-chave de Owner. Identificadores/telefones reais devem permanecer apenas no `.env` local. Nunca publique o `.env`.
 
 Em desenvolvimento, `AUTH_DEV_MODE=true` mostra o OTP na interface e `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção esses modos são recusados pelo carregador de configuração. Para entrega real de OTP e automação de atendimento, configure a Cloud API Meta conforme `docs/WHATSAPP-INTEGRACAO.md`.
 
@@ -39,7 +39,7 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação de 05/10/2026: 47 testes de API, 3 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação de 05/10/2026: 49 testes de API, 5 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Integrações e limites atuais
 
@@ -47,6 +47,6 @@ Google OAuth/YouTube Data API, Mercado Pago e WhatsApp Cloud API possuem adaptad
 
 A associação automática “número presente no grupo WhatsApp → código SOS YOUTUBER” não é tratada como concluída: depende da elegibilidade e das APIs oficiais disponíveis para os grupos reais. Até essa comprovação, o Owner confirma o vínculo.
 
-O produto não mede nem recompensa tempo assistido, não observa a tela do usuário e não reproduz YouTube em background. As políticas do YouTube proíbem oferecer incentivos/recompensas por assistir vídeos e proíbem background playback em clientes da API. O percentual exibido durante `Criar playlist` refere-se à inclusão dos 10 itens, não a watch time.
+O produto oferece um acompanhamento local e informativo de reprodução após a playlist ser criada, usando a IFrame Player API oficial: o percentual avança apenas com o player em reprodução e a aba visível, preserva continuidade no navegador e ignora saltos grandes de timeline. Não há OCR, captura de tela ou reprodução oculta/background. Esse percentual não altera saldo nem gera recompensa; as políticas do YouTube proíbem oferecer incentivos/recompensas por assistir vídeos. O percentual exibido durante `Criar playlist` continua sendo o progresso técnico de inclusão dos 10 itens.
 
-Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, normalização internacional de telefone, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. Consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.
+Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, migração de eventuais telefones legados para a forma canônica internacional, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. Consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.

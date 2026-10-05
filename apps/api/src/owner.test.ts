@@ -6,13 +6,14 @@ import { randomUUID } from "node:crypto";
 
 describe("Owner e acesso por grupo", () => {
   let db: AppDatabase, app: Awaited<ReturnType<typeof buildApp>>, ownerToken: string;
-  const ownerBody = { name: "Fábio", identifier: "fabio", groupCode: "#", secret: "test-owner-secret-32-characters-long" };
+  const ownerBody = { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "test-owner-secret-32-characters-long" };
   const authorization = (token: string) => ({ authorization: `Bearer ${token}` });
   beforeEach(async () => {
     db = createDatabase(":memory:");
     app = await buildApp(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", AUTH_DEV_MODE: "true", PAYMENTS_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP: "true",
-      OWNER_FABIO_ID: ownerBody.identifier, OWNER_FABIO_SECRET: ownerBody.secret, OWNER_RAFAEL_SECRET:"rafael-own-secret-32-characters-long", OWNER_WHATSAPP: "5571999999000",
+      OWNER_FABIO_NAME: ownerBody.name, OWNER_FABIO_ID: ownerBody.identifier, OWNER_FABIO_SECRET: ownerBody.secret,
+      OWNER_RAFAEL_NAME: "Rafael0", OWNER_RAFAEL_ID: "+55 71 [9]9999-0002", OWNER_RAFAEL_SECRET:"rafael-own-secret-32-characters-long", OWNER_WHATSAPP: "5571999999000",
       MERCADO_PAGO_ACCESS_TOKEN: undefined, YOUTUBE_API_KEY: undefined
     }), db);
     const login = await app.inject({ method: "POST", url: "/admin/login", payload: ownerBody });
@@ -33,11 +34,11 @@ describe("Owner e acesso por grupo", () => {
     const token = await participant();
     expect((await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(token) })).statusCode).toBe(401);
   });
-  it("Fábio e Rafael têm credenciais e sujeitos separados; nome/# não bastam", async () => {
-    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael"}})).statusCode).toBe(401);
-    const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael",identifier:"rafael",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
+  it("Fabio0 e Rafael0 têm credenciais e sujeitos separados; nome/# não bastam", async () => {
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael0"}})).statusCode).toBe(401);
+    const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael0",identifier:"+55 71 [9]9999-0002",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
     expect(rafael.statusCode).toBe(200);
-    expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael",groupCode:"#"});
+    expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael0",groupCode:"#"});
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,groupCode:"0"}})).statusCode).toBe(400);
     const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
     expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);

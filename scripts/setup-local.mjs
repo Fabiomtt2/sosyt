@@ -16,4 +16,4 @@ for (const [key, fallback] of Object.entries({...defaults,...secrets})) {
   else content += `\n${key}=${value}`;
 }
 writeFileSync(envPath,content,{mode:0o600}); chmodSync(envPath,0o600);
-console.log("Configuração preservada e atualizada. Owners: Fábio/ID fabio e Rafael/ID rafael, marcador #. Consulte os segredos separados no .env. Configure contatos/credenciais Meta para ativar o bot; nenhum segredo foi exibido.");
+console.log("Configuração preservada e atualizada. Owners configuráveis Fabio0/Rafael0, marcador # e credenciais separadas. Identificadores/telefones reais devem permanecer apenas no .env local. Configure contatos/credenciais Meta para ativar o bot; nenhum segredo foi exibido.");

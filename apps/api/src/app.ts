@@ -7,6 +7,7 @@ import helmet from "@fastify/helmet";
 import { z } from "zod";
 import { registerOwnerRoutes, hasMembership } from "./owner.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured } from "./whatsapp.js";
+import { normalizeBrazilMobile } from "./phone.js";
 import type { Config } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
 import { createPixPayment, fetchMercadoPagoPayment, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
@@ -28,11 +29,11 @@ declare module "@fastify/jwt" {
 
 const requestCodeSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  phone: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().regex(/^\d{10,15}$/)),
+  phone: z.string().transform(normalizeBrazilMobile).pipe(z.string().regex(/^55[1-9]\d9\d{8}$/, "Informe um celular brasileiro no formato +55 DD 9XXXX-XXXX.")),
   groupCode: z.string().trim().regex(/^[1-9]\d*$/, "Informe o número positivo do grupo SOS YOUTUBER.")
 });
 const verifyCodeSchema = z.object({
-  phone: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().regex(/^\d{10,15}$/)),
+  phone: z.string().transform(normalizeBrazilMobile).pipe(z.string().regex(/^55[1-9]\d9\d{8}$/, "Informe um celular brasileiro no formato +55 DD 9XXXX-XXXX.")),
   code: z.string().regex(/^\d{6}$/)
 });
 const submitSchema = z.object({ url: z.string().trim().min(1).max(500) });

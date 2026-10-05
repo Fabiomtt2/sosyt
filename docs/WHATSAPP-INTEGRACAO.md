@@ -5,7 +5,7 @@
 1. O link Quero participar pelo WhatsApp abre conversa com mensagem pronta: “Olá! Quero participar do projeto SOS YouTube.”. O WhatsApp exige que a pessoa pressione Enviar; wa.me não envia sozinho.
 2. Meta entrega a mensagem ao endpoint HTTPS `/webhooks/whatsapp`. O servidor verifica HMAC SHA-256 do corpo original com WHATSAPP_APP_SECRET e confere o ID do número Business; WHATSAPP_BUSINESS_ACCOUNT_ID acrescenta conferência da conta.
 3. O bot enfileira acolhimento e pedido do nome de preferência. Ao responder o nome, o número recebido pela Meta/wa_id é associado à solicitação, marcada WHATSAPP no painel. O nome é autodeclarado; a origem do telefone é o webhook assinado, não o texto digitado no site.
-4. Dois alertas independentes podem ser enviados a Fábio e Rafael por template aprovado, contendo quantidade de pendências no momento do evento, nome e telefone. Painel diferencia solicitações web e WhatsApp.
+4. Dois alertas independentes podem ser enviados a Fabio0 e Rafael0 por template aprovado, contendo quantidade de pendências no momento do evento, nome e telefone. Painel diferencia solicitações web e WhatsApp.
 5. Owner confere vínculo ao grupo e aprova. O login exige número e grupo autorizados, além do OTP. O adaptador de OTP usa template de autenticação; código nunca é devolvido ao navegador com AUTH_DEV_MODE=false.
 
 Mensagens recebidas são deduplicadas por ID. Solicitações são deduplicadas por telefone. Respostas/alertas ficam em fila persistente; worker executa a cada cinco segundos, tem lease, timeout, até cinco tentativas e retentativa administrativa. Respostas livres só são tentadas dentro de 24h da mensagem original; notificações aos Owners usam template para não depender de janela aberta. Falhas de envio OTP invalidam o código.
@@ -36,7 +36,7 @@ Nenhuma conta Meta, template ou número foi cadastrado externamente nesta etapa.
 
 ## Grupos SOS YOUTUBER
 
-Código é inteiro positivo (1,2,...10,...), sem zero inicial, até oito dígitos. `#` pertence apenas aos Owners Fábio/Rafael e nunca prova privilégio por si só. Nome de exibição não é credencial de acesso.
+Código é inteiro positivo (1,2,...10,...), sem zero inicial, até oito dígitos. `#` pertence apenas aos Owners Fabio0/Rafael0 e nunca prova privilégio por si só. Nome de exibição não é credencial de acesso.
 
 A Meta documenta Groups API, grupos por convite e eventos de participantes. Isso não comprova que os grupos comuns preexistentes SOS YOUTUBER podem ser consultados pela nossa conta. Nesta pesquisa, o corpo completo das páginas Meta retornou 429; não afirmar limites/elegibilidade sem confirmação atual no console/documentação. O MVP mantém conferência pelo Owner. Não usar o número do grupo informado como prova, não simular sincronização e não adotar robô WhatsApp Web silenciosamente.
 
