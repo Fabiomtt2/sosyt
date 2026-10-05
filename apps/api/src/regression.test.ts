@@ -79,8 +79,8 @@ describe("regressões de domínio e segurança", () => {
     expect((await dashboard(users[0].token)).wallet.reward).toBe(1);
     expect((await submit(users[0].token, "next0000001")).statusCode).toBe(201);
   });
-  it("rejeita grupo com zero e URL falsa sem débito", async () => {
-    expect((await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Teste", phone: "71999999001", groupCode: "102" } })).statusCode).toBe(400);
+  it("rejeita grupo zero e URL falsa sem débito", async () => {
+    expect((await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Teste", phone: "71999999001", groupCode: "0" } })).statusCode).toBe(400);
     const user = await register();
     expect((await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(user.token), payload: { url: "https://youtube.example/watch?v=dQw4w9WgXcQ" } })).statusCode).toBe(400);
     expect((await dashboard(user.token)).wallet.total).toBe(10);
@@ -132,6 +132,22 @@ describe("regressões de domínio e segurança", () => {
     expect((await app.inject({ method: "GET", url: callbackUrl })).statusCode).toBe(302);
     expect((await app.inject({ method: "GET", url: callbackUrl })).statusCode).toBe(400);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("OAuth mantém o ciclo escolhido e impede intenção de não participante", async () => {
+    const user=await register(), other=await register("71999999002"); const roundId=await readyRound(user.userId);
+    expect((await app.inject({url:`/youtube/connect?roundId=${roundId}`,headers:headers(other.token)})).statusCode).toBe(403);
+    const result=await app.inject({url:`/youtube/connect?roundId=${roundId}`,headers:headers(user.token)});
+    const state=new URL(result.json().url).searchParams.get("state")!;
+    expect((db.prepare("SELECT round_id FROM oauth_states").get() as {round_id:string}).round_id).toBe(roundId);
+    fetchMock.mockResolvedValue(response({refresh_token:"refresh",scope:"youtube"}));
+    const callback=await app.inject({url:`/youtube/callback?code=ok&state=${encodeURIComponent(state)}`});
+    expect(callback.statusCode).toBe(302); expect(callback.headers.location).toContain(`&round=${roundId}`);
+  });
+  it("cancelar OAuth consome intenção sem criar playlist ou consultar Google", async () => {
+    const user=await register(); const result=await app.inject({url:"/youtube/connect",headers:headers(user.token)});
+    const state=new URL(result.json().url).searchParams.get("state")!;
+    const callback=await app.inject({url:`/youtube/callback?error=access_denied&state=${encodeURIComponent(state)}`});
+    expect(callback.statusCode).toBe(302); expect(callback.headers.location).toContain("youtube=cancelled"); expect(fetchMock).not.toHaveBeenCalled();
   });
   it("Pix imediatamente aprovado credita exatamente uma vez", async () => {
     const user = await register(); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";

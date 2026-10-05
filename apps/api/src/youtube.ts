@@ -5,11 +5,12 @@ const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
 export function parseYouTubeVideoId(input: string): string | null {
   let value = input.trim();
-  if (VIDEO_ID.test(value)) return value;
+  // The contribution field accepts YouTube URLs, never a bare video identifier.
   if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
 
   try {
     const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.port) return null;
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     let id: string | null = null;
     if (host === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] ?? null;
@@ -28,7 +29,7 @@ export function parseYouTubeVideoId(input: string): string | null {
 
 export async function verifyYouTubeVideo(input: string, apiKey?: string): Promise<{ videoId: string; canonicalUrl: string }> {
   const videoId = parseYouTubeVideoId(input);
-  if (!videoId) throw new Error("Informe uma URL válida de vídeo do YouTube.");
+  if (!videoId) throw new Error("URL não aceita. Cole um link de vídeo do YouTube.");
 
   if (apiKey) {
     const endpoint = new URL("https://www.googleapis.com/youtube/v3/videos");

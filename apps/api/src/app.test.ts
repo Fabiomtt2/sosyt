@@ -14,6 +14,8 @@ describe("URLs do YouTube", () => {
   it("rejeita domínios parecidos", () => {
     expect(parseYouTubeVideoId("https://youtube.example/watch?v=dQw4w9WgXcQ")).toBeNull();
   });
+  it.each(["dQw4w9WgXcQ","https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ","ftp://youtube.com/watch?v=dQw4w9WgXcQ","https://attacker@youtube.com/watch?v=dQw4w9WgXcQ"])("não aceita %s",(url) => expect(parseYouTubeVideoId(url)).toBeNull());
+
 });
 
 describe("fluxo colaborativo", () => {

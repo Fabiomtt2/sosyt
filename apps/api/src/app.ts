@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import helmet from "@fastify/helmet";
 import { z } from "zod";
 import { registerOwnerRoutes, hasMembership } from "./owner.js";
+import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured } from "./whatsapp.js";
 import type { Config } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
 import { createPixPayment, fetchMercadoPagoPayment, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
@@ -28,7 +29,7 @@ declare module "@fastify/jwt" {
 const requestCodeSchema = z.object({
   name: z.string().trim().min(2).max(80),
   phone: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().regex(/^\d{10,15}$/)),
-  groupCode: z.string().trim().regex(/^[1-9]+$/, "Use somente algarismos de 1 a 9.")
+  groupCode: z.string().trim().regex(/^[1-9]\d*$/, "Informe o número positivo do grupo SOS YOUTUBER.")
 });
 const verifyCodeSchema = z.object({
   phone: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().regex(/^\d{10,15}$/)),
@@ -135,7 +136,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, String(user.phone), String(user.groupCode))) return reply.code(403).send({ message: "Seu acesso precisa da aprovação do Owner em um grupo SOS YOUTUBER." });
     db.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").run(new Date().toISOString(), request.user.sub);
   }
-  await registerOwnerRoutes(app, db, config);
+  const { ownerGuard } = await registerOwnerRoutes(app, db, config);
+  const stopWhatsApp = await registerWhatsAppRoutes(app,db,config,ownerGuard);
 
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError) return reply.code(400).send({ message: error.issues[0]?.message ?? "Dados inválidos." });
@@ -152,7 +154,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/health", async () => ({ ok: true }));
 
   app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    if (!config.AUTH_DEV_MODE) return reply.code(501).send({ message: "Conecte um provedor WhatsApp para entregar o código em produção." });
+    if (!config.AUTH_DEV_MODE && (!whatsappConfigured(config) || !config.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({ message: "A entrega WhatsApp ainda precisa ser configurada pelos Owners." });
     const body = requestCodeSchema.parse(request.body);
     if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, body.groupCode)) return reply.code(403).send({ message: "Número e grupo ainda não aprovados. Use Quero participar! para solicitar acesso ao Owner." });
     const recent = db.prepare("SELECT created_at FROM login_codes WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(body.phone) as { created_at: string } | undefined;
@@ -164,7 +166,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     db.prepare(`INSERT INTO login_codes (id, phone, name, group_code, code_hash, expires_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(randomUUID(), body.phone, body.name, body.groupCode, codeHash(config, body.phone, code), new Date(now.getTime() + 10 * 60_000).toISOString(), now.toISOString());
-    return reply.send({ ok: true, expiresInSeconds: 600, devCode: code });
+    if (!config.AUTH_DEV_MODE) {
+      try { await sendWhatsAppOtp(config,body.phone,code); }
+      catch { db.prepare("UPDATE login_codes SET used_at=? WHERE phone=? AND used_at IS NULL").run(new Date().toISOString(),body.phone); return reply.code(503).send({ message: "Não foi possível entregar o código pelo WhatsApp. Tente novamente mais tarde." }); }
+    }
+    return reply.send({ ok: true, expiresInSeconds: 600, ...(config.AUTH_DEV_MODE ? { devCode: code } : {}) });
   });
 
   app.post("/auth/verify", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
@@ -206,7 +212,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const contributionCount = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?")
       .get(open.id, request.user.sub) as { count: number };
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
-    const exports = db.prepare("SELECT round_id AS roundId, status, youtube_playlist_id AS playlistId FROM playlist_exports WHERE user_id = ?")
+    const exports = db.prepare("SELECT round_id AS roundId, status, added_count AS addedCount, youtube_playlist_id AS playlistId FROM playlist_exports WHERE user_id = ?")
       .all(request.user.sub) as Array<{ roundId: string; status: string; playlistId?: string }>;
     return {
       user: getUser(db, request.user.sub),
@@ -344,25 +350,29 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   });
 
   app.get("/youtube/connect", { preHandler: authGuard }, async (request) => {
-    const returnTo = (request.query as { returnTo?: string }).returnTo === "app" ? "app" : "web";
+    const query = z.object({ returnTo: z.enum(["app","web"]).default("web"), roundId: z.string().uuid().optional() }).parse(request.query);
+    const returnTo = query.returnTo;
+    if (query.roundId && !db.prepare("SELECT 1 FROM rounds r JOIN submissions s ON s.round_id=r.id WHERE r.id=? AND r.status='READY' AND s.user_id=?").get(query.roundId,request.user.sub)) throw Object.assign(new Error("Somente participantes de um ciclo completo podem criar sua playlist."),{statusCode:403});
     const state = app.jwt.sign({ sub: request.user.sub, purpose: "youtube-oauth", aud: "conexao-oauth", returnTo, jti: randomUUID() }, { expiresIn: "10m" });
     const url = googleAuthorizationUrl(config, state);
     db.prepare("DELETE FROM oauth_states WHERE expires_at < ?").run(new Date().toISOString());
-    db.prepare("INSERT INTO oauth_states (state_hash, user_id, expires_at) VALUES (?, ?, ?)").run(createHash("sha256").update(state).digest("hex"), request.user.sub, new Date(Date.now() + 600_000).toISOString());
+    db.prepare("INSERT INTO oauth_states (state_hash, user_id, expires_at, round_id) VALUES (?, ?, ?, ?)").run(createHash("sha256").update(state).digest("hex"), request.user.sub, new Date(Date.now() + 600_000).toISOString(), query.roundId ?? null);
     return { url };
   });
 
   app.get("/youtube/callback", async (request, reply) => {
-    const query = z.object({ code: z.string(), state: z.string() }).parse(request.query);
+    const query = z.object({ code: z.string().optional(), state: z.string(), error: z.string().optional() }).parse(request.query);
     const state = app.jwt.verify<{ sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string }>(query.state);
     if (state.purpose !== "youtube-oauth" || state.aud !== "conexao-oauth") return reply.code(400).send("Estado OAuth inválido.");
+    const intent = db.prepare("SELECT round_id FROM oauth_states WHERE state_hash=? AND user_id=?").get(createHash("sha256").update(query.state).digest("hex"),state.sub) as { round_id?: string } | undefined;
     const consumed = db.prepare("UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?").run(new Date().toISOString(), createHash("sha256").update(query.state).digest("hex"), state.sub, new Date().toISOString());
     if (!consumed.changes) return reply.code(400).send("Autorização expirada ou já utilizada. Conecte novamente.");
+    if (query.error || !query.code) return reply.redirect(`${config.WEB_APP_URL}?youtube=cancelled`);
     const tokens = await exchangeGoogleCode(config, query.code);
     db.prepare(`INSERT INTO youtube_connections (user_id, refresh_token_cipher, scope, updated_at) VALUES (?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET refresh_token_cipher = excluded.refresh_token_cipher, scope = excluded.scope, updated_at = excluded.updated_at`)
       .run(state.sub, encryptToken(tokens.refreshToken, config), tokens.scope, new Date().toISOString());
-    return reply.redirect(state.returnTo === "app" ? "conexaoyoutube://oauth?status=connected" : `${config.WEB_APP_URL}?youtube=connected`);
+    return reply.redirect(state.returnTo === "app" ? "conexaoyoutube://oauth?status=connected" : `${config.WEB_APP_URL}?youtube=connected${intent?.round_id ? `&round=${encodeURIComponent(intent.round_id)}` : ""}`);
   });
 
   app.post("/rounds/:id/export", { preHandler: authGuard }, async (request, reply) => {
@@ -374,6 +384,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const connection = db.prepare("SELECT refresh_token_cipher AS token FROM youtube_connections WHERE user_id = ?").get(request.user.sub) as { token: string } | undefined;
     if (!connection) return reply.code(409).send({ message: "Conecte sua conta do YouTube primeiro." });
     const videos = db.prepare("SELECT video_id AS videoId FROM submissions WHERE round_id = ? ORDER BY slot").all(roundId) as Array<{ videoId: string }>;
+    if (videos.length !== 10) return reply.code(409).send({ message: "A playlist exige exatamente dez links salvos." });
     const now = new Date().toISOString();
     const lockOwner = randomUUID();
     const acquired = db.prepare(`INSERT INTO export_locks (round_id, user_id, owner, expires_at) VALUES (?, ?, ?, ?)
@@ -411,6 +422,6 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     }
   });
 
-  app.addHook("onClose", async () => { if (!providedDb) db.close(); });
+  app.addHook("onClose", async () => { await stopWhatsApp(); if (!providedDb) db.close(); });
   return app;
 }

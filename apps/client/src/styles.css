@@ -122,3 +122,5 @@ footer { margin-top: 42px; border-top: 1px solid var(--line); padding-top: 22px;
 .entry-slot{flex-wrap:wrap}.slot-entry-form{grid-column:1/-1;display:grid;gap:12px;width:100%;padding:12px 0 0}.slot-entry-form label{font-size:12px}.slot-entry-form input{width:100%}.slot .video-link{display:block;font-size:11px;line-height:1.5;color:#a02b4b;overflow-wrap:anywhere;word-break:break-all;margin:8px 0}.slot.filled .slot-main{min-width:0}.slot.filled .slot-main>div:last-child{min-width:0}.slot .primary{margin-top:10px}.cycle-details{width:100%;grid-column:1/-1;order:3}.cycle-details summary{font-size:13px;font-weight:700;color:#a02b4b;cursor:pointer;padding:12px 0}.cycle-details .board{margin-top:16px}.ready-card{flex-wrap:wrap}.ready-card .cycle-details{flex-basis:100%}
 
 @media(max-width:520px){header{padding:0 12px}.logo{font-size:.9rem}.header-actions{gap:6px}.owner-shell .profile{gap:5px;padding:5px}.owner-tabs{min-width:0;max-width:100%}.owner-panel{min-width:0}}
+
+.creation-progress{grid-column:1/-1;margin:0;font-size:13px;color:#655a63}.modal progress{width:100%;accent-color:#ef2540}

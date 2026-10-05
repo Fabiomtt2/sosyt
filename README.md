@@ -1,15 +1,18 @@
 # Conexão Youtube
 
-Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos globais de 10 vídeos e criarem, voluntariamente, uma playlist privada na própria conta Google. Android/Capacitor está preservado; APK adiado a pedido do usuário.
+Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos globais de 10 vídeos e criarem, voluntariamente, uma playlist privada na própria conta Google. Android/Capacitor está preservado; APK permanece fora desta consolidação.
 
 ## Fluxo implementado
 
-- Uma tela de login: participante usa nome, WhatsApp e grupo aprovado; Owner usa nome e WhatsApp/ID configurados, grupo 0 e credencial exclusiva.
-- Quero participar! registra solicitação no painel. Com OWNER_WHATSAPP configurado, oferece mensagem pronta para o usuário enviar no WhatsApp. A conferência de participação no grupo é manual pelo Owner.
-- Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; autoria histórica é preservada.
-- Cada usuário começa com 10 moedas. Salvar custa 1; a primeira contribuição de cada ciclo usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
-- Ao completar 10, o ciclo fica pronto, cada participante distinto recebe 1 moeda interna de curadoria e um novo ciclo abre. Cada participante pode conferir os 10 registros, conectar YouTube e usar Compartilhar em Playlist.
-- Painel Owner: aprova/revoga números, gerencia grupos, lista usuários/compras, exporta CSV, conta atividade nos últimos 30 dias, solicitações, ciclos e playlists mensais. Pix real e simulado são separados.
+- Uma tela de login: participante usa nome, WhatsApp e grupo aprovado; Owners Fábio e Rafael usam nome, WhatsApp/ID configurado, marcador `#` no campo de grupo e credencial exclusiva.
+- `Quero participar!` registra solicitação no painel. Com `OWNER_WHATSAPP` configurado, abre uma conversa WhatsApp com mensagem preenchida; o usuário confirma o envio. A Cloud API pode responder e alertar os Owners quando as credenciais/templates Meta estiverem configurados.
+- A conferência de pertencimento ao grupo SOS YOUTUBER permanece administrativa até existir comprovação de que a conta/grupos atuais são elegíveis para automação oficial de grupos.
+- Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes no ciclo.
+- Só URLs estruturais do YouTube são aceitas. Com `YOUTUBE_API_KEY`, o servidor também consulta a API para confirmar existência/acessibilidade.
+- Cada usuário começa com 10 créditos. Salvar custa 1; a primeira contribuição de cada ciclo usa o direito-base. Uma compra confirmada de R$20 concede 20 créditos e 1 passe adicional. Créditos promocionais/recompensas não geram passes.
+- Ao completar 10 links, o ciclo fica pronto, um novo ciclo abre e cada participante distinto recebe 1 crédito interno de curadoria. Participantes do ciclo podem conferir os 10 registros e acionar `Criar playlist`.
+- Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária.
+- Painel Owner: aprova/revoga números, gerencia grupos, lista usuários/compras, exporta CSV, acompanha solicitações, ciclos, playlists, Pix e situação da fila WhatsApp.
 
 ## Executar no computador
 
@@ -21,11 +24,11 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. A configuração local usa nome `Owner`, ID `owner`, grupo `0`. A credencial aleatória está no campo OWNER_ADMIN_SECRET do `.env`; o script não sobrescreve configuração existente. Ajuste OWNER_NAME, OWNER_LOGIN_ID e OWNER_WHATSAPP conforme a conta desejada. Nunca publique o `.env`.
+Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os IDs padrão são `fabio` e `rafael`; ambos usam `#` no campo Grupo. Nunca publique o `.env`.
 
-O modo local mostra o OTP na tela e permite simular aprovação Pix; não envia WhatsApp nem movimenta dinheiro. Primeiro entre como Owner e autorize um número, ou aprove sua solicitação. Use sempre o mesmo formato de telefone no cadastro e na aprovação, preferencialmente DDI+DDD+número.
+Em desenvolvimento, `AUTH_DEV_MODE=true` mostra o OTP na interface e `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção esses modos são recusados pelo carregador de configuração. Para entrega real de OTP e automação de atendimento, configure a Cloud API Meta conforme `docs/WHATSAPP-INTEGRACAO.md`.
 
-A API lê o `.env` da raiz e mantém o banco em `apps/api/data/conexao-youtube.db`, independentemente do diretório de execução. O cliente usa VITE_API_URL=http://localhost:3333 por padrão; para outro endereço, configure essa variável no ambiente do Vite.
+A API lê o `.env` da raiz e mantém o banco em `apps/api/data/conexao-youtube.db`. O cliente usa `VITE_API_URL=http://localhost:3333` por padrão.
 
 ## Verificação
 
@@ -36,12 +39,14 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-O teste de navegador usa banco separado em `.local-tmp`. Para instalar o navegador dentro do projeto: `PLAYWRIGHT_BROWSERS_PATH="$PWD/.playwright-browsers" TMPDIR="$PWD/.local-tmp" node node_modules/@playwright/test/cli.js install chromium --only-shell`. Alternativamente, configure PLAYWRIGHT_CHROMIUM_EXECUTABLE com um navegador compatível. As capturas com dados fictícios ficam em docs/evidencias. O cliente inclui testes do contrato HTTP e do isolamento dos tokens; seu fluxo completo é verificado pelo Playwright.
+Na consolidação de 05/10/2026: 47 testes de API, 3 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Integrações e limites atuais
 
-Google OAuth, YouTube Data API e Mercado Pago possuem adaptadores, mas ainda exigem credenciais e teste real. Sem YOUTUBE_API_KEY, a validação é estrutural e não comprova existência/disponibilidade do vídeo. OTP de produção está bloqueado com resposta 501 até implementação do provedor de entrega. Aprovação de grupo é autorização administrativa, sem leitura automática de membros do WhatsApp.
+Google OAuth/YouTube Data API, Mercado Pago e WhatsApp Cloud API possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real de OTP/bot.
 
-A recompensa por tempo assistido e reprodução em segundo plano do pedido original não estão implementadas: as políticas oficiais do YouTube proíbem esses mecanismos em clientes da API. A moeda atual é de curadoria, não é resgatável em reais, e R$1 é apenas sua taxa de compra. O app não garante visualizações nem tempo assistido.
+A associação automática “número presente no grupo WhatsApp → código SOS YOUTUBER” não é tratada como concluída: depende da elegibilidade e das APIs oficiais disponíveis para os grupos reais. Até essa comprovação, o Owner confirma o vínculo.
 
-Antes de produção ainda faltam entrega real de OTP, validação das integrações, reconciliação de estornos, exclusão/retensão de dados, documentação de privacidade, monitoramento e revisão operacional. Consulte PROJECT_STATUS.md, docs/ARQUITETURA.md e docs/AUDITORIA-ASTRA-20261005.md.
+O produto não mede nem recompensa tempo assistido, não observa a tela do usuário e não reproduz YouTube em background. As políticas do YouTube proíbem oferecer incentivos/recompensas por assistir vídeos e proíbem background playback em clientes da API. O percentual exibido durante `Criar playlist` refere-se à inclusão dos 10 itens, não a watch time.
+
+Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, normalização internacional de telefone, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. Consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.

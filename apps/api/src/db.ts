@@ -5,6 +5,14 @@ import { mkdirSync } from "node:fs";
 export type AppDatabase = Database.Database;
 
 const schema = `
+CREATE TABLE IF NOT EXISTS whatsapp_received (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS whatsapp_conversations (phone TEXT PRIMARY KEY, stage TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS whatsapp_outbox (
+ id TEXT PRIMARY KEY, dedupe_key TEXT NOT NULL UNIQUE, recipient TEXT NOT NULL, payload TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL,
+ expires_at TEXT, lease_until TEXT, provider_message_id TEXT, last_error TEXT, created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS groups (
   code TEXT PRIMARY KEY,
   enabled INTEGER NOT NULL DEFAULT 1
@@ -153,8 +161,11 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("login_codes", "attempts", "INTEGER NOT NULL DEFAULT 0");
   addColumn("wallets", "payment_hold", "INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "last_seen_at", "TEXT");
+  addColumn("participation_requests", "source", "TEXT NOT NULL DEFAULT 'WEB'");
+  addColumn("participation_requests", "whatsapp_verified_at", "TEXT");
   addColumn("submissions", "author_name", "TEXT");
   addColumn("submissions", "author_group", "TEXT");
+  addColumn("oauth_states", "round_id", "TEXT");
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);

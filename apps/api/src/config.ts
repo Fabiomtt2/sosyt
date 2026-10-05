@@ -15,11 +15,27 @@ const schema = z.object({
   AUTH_DEV_MODE: booleanString.default(true),
   PAYMENTS_DEV_MODE: booleanString.default(true),
   REQUIRE_GROUP_MEMBERSHIP: booleanString.default(true),
-  ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]+(,[1-9]+)*$/).default("1,2"),
+  ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]\d*(,[1-9]\d*)*$/).default("1,2"),
   OWNER_NAME: z.string().trim().min(2).max(80).default("Owner"),
   OWNER_LOGIN_ID: z.string().trim().min(3).max(80).default("owner"),
   OWNER_ADMIN_SECRET: z.string().min(32).optional(),
   OWNER_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  OWNER_FABIO_ID: z.string().trim().min(3).max(80).default("fabio"),
+  OWNER_FABIO_SECRET: z.string().min(32).optional(),
+  OWNER_FABIO_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  OWNER_RAFAEL_ID: z.string().trim().min(3).max(80).default("rafael"),
+  OWNER_RAFAEL_SECRET: z.string().min(32).optional(),
+  OWNER_RAFAEL_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
+  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().min(16).optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().min(16).optional(),
+  WHATSAPP_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).default("v24.0"),
+  WHATSAPP_OTP_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/).optional(),
+  WHATSAPP_OWNER_ALERT_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/).optional(),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().default("pt_BR"),
+
   WEB_APP_URL: z.string().url().default("http://localhost:5173"),
   ANDROID_APP_ORIGIN: z.string().url().default("https://localhost"),
   API_PUBLIC_URL: z.string().url().default("http://localhost:3333"),
@@ -36,7 +52,7 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {}): Config {
   const values: Record<string, unknown> = { ...process.env, ...overrides };
-  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP"]) {
+  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE"]) {
     if (values[key] === "") delete values[key];
   }
   const parsed = schema.parse(values);

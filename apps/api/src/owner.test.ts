@@ -6,13 +6,13 @@ import { randomUUID } from "node:crypto";
 
 describe("Owner e acesso por grupo", () => {
   let db: AppDatabase, app: Awaited<ReturnType<typeof buildApp>>, ownerToken: string;
-  const ownerBody = { name: "Owner Teste", identifier: "owner-test", groupCode: "0", secret: "test-owner-secret-32-characters-long" };
+  const ownerBody = { name: "Fábio", identifier: "fabio", groupCode: "#", secret: "test-owner-secret-32-characters-long" };
   const authorization = (token: string) => ({ authorization: `Bearer ${token}` });
   beforeEach(async () => {
     db = createDatabase(":memory:");
     app = await buildApp(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", AUTH_DEV_MODE: "true", PAYMENTS_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP: "true",
-      OWNER_NAME: ownerBody.name, OWNER_LOGIN_ID: ownerBody.identifier, OWNER_ADMIN_SECRET: ownerBody.secret, OWNER_WHATSAPP: "5571999999000",
+      OWNER_FABIO_ID: ownerBody.identifier, OWNER_FABIO_SECRET: ownerBody.secret, OWNER_RAFAEL_SECRET:"rafael-own-secret-32-characters-long", OWNER_WHATSAPP: "5571999999000",
       MERCADO_PAGO_ACCESS_TOKEN: undefined, YOUTUBE_API_KEY: undefined
     }), db);
     const login = await app.inject({ method: "POST", url: "/admin/login", payload: ownerBody });
@@ -26,12 +26,21 @@ describe("Owner e acesso por grupo", () => {
     const login = await app.inject({ method: "POST", url: "/auth/verify", payload: { phone: "5571999999001", code } });
     expect(login.statusCode).toBe(200); return login.json().token as string;
   }
-  it("grupo zero sozinho não concede privilégio e Owner não usa sessão de participante", async () => {
+  it("hashtag sozinha não concede privilégio e Owner não usa sessão de participante", async () => {
     expect((await app.inject({ method: "POST", url: "/admin/login", payload: { ...ownerBody, secret: "wrong" } })).statusCode).toBe(401);
     expect((await requestCode("5571999999001", "0")).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: "/dashboard", headers: authorization(ownerToken) })).statusCode).toBe(401);
     const token = await participant();
     expect((await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(token) })).statusCode).toBe(401);
+  });
+  it("Fábio e Rafael têm credenciais e sujeitos separados; nome/# não bastam", async () => {
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael"}})).statusCode).toBe(401);
+    const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael",identifier:"rafael",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
+    expect(rafael.statusCode).toBe(200);
+    expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael",groupCode:"#"});
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,groupCode:"0"}})).statusCode).toBe(400);
+    const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
+    expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);
   });
   it("cadastro exige aprovação do número no grupo informado", async () => {
     expect((await requestCode()).statusCode).toBe(403); await approve();
