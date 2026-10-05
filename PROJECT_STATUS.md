@@ -50,9 +50,19 @@ Automação de grupos:
 
 Isso não simula acesso a grupos comuns não expostos pela API oficial. A validação real depende da conta Meta, OBA/eligibilidade e IDs retornados pelo provedor.
 
+## Continuidade e UI Premium — 05/10/2026
+
+- `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` é a âncora operacional obrigatória para novas instâncias/agentes.
+- Intro preserva a identidade ASTRA com lockup horizontal da marca, uma única CTA `Quero participar` e segurança integrada por check verde discreto, sem cadeado decorativo.
+- A CTA inicia o bot do WhatsApp quando o contato oficial está configurado; formulário web permanece fallback.
+- Login continua universal: `WhatsApp`, grupo SOS YOUTUBER 1–99 e `Credencial`; sem +55 automático, sem rótulos Owner e sem `#` visível.
+- Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
+- Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
+- Webapp/XFCE é a prioridade corrente; APK não é prioridade desta rodada.
+
 ## Verificação do WIP de convergência
 
-Gate completo executado após regra de moedas, decisão WhatsApp e automação de grupos:
+Gate completo executado após o refinamento Premium/continuidade:
 - `git diff --check`: aprovado;
 - backend: 57/57 testes;
 - cliente: 6/6 testes;

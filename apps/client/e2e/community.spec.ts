@@ -4,11 +4,27 @@ import { resolve } from "node:path";
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
   const evidence = resolve("../../docs/evidencias"), errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.setViewportSize({ width: 390, height: 844 }); await page.goto("/");
+  await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/");
   await expect(page.getByRole("heading", { name: "Entre na sua conexão" })).toBeVisible();
+  await expect(page.getByText("Quero participar", { exact: true })).toHaveCount(1);
   await expect(page.getByText("Sem views automáticas.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem reprodução oculta.", { exact: true })).toBeVisible();
   await expect(page.getByText("Você mantém o controle.", { exact: true })).toBeVisible();
+  await expect(page.getByText("WhatsApp do Owner", { exact: true })).toHaveCount(0);
+  const helperIsSingleLine = await page.locator(".login-helper").evaluate((element) => {
+    const style = getComputedStyle(element);
+    const lineHeight = Number.parseFloat(style.lineHeight);
+    return element.getBoundingClientRect().height <= lineHeight * 1.25;
+  });
+  expect(helperIsSingleLine).toBe(true);
+  const lockupAligned = await page.locator(".brand-lockup").evaluate((element) => {
+    const mark = element.querySelector(".brand-mark")!.getBoundingClientRect();
+    const label = element.querySelector(".eyebrow")!.getBoundingClientRect();
+    return Math.abs((mark.top + mark.height / 2) - (label.top + label.height / 2)) < 4;
+  });
+  expect(lockupAligned).toBe(true);
+  await page.screenshot({ path: resolve(evidence, "login-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(evidence, "login-mobile.png"), fullPage: true });
   await page.getByRole("button", { name: "Quero participar", exact: true }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
