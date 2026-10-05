@@ -17,8 +17,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [joined, setJoined] = useState<{ message: string; whatsappUrl?: string }>();
   const [form, setForm] = useState({ name: "", phone: "", groupCode: "" });
   const [devCode, setDevCode] = useState<string>();
-  const [whatsappJoinUrl,setWhatsAppJoinUrl] = useState<string>();
-  useEffect(() => { void participationApi.groups().then((result) => setWhatsAppJoinUrl(result.whatsappJoinUrl)).catch(() => {}); },[]);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -63,9 +62,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         <p className="eyebrow">SOS YOUTUBER</p>
       </div>
       <h1>Uma playlist.<br />Dez vozes.</h1>
-      <p className="lead">Organize a curadoria do seu grupo e leve a seleção para a sua própria conta do YouTube — sempre por escolha sua.</p>
+      <p className="lead">Organize a curadoria do seu grupo e leve a seleção para a sua própria conta do YouTube.<span className="lead-choice">Sempre por escolha sua.</span></p>
       <div className="participation-cluster">
-        {whatsappJoinUrl ? <a className="intro-join" href={whatsappJoinUrl} target="_blank" rel="noreferrer">Quero participar</a> : <button className="intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>}
+        <button className="primary intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>
         <div className="trust-note" aria-label="Compromissos de segurança">
           <span className="security-check" aria-hidden="true">✓</span>
           <div className="trust-copy"><span>Sem views automáticas.</span><span>Sem reprodução oculta.</span><strong>Você mantém o controle.</strong></div>
@@ -76,9 +75,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <div>
         <p className="eyebrow dark">ACESSO SOS YOUTUBER</p>
         <h2>{step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Digite sua Credencial"}</h2>
-        <p className={step === "profile" && !joinMode ? "muted login-helper" : "muted"}>{step === "profile" ? joinMode ? "Informe seus dados para registrar a solicitação. Você também pode iniciar o atendimento pelo WhatsApp." : "Informe seus dados — identificamos automaticamente seu perfil pelo WhatsApp." : authRole === "owner" ? "Digite sua Credencial para abrir o painel administrativo." : devCode ? "Use a Credencial de demonstração exibida abaixo. Em produção ela é enviada pelo WhatsApp." : `Digite a Credencial enviada para ${form.phone}.`}</p>
+        <p className={step === "profile" && !joinMode ? "muted login-helper" : "muted"}>{step === "profile" ? joinMode ? "Informe seus dados. Ao continuar, sua solicitação entra no painel e o WhatsApp fica pronto para iniciar o bot." : "Informe seus dados — identificamos automaticamente seu perfil pelo WhatsApp." : authRole === "owner" ? "Digite sua Credencial para abrir o painel administrativo." : devCode ? "Use a Credencial de demonstração exibida abaixo. Em produção ela é enviada pelo WhatsApp." : `Digite a Credencial enviada para ${form.phone}.`}</p>
       </div>
-      {joined ? <div className="join-success" role="status"><ShieldCheck size={30} /><p>{joined.message}</p>{joined.whatsappUrl && <a className="primary" href={joined.whatsappUrl} target="_blank" rel="noreferrer">Abrir WhatsApp do SOS YouTube</a>}<p className="muted">Sua solicitação já aparece no dashboard administrativo. No WhatsApp, confirme o envio da mensagem para continuar com o bot.</p><button className="secondary" onClick={() => { setJoined(undefined); setJoinMode(false); returnToProfile(); }}>Voltar ao login</button></div> : <form onSubmit={submit}>
+      {joined ? <div className="join-success" role="status"><ShieldCheck size={30} /><p>{joined.message}</p>{joined.whatsappUrl && <a className="primary" href={joined.whatsappUrl} target="_blank" rel="noreferrer">Continuar no WhatsApp</a>}<p className="muted">Sua solicitação já aparece no dashboard administrativo. No WhatsApp, confirme o envio da mensagem para continuar com o bot.</p><button className="secondary" onClick={() => { setJoined(undefined); setJoinMode(false); returnToProfile(); }}>Voltar ao login</button></div> : <form onSubmit={submit}>
         {step === "profile" ? <>
           <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
           <label>WhatsApp<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatInternationalPhoneInput(e.target.value) })} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
@@ -89,7 +88,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <label>Credencial<input type={authRole === "owner" ? "password" : "text"} inputMode={authRole === "owner" ? "text" : "numeric"} maxLength={authRole === "owner" ? 256 : 6} pattern={authRole === "owner" ? undefined : "[0-9]{6}"} autoComplete={authRole === "owner" ? "current-password" : "one-time-code"} value={credential} onChange={(e) => setCredential(authRole === "owner" ? e.target.value : e.target.value.replace(/\D/g, ""))} placeholder={authRole === "owner" ? "Sua Credencial" : "000000"} required /></label>
         </>}
         {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : joinMode ? "Solicitar participação" : step === "profile" ? "Continuar" : "Entrar"}</button>
+        <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
         {step === "credential" && <button type="button" className="text-button" onClick={returnToProfile}>Corrigir meus dados</button>}
       </form>}
       {step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}

@@ -3,7 +3,11 @@
 ## Âncora
 - Árvore canônica de integração: `YouTube Final`.
 - `Conexão Youtube` é a fonte histórica/WIP ASTRA e deve permanecer somente leitura durante o merge.
-- Ler antes de agir: `git status`, `git log`, `PROJECT_STATUS.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo.
+- Ler antes de agir: `git status`, `git log`, `PROJECT_STATUS.md`, `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo.
+
+## Recuperação obrigatória
+- Se o usuário disser que algo já foi corrigido/validado, que a instância se perdeu ou pedir retomada exata, interromper edições e executar integralmente `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md` antes de agir.
+- Git/testes/handoffs prevalecem sobre memória do agente quando houver divergência.
 
 ## Proteção de trabalho
 - NÃO usar `git reset`, `git clean`, `git stash` nem descartar WIP sem autorização explícita.
@@ -28,7 +32,7 @@
 - Quadro global compartilhado entre os grupos SOS YOUTUBER; 10 posições sequenciais e permanentes por ciclo.
 - Owners: nomes configurados `Fabio0` e `Rafael0` aceitam também os aliases `Fábio` e `Rafael`; privilégio exige o WhatsApp correspondente configurado no `.env` e Credencial separada. O marcador `#` é somente interno e nunca deve aparecer como instrução/campo da UI.
 - Login: campo universal `WhatsApp`, sem +55 automático; país livre. Grupo usa `SOS YOUTUBER — Digite a qual grupo você pertence`, somente 1–99. Campo secreto é apenas `Credencial`.
-- Intro: uma única CTA `Quero participar`; quando WhatsApp está configurado, ela inicia o bot por mensagem pré-preenchida. Preservar lockup horizontal da marca e bloco de segurança integrado, sem cadeado decorativo.
+- Intro: uma única CTA `Quero participar`; ela abre a tela de dados já validada. O envio registra a solicitação/dashboard e então oferece o WhatsApp com mensagem pronta para iniciar o bot. Não pular essa tela com link direto. Preservar lockup horizontal da marca e bloco de segurança integrado, sem cadeado decorativo.
 - WhatsApp: onboarding/bot/OTP/alertas/decisão automatizados pela Cloud API quando configurada.
 - Grupos: associação deve ser automatizada pela Groups API oficial quando a conta/grupo forem elegíveis; eventos reais de participante alimentam `group_memberships`. Fallback Owner permanece para grupos não sincronizados.
 - YouTube: criar playlist somente após ciclo pronto, por participante do ciclo e com OAuth explícito.

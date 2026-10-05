@@ -7,34 +7,77 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/");
   await expect(page.getByRole("heading", { name: "Entre na sua conexão" })).toBeVisible();
   await expect(page.getByText("Quero participar", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Sempre por escolha sua.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem views automáticas.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem reprodução oculta.", { exact: true })).toBeVisible();
   await expect(page.getByText("Você mantém o controle.", { exact: true })).toBeVisible();
   await expect(page.getByText("WhatsApp do Owner", { exact: true })).toHaveCount(0);
+
   const helperIsSingleLine = await page.locator(".login-helper").evaluate((element) => {
     const style = getComputedStyle(element);
     const lineHeight = Number.parseFloat(style.lineHeight);
     return element.getBoundingClientRect().height <= lineHeight * 1.25;
   });
   expect(helperIsSingleLine).toBe(true);
+
   const lockupAligned = await page.locator(".brand-lockup").evaluate((element) => {
     const mark = element.querySelector(".brand-mark")!.getBoundingClientRect();
     const label = element.querySelector(".eyebrow")!.getBoundingClientRect();
     return Math.abs((mark.top + mark.height / 2) - (label.top + label.height / 2)) < 4;
   });
   expect(lockupAligned).toBe(true);
+
+  const joinButton = page.getByRole("button", { name: "Quero participar", exact: true });
+  const continueButton = page.getByRole("button", { name: "Continuar", exact: true });
+  const [joinMetrics, continueMetrics] = await Promise.all([joinButton, continueButton].map((locator) => locator.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      height: element.getBoundingClientRect().height,
+      paddingTop: style.paddingTop,
+      paddingBottom: style.paddingBottom,
+      borderRadius: style.borderRadius,
+      fontWeight: style.fontWeight
+    };
+  })));
+  expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
+  expect(joinMetrics.paddingTop).toBe(continueMetrics.paddingTop);
+  expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
+  expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
+  expect(joinMetrics.fontWeight).toBe(continueMetrics.fontWeight);
+
+  const clusterIsIsolated = await page.locator(".participation-cluster").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return style.backgroundColor === "rgba(0, 0, 0, 0)" && style.borderTopWidth === "0px" && style.boxShadow === "none";
+  });
+  expect(clusterIsIsolated).toBe(true);
+
+  const securityWeights = await page.locator(".trust-copy").evaluate((element) => {
+    const [first, second, last] = Array.from(element.children) as HTMLElement[];
+    return [getComputedStyle(first).fontWeight, getComputedStyle(second).fontWeight, getComputedStyle(last).fontWeight].map(Number);
+  });
+  expect(securityWeights[0]).toBeLessThan(700);
+  expect(securityWeights[1]).toBeLessThan(700);
+  expect(securityWeights[2]).toBeGreaterThanOrEqual(700);
+
   await page.screenshot({ path: resolve(evidence, "login-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(evidence, "login-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "Quero participar", exact: true }).click();
+  await joinButton.click();
+  await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
+  await expect(page.getByText(/WhatsApp fica pronto para iniciar o bot/)).toBeVisible();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
   const joinPhone = page.getByLabel("WhatsApp");
   await joinPhone.fill("5");
   await expect(joinPhone).toHaveValue("5");
   await joinPhone.fill("5571900000001");
   await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1");
-  await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Solicitar participação" }).click();
+  await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Enviar dados e continuar" }).click();
   await expect(page.getByText("Solicitação registrada.", { exact: false })).toBeVisible();
+  const whatsappContinuation = page.getByRole("link", { name: "Continuar no WhatsApp" });
+  await expect(whatsappContinuation).toBeVisible();
+  const whatsappHref = await whatsappContinuation.getAttribute("href");
+  expect(whatsappHref).toContain("https://wa.me/5571999990999");
+  expect(whatsappHref).toContain("Pessoa%20E2E");
   await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
   await page.getByRole("button", { name: "Voltar ao login" }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fabio0");

@@ -54,15 +54,26 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 
 - `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` é a âncora operacional obrigatória para novas instâncias/agentes.
 - Intro preserva a identidade ASTRA com lockup horizontal da marca, uma única CTA `Quero participar` e segurança integrada por check verde discreto, sem cadeado decorativo.
-- A CTA inicia o bot do WhatsApp quando o contato oficial está configurado; formulário web permanece fallback.
+- A CTA `Quero participar` abre a tela intermediária já validada; o envio registra os dados no painel e a etapa de sucesso oferece o WhatsApp com mensagem pronta para iniciar o bot. A CTA não deve pular diretamente para o WhatsApp.
 - Login continua universal: `WhatsApp`, grupo SOS YOUTUBER 1–99 e `Credencial`; sem +55 automático, sem rótulos Owner e sem `#` visível.
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
 - Webapp/XFCE é a prioridade corrente; APK não é prioridade desta rodada.
 
+## Recuperação por Git — 05/10/2026
+
+Uma regressão de contexto foi identificada e recuperada pelo histórico:
+- `53e6d87` consolidou o onboarding internacional + bot;
+- `9ac044a` preservou a CTA como entrada para a tela intermediária;
+- `e4f1bf2` voltou a permitir link direto ao WhatsApp quando `whatsappJoinUrl` existia, pulando a tela já validada;
+- a decisão recuperada agora é protegida por E2E mesmo quando um WhatsApp fictício está configurado;
+- `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md` tornou-se obrigatória quando o usuário disser que algo já havia sido corrigido/validado ou que a instância perdeu contexto.
+
+A intro também fixa por teste: botão `Quero participar` isolado e com a mesma métrica de `Continuar`, sem retângulo externo; frase `Sempre por escolha sua.` em nova linha; peso normal nas duas primeiras linhas de segurança e negrito apenas na última.
+
 ## Verificação do WIP de convergência
 
-Gate completo executado após o refinamento Premium/continuidade:
+Gate completo executado após recuperação por Git e refinamento visual:
 - `git diff --check`: aprovado;
 - backend: 57/57 testes;
 - cliente: 6/6 testes;

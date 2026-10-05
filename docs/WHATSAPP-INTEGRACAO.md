@@ -2,7 +2,7 @@
 
 ## Fluxo construído
 
-1. O link Quero participar pelo WhatsApp abre conversa com mensagem pronta: “Olá! Quero participar do projeto SOS YouTube.”. O WhatsApp exige que a pessoa pressione Enviar; wa.me não envia sozinho.
+1. A CTA `Quero participar` abre a tela de dados. Após o registro, o botão de continuidade abre o WhatsApp com mensagem pronta: “Olá! Quero participar do projeto SOS YouTube.”. O WhatsApp exige que a pessoa pressione Enviar; wa.me não envia sozinho.
 2. Meta entrega a mensagem ao endpoint HTTPS `/webhooks/whatsapp`. O servidor verifica HMAC SHA-256 do corpo original com WHATSAPP_APP_SECRET e confere o ID do número Business; WHATSAPP_BUSINESS_ACCOUNT_ID acrescenta conferência da conta.
 3. O bot enfileira acolhimento e pedido do nome de preferência. Ao responder o nome, o número recebido pela Meta/wa_id é associado à solicitação, marcada WHATSAPP no painel. O nome é autodeclarado; a origem do telefone é o webhook assinado, não o texto digitado no site.
 4. No mesmo fluxo que cria a pendência no dashboard, o bot agenda o alerta “Novo Usuário! Registro pendente 📨” para `OWNER_ALERT_WHATSAPP` quando configurado; se ele estiver vazio, usa os telefones das contas Owner. O alerta leva nome, número e quantidade de pendências.

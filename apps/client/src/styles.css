@@ -19,12 +19,13 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; letter-spacing: -.04em; }
 .brand-mark { width: 64px; height: 64px; display: grid; place-items: center; background: var(--red); border-radius: 18px; margin: 0; box-shadow: 0 18px 35px #0006; flex: 0 0 auto; }
 .brand-panel h1 { font-size: clamp(3rem, 6vw, 5.7rem); line-height: .98; margin-bottom: 30px; position: relative; z-index: 1; }
 .lead { max-width: 580px; font-size: 1.15rem; color: #cbd0d9; line-height: 1.65; position: relative; z-index: 1; }
-.participation-cluster { width: 300px; max-width: 100%; margin-top: 30px; padding: 10px; border: 1px solid #ffffff18; border-radius: 20px; background: #ffffff08; box-shadow: 0 18px 42px #0003; position: relative; z-index: 1; }
-.intro-join { width: 100%; border: 1px solid #ffffff26; border-radius: 13px; padding: 15px 20px; background: var(--red); color: white; font-weight: 800; text-decoration: none; text-align: center; cursor: pointer; box-shadow: 0 10px 24px #0004; }
-.intro-join:hover { background: #cf2030; }
-.trust-note { display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px; padding: 14px 10px 6px; color: #eef2f6; text-align: left; }
+.lead-choice { display: block; margin-top: 3px; }
+.participation-cluster { width: 300px; max-width: 100%; margin-top: 30px; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; }
+.intro-join { width: 100%; min-height: 50px; margin: 0; }
+.login-card form > .primary { min-height: 50px; }
+.trust-note { display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px; margin-top: 28px; padding: 0 4px; color: #eef2f6; text-align: left; }
 .security-check { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #21a366; color: white; font-weight: 900; font-size: .88rem; box-shadow: 0 8px 18px #0003; }
-.trust-copy { display: grid; gap: 1px; font-size: .75rem; line-height: 1.4; font-weight: 700; }
+.trust-copy { display: grid; gap: 2px; font-size: .77rem; line-height: 1.45; font-weight: 500; }
 .trust-copy span, .trust-copy strong { display: block; }
 .trust-copy strong { color: white; font-weight: 800; }
 .login-card { background: var(--paper); padding: clamp(32px, 8vw, 110px); display: flex; flex-direction: column; justify-content: center; gap: 26px; }

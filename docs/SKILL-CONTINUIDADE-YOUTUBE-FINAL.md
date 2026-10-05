@@ -6,6 +6,8 @@ Data-base: 05/10/2026.
 Impedir perda de contexto entre instâncias/agentes e preservar decisões já confirmadas no projeto `YouTube Final`.
 
 ## Preflight obrigatório
+Se houver qualquer sinal de perda de contexto, executar primeiro `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`.
+
 Antes de editar:
 1. `git status --short`
 2. `git log -5 --oneline --decorate`
@@ -31,7 +33,7 @@ Antes de editar:
 
 ## Participação e WhatsApp
 - Há uma única CTA principal **Quero participar** na intro.
-- Se o WhatsApp oficial estiver configurado, a CTA abre a mensagem pré-preenchida para iniciar o bot; formulário web é fallback.
+- A CTA abre primeiro a tela intermediária de participação. Ao enviar, os dados são registrados no backend/dashboard; em seguida, a interface oferece o WhatsApp com a mensagem pré-preenchida para iniciar o bot. Não pular essa tela com link direto.
 - O bot acolhe, explica o projeto, pergunta “Como gostaria de ser chamado?” e registra solicitação pendente.
 - Nova solicitação aparece no dashboard e gera alerta administrativo pela Cloud API quando configurada.
 - Aprovação acontece pelo dashboard; Credencial temporária usa o mesmo mecanismo OTP seguro já existente.
@@ -41,8 +43,9 @@ Antes de editar:
 - Preservar paleta base navy/vermelho/creme, Manrope + DM Sans, cartões arredondados e hierarquia limpa.
 - Premium significa refinamento, profundidade, consistência e legibilidade — não trocar identidade nem adicionar ruído.
 - Intro: logo vermelha + “SOS YOUTUBER” em lockup horizontal; evitar empilhamento vertical não solicitado.
-- CTA de participação e mensagem de segurança devem formar um único bloco visual.
-- Sem cadeado decorativo grande. Segurança usa check verde discreto/padrão integrado ao bloco.
+- CTA de participação é um botão isolado, sem retângulo/card externo; deve ter a mesma altura/padding do botão `Continuar`.
+- A mensagem de segurança fica abaixo com respiro maior; duas primeiras linhas em peso normal e apenas `Você mantém o controle.` em negrito.
+- Sem cadeado decorativo grande. Segurança usa check verde discreto/padrão integrado ao texto.
 - Texto auxiliar do login deve ficar em uma linha no desktop; mobile pode quebrar para evitar overflow.
 - Uma ideia por bloco, sem parede de texto, sem duplicação de chamadas.
 
