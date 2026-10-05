@@ -6,11 +6,11 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem ciclos 
 
 - Uma tela de login: participante usa nome, celular brasileiro e grupo aprovado; Owners `Fabio0` e `Rafael0` usam nome, WhatsApp no formato `+55 DD [9]XXXX-XXXX` (espaço após `[9]` também aceito), marcador/palavra-chave `#` e credencial exclusiva.
 - `Quero participar!` registra solicitação no painel. Com `OWNER_WHATSAPP` configurado, abre uma conversa WhatsApp com mensagem preenchida; o usuário confirma o envio. A Cloud API pode responder e alertar os Owners quando as credenciais/templates Meta estiverem configurados.
-- A conferência de pertencimento ao grupo SOS YOUTUBER permanece administrativa até existir comprovação de que a conta/grupos atuais são elegíveis para automação oficial de grupos.
+- A associação ao grupo SOS YOUTUBER é automatizada quando a Groups API oficial expõe grupos elegíveis: o worker reconhece `SOS YOUTUBER N`, sincroniza participantes e webhooks de entrada/saída atualizam o acesso. Grupos que a Meta não expõe permanecem disponíveis para conferência Owner.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes no ciclo.
 - Só URLs estruturais do YouTube são aceitas. Com `YOUTUBE_API_KEY`, o servidor também consulta a API para confirmar existência/acessibilidade.
 - Cada usuário começa com 10 créditos. Salvar custa 1; a primeira contribuição de cada ciclo usa o direito-base. Uma compra confirmada de R$20 concede 20 créditos e 1 passe adicional. Créditos promocionais/recompensas não geram passes.
-- Ao completar 10 links, o ciclo fica pronto, um novo ciclo abre e cada participante distinto recebe 1 crédito interno de curadoria. Participantes do ciclo podem conferir os 10 registros e acionar `Criar playlist`.
+- Ao completar 10 links, o ciclo fica pronto, um novo ciclo abre e cada participante distinto recebe 1 crédito interno de curadoria. Participantes do ciclo podem conferir os 10 registros e acionar `Criar playlist`. Depois da criação, o acompanhamento de reprodução consolida 1 moeda interna a cada 10% de progresso, até 10 por usuário/ciclo, sem duplicar marcos já creditados.
 - Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária.
 - Painel Owner: aprova/revoga números, gerencia grupos, lista usuários/compras, exporta CSV, acompanha solicitações, ciclos, playlists, Pix e situação da fila WhatsApp.
 
@@ -39,14 +39,14 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação de 05/10/2026: 49 testes de API, 5 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação final de 05/10/2026: 54 testes de API, 5 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Integrações e limites atuais
 
 Google OAuth/YouTube Data API, Mercado Pago e WhatsApp Cloud API possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real de OTP/bot.
 
-A associação automática “número presente no grupo WhatsApp → código SOS YOUTUBER” não é tratada como concluída: depende da elegibilidade e das APIs oficiais disponíveis para os grupos reais. Até essa comprovação, o Owner confirma o vínculo.
+A automação de grupos está implementada para a Groups API oficial: descoberta por nome `SOS YOUTUBER N`, sincronização de participantes, webhook de entrada/saída e fallback manual. A ativação real depende de a conta Meta e os grupos existentes serem elegíveis e retornados pela API.
 
-O produto oferece um acompanhamento local e informativo de reprodução após a playlist ser criada, usando a IFrame Player API oficial: o percentual avança apenas com o player em reprodução e a aba visível, preserva continuidade no navegador e ignora saltos grandes de timeline. Não há OCR, captura de tela ou reprodução oculta/background. Esse percentual não altera saldo nem gera recompensa; as políticas do YouTube proíbem oferecer incentivos/recompensas por assistir vídeos. O percentual exibido durante `Criar playlist` continua sendo o progresso técnico de inclusão dos 10 itens.
+O acompanhamento de reprodução após a playlist ser criada usa a IFrame Player API: o percentual avança com reprodução natural e aba visível, ignora saltos grandes e é sincronizado por conta/ciclo. Cada 10% consolidado gera 1 moeda interna de capacidade de contribuição, até 10 por playlist/ciclo; o ledger impede duplicação. Essas moedas não têm saque ou conversão em dinheiro. O percentual exibido durante `Criar playlist` continua sendo apenas o progresso técnico de inclusão dos 10 itens.
 
 Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, migração de eventuais telefones legados para a forma canônica internacional, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. Consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.

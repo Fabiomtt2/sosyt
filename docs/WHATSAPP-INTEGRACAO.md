@@ -6,7 +6,7 @@
 2. Meta entrega a mensagem ao endpoint HTTPS `/webhooks/whatsapp`. O servidor verifica HMAC SHA-256 do corpo original com WHATSAPP_APP_SECRET e confere o ID do número Business; WHATSAPP_BUSINESS_ACCOUNT_ID acrescenta conferência da conta.
 3. O bot enfileira acolhimento e pedido do nome de preferência. Ao responder o nome, o número recebido pela Meta/wa_id é associado à solicitação, marcada WHATSAPP no painel. O nome é autodeclarado; a origem do telefone é o webhook assinado, não o texto digitado no site.
 4. Dois alertas independentes podem ser enviados a Fabio0 e Rafael0 por template aprovado, contendo quantidade de pendências no momento do evento, nome e telefone. Painel diferencia solicitações web e WhatsApp.
-5. Owner confere vínculo ao grupo e aprova. O login exige número e grupo autorizados, além do OTP. O adaptador de OTP usa template de autenticação; código nunca é devolvido ao navegador com AUTH_DEV_MODE=false.
+5. Quando a Groups API oficial expõe o grupo, o vínculo é sincronizado automaticamente por participante e por eventos de entrada/saída. Para grupos ainda não elegíveis/expostos, o Owner pode conferir e aprovar manualmente. O login exige número e grupo presentes em `group_memberships`, além do OTP.
 
 Mensagens recebidas são deduplicadas por ID. Solicitações são deduplicadas por telefone. Respostas/alertas ficam em fila persistente; worker executa a cada cinco segundos, tem lease, timeout, até cinco tentativas e retentativa administrativa. Respostas livres só são tentadas dentro de 24h da mensagem original; notificações aos Owners usam template para não depender de janela aberta. Falhas de envio OTP invalidam o código.
 
@@ -26,7 +26,10 @@ Envio aceito pela API NÃO comprova entrega/leitura. O painel contabiliza aceite
 | WHATSAPP_GRAPH_VERSION | Versão suportada pela conta, default configurável v24.0 |
 | WHATSAPP_OTP_TEMPLATE | Nome do template AUTHENTICATION aprovado, código em body e botão OTP/url índice 0 |
 | WHATSAPP_OWNER_ALERT_TEMPLATE | Nome do template aprovado para aviso administrativo |
+| WHATSAPP_DECISION_TEMPLATE | Template para comunicar decisão quando a janela livre já fechou |
 | WHATSAPP_TEMPLATE_LANGUAGE | Idioma exato aprovado, default pt_BR |
+| WHATSAPP_GROUPS_SYNC_ENABLED | Liga/desliga descoberta/sincronização oficial, default true |
+| WHATSAPP_GROUPS_SYNC_MINUTES | Intervalo do worker de grupos, default 5 minutos |
 
 O template de alerta deve ter parâmetros de corpo nesta ordem: `{{1}}` quantidade pendente, `{{2}}` nome declarado, `{{3}}` número. Sugestão de texto a submeter à Meta: “Há nova solicitação no SOS YouTube. Pendentes: {{1}}. Nome: {{2}}. WhatsApp: {{3}}. Confira o painel administrativo.” Categoria/aprovação e cobrança dependem da Meta; não assumir envio gratuito.
 
@@ -38,9 +41,9 @@ Nenhuma conta Meta, template ou número foi cadastrado externamente nesta etapa.
 
 Código é inteiro positivo (1,2,...10,...), sem zero inicial, até oito dígitos. `#` pertence apenas aos Owners Fabio0/Rafael0 e nunca prova privilégio por si só. Nome de exibição não é credencial de acesso.
 
-A Meta documenta Groups API, grupos por convite e eventos de participantes. Isso não comprova que os grupos comuns preexistentes SOS YOUTUBER podem ser consultados pela nossa conta. Nesta pesquisa, o corpo completo das páginas Meta retornou 429; não afirmar limites/elegibilidade sem confirmação atual no console/documentação. O MVP mantém conferência pelo Owner. Não usar o número do grupo informado como prova, não simular sincronização e não adotar robô WhatsApp Web silenciosamente.
+A automação oficial está implementada sem robô de WhatsApp Web: o worker lista grupos ativos do número Cloud API, reconhece subject no formato `SOS YOUTUBER N`, grava o `group_id`, consulta participantes e sincroniza `group_memberships`. Webhooks `group_participants_update` atualizam entrada/saída em tempo real e são deduplicados. O painel também oferece sincronização imediata.
 
-Antes de construir admissão automática, confirmar: elegibilidade da conta, suporte aos grupos existentes, IDs reais dos grupos e eventos/listagem autorizados. Se a API suportar esse cenário, mapear grupo externo→código SOS, atualizar vínculo por eventos assinados e revogar na saída. Até essa comprovação, esse automatismo é uma pendência explícita.
+Isso não significa que qualquer grupo comum/preexistente possa ser lido. A automação só atua nos grupos que a conta Meta elegível realmente devolve. Grupos não expostos permanecem em `OWNER_VERIFIED`; digitar o número do grupo nunca prova pertencimento.
 
 ## Referências oficiais consultadas
 

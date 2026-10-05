@@ -1,56 +1,71 @@
-# Estado verificável — YouTube Final, 2026-10-05
+# Estado verificável — YouTube Final
 
-## Âncora
+Data de consolidação: 05/10/2026.
 
-Repositório isolado em `/home/ubuntu-desktop-bootstrap-ubuntu-/Documents/Codex/2026-10-04/gostar/YouTube Final`, criado a partir do WIP auditado de `Conexão Youtube`. A pasta de origem não foi alterada durante a consolidação. Esta cópia preserva o histórico Git e o WIP funcional; não herdou o `.env` da origem nem caches/SDKs pesados. Depois da consolidação, recebeu um `.env` local próprio, ignorado pelo Git. Não há remote configurado.
+## Linhagem e auditoria
 
-Base histórica: `0f09c7b`. Primeiro checkpoint isolado validado: `ae26bf1` (`feat: consolidate audited YouTube Final integration`). A rodada atual parte desse checkpoint.
+A fonte histórica ASTRA permanece em `Conexão Youtube`, branch `main`, HEAD `0f09c7b` mais WIP não commitado. Ela foi auditada novamente antes desta convergência: `git diff --check`, 47 testes de API, 3 do cliente, TypeScript e build/PWA passaram.
 
-O `.env` local permanece ignorado pelo Git e contém os telefones/identificadores reais dos Owners e seus contatos de alerta. Esses dados não são versionados nem repetidos na documentação.
+O primeiro merge isolado `ae26bf1` incorporou por hash todos os arquivos de código/texto modificados ou criados pelo WIP ASTRA. Nenhum código ASTRA foi perdido nesse checkpoint. As diferenças posteriores são evolução na árvore isolada `YouTube Final`.
+
+Histórico principal:
+- `37f915c` — checkpoint/auditoria ASTRA inicial;
+- `14f584e` — motor web compartilhado e controles Owner;
+- `0f09c7b` — âncora documental ASTRA;
+- `ae26bf1` — primeiro merge isolado;
+- `361c87a` — Owners refinados e acompanhamento de reprodução;
+- `974443a` — login Owner por WhatsApp formatado;
+- `02249e3` — evidências UI;
+- `9978481` — auditoria externa de integrações.
+
+A governança corrente está em `AGENTS.md`. `.env` é local/ignorado e não deve ser exibido ou versionado.
 
 ## Produto consolidado
 
-- Quadro global com 10 posições sequenciais, URL permanente, autor, grupo e horário.
-- Rejeição de URL não-YouTube e validação externa opcional por YouTube Data API.
-- Owners independentes `Fabio0`/`Rafael0` usando `#`, telefone brasileiro formatado obrigatório, segredos separados e JWT com purpose/audience próprios.
-- Solicitação de participação via web/WhatsApp, painel de pendências, aprovação/revogação manual e fila WhatsApp persistente.
-- Adaptador Cloud API Meta com verificação de webhook, HMAC, deduplicação, retentativa e alertas aos Owners.
-- 10 créditos iniciais; débito por contribuição; compra de R$20 = 20 créditos + 1 passe; ledger/idempotência e bloqueio após estorno.
-- OAuth Google individual, playlist privada, consentimento explícito, trava de exportação e recuperação de exportação parcial.
-- Recompensa atual é de curadoria ao fechar o ciclo, não por watch time. Após a criação da playlist, há acompanhamento local informativo via IFrame Player API, sem vínculo com carteira.
+- Quadro global entre todos os grupos SOS YOUTUBER com 10 posições sequenciais, URL, autor, grupo e horário permanentes.
+- URL precisa ser YouTube; validação estrutural sempre e consulta externa quando `YOUTUBE_API_KEY` existe.
+- `Fabio0` e `Rafael0`: contas Owner separadas, `#`, telefone brasileiro formatado e segredo individual.
+- Usuário: nome + WhatsApp + grupo; OTP e vínculo de grupo protegem login.
+- 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
+- Ao fechar o ciclo, recompensa de curadoria existente permanece.
+- Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
+- Acompanhamento de reprodução usa IFrame Player API, conta avanço natural com aba visível, ignora saltos grandes e sincroniza progresso por usuário/ciclo.
+- Regra confirmada pelo usuário: cada marco de 10% consolidado gera 1 moeda interna, máximo 10 por playlist/ciclo. Ledger `WATCH_PROGRESS` torna os marcos idempotentes.
+- Moedas são crédito interno para controlar capacidade de contribuição; não são saque ou pagamento em dinheiro.
 
-## Verificação executada antes do checkpoint
+## WhatsApp
 
-- `git diff --check`: aprovado.
-- Testes API: 49/49.
-- Testes cliente: 5/5.
-- `npm run lint`: aprovado.
-- `npm run build`: aprovado.
-- Playwright E2E: 1/1 aprovado.
-- `npm audit` e `npm audit --omit=dev`: 0 vulnerabilidades reportadas.
-- SQLite local: `integrity_check=ok`, 0 violações de foreign key e 0 inconsistências detectadas nas verificações de rounds, slots, vídeos, carteiras e ledger.
-- API local e web local retornaram HTTP 200 na árvore de origem auditada.
+Fluxo atual: `Quero participar` → acolhimento → nome → pendência → alerta aos dois Owners → decisão → retorno automático ao participante → OTP.
 
-## Decisões canônicas da consolidação
+A decisão do Owner responde por mensagem livre quando a janela de serviço está ativa; fora dela usa `WHATSAPP_DECISION_TEMPLATE` quando configurado. Fila persistente, HMAC, deduplicação, lease, retry/backoff e OTP por template permanecem.
 
-1. `#` identifica o fluxo Owner, mas não concede privilégio por si só. Credencial de servidor continua obrigatória.
-2. O quadro é global entre grupos SOS YOUTUBER.
-3. Só participantes de um ciclo READY podem criar sua playlist daquele ciclo.
-4. Ação de YouTube é explícita e autorizada pelo usuário.
-5. Não implementar recompensa por assistir, OCR da tela, espelhamento/QtScrcpy para provar visualização ou background playback ligado a recompensas.
-6. O percentual de criação mede inclusão dos 10 itens. Separadamente, o monitor de reprodução pode exibir percentual informativo calculado pelo player oficial, sem alterar moedas.
-7. Pertencimento ao grupo WhatsApp só será automatizado após comprovação de elegibilidade/API oficial para os grupos existentes; até lá, confirmação pelo Owner.
-8. Integrações externas só podem ser chamadas “reais” depois de teste com credenciais e ambiente do provedor.
+Automação de grupos:
+- worker descobre grupos oficiais cujo subject é `SOS YOUTUBER N`;
+- grava `whatsapp_group_id` e modo `META_GROUPS_API`;
+- sincroniza participantes para `group_memberships`;
+- webhook `group_participants_update` concede/revoga acesso em entrada/saída;
+- eventos são deduplicados;
+- painel permite sincronização imediata;
+- grupos que a Meta não expõe/para os quais a conta não é elegível permanecem em fallback `OWNER_VERIFIED`.
 
-## Pendências antes de produção
+Isso não simula acesso a grupos comuns não expostos pela API oficial. A validação real depende da conta Meta, OBA/eligibilidade e IDs retornados pelo provedor.
 
-- Política de privacidade, termos, consentimento e processo de exclusão/retenção de dados.
-- Teste real Meta WhatsApp, Google/YouTube e Mercado Pago.
-- Reconciliação de pagamento criado remotamente sem `provider_payment_id` persistido localmente.
-- Telefones de participantes já são canonizados para `55 + DDD + 9 dígitos`; revisar/migrar eventuais registros legados antes de produção.
-- Ferramenta administrativa para resolver `payment_hold`.
-- Observabilidade, backup, restauração e implantação.
-- Se houver múltiplas instâncias de API, substituir/adequar SQLite e coordenação de locks.
-- Validar, com conta elegível e documentação oficial, qualquer futura integração de grupos WhatsApp.
+## Verificação do WIP de convergência
 
-Ver `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md` para o confronto requisito por requisito.
+Gate completo executado após regra de moedas, decisão WhatsApp e automação de grupos:
+- `git diff --check`: aprovado;
+- backend: 54/54 testes;
+- cliente: 5/5 testes;
+- TypeScript API e cliente: aprovado;
+- build API + React/PWA: aprovado;
+- Playwright E2E: 1/1 aprovado no fluxo completo.
+
+## Pendências externas/produção
+
+- Credenciais e teste real Meta WhatsApp/Groups API.
+- Credenciais e teste real Google/YouTube.
+- Credenciais e conciliação real Mercado Pago.
+- Política de privacidade, termos, retenção/exclusão e revogação de dados.
+- Observabilidade, backup/restauração e implantação.
+- Revisar requisitos contratuais/políticas dos provedores antes de produção.
+- APK permanece fora desta rodada; Android WIP histórico não deve ser destruído.
