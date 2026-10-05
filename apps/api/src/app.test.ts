@@ -28,7 +28,7 @@ describe("fluxo colaborativo", () => {
   });
   afterEach(async () => { await app.close(); db.close(); });
 
-  async function register(name: string, phone: string, groupCode = "123") {
+  async function register(name: string, phone: string, groupCode = "12") {
     const request = await app.inject({ method: "POST", url: "/auth/request-code", payload: { name, phone, groupCode } });
     const devCode = request.json().devCode;
     const verification = await app.inject({ method: "POST", url: "/auth/verify", payload: { phone, code: devCode } });
@@ -46,9 +46,9 @@ describe("fluxo colaborativo", () => {
     expect(dashboard.json().wallet.total).toBe(9);
     expect(dashboard.headers["cache-control"]).toBe("no-store");
     expect(dashboard.headers["x-content-type-options"]).toBe("nosniff");
-    db.prepare("UPDATE users SET name='Nome Alterado', group_code='456' WHERE phone=?").run("71999990001");
+    db.prepare("UPDATE users SET name='Nome Alterado', group_code='45' WHERE phone=?").run("71999990001");
     const preserved = await app.inject({ method: "GET", url: "/dashboard", headers: { authorization: `Bearer ${token}` } });
-    expect(preserved.json().openRound.slots[0]).toMatchObject({ userName: "Ana Teste", groupCode: "123" });
+    expect(preserved.json().openRound.slots[0]).toMatchObject({ userName: "Ana Teste", groupCode: "12" });
 
   });
 });

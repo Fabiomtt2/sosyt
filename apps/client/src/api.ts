@@ -20,6 +20,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  resolveRole: (body: { name: string; phone: string }) => request<{ role: "user" | "owner" }>("/auth/role", { method: "POST", body: JSON.stringify(body) }),
   requestCode: (body: { name: string; phone: string; groupCode: string }) => request<{ devCode?: string }>("/auth/request-code", { method: "POST", body: JSON.stringify(body) }),
   verifyCode: (body: { phone: string; code: string }) => request<{ token: string }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
   dashboard: () => request<Dashboard>("/dashboard"),

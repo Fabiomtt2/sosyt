@@ -15,19 +15,20 @@ const schema = z.object({
   AUTH_DEV_MODE: booleanString.default(true),
   PAYMENTS_DEV_MODE: booleanString.default(true),
   REQUIRE_GROUP_MEMBERSHIP: booleanString.default(true),
-  ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]\d*(,[1-9]\d*)*$/).default("1,2"),
+  ALLOWED_GROUP_CODES: z.string().regex(/^(?:[1-9]|[1-9]\d)(,(?:[1-9]|[1-9]\d))*$/).default("1,2"),
   OWNER_NAME: z.string().trim().min(2).max(80).default("Owner"),
   OWNER_LOGIN_ID: z.string().trim().min(3).max(80).default("owner"),
   OWNER_ADMIN_SECRET: z.string().min(32).optional(),
-  OWNER_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  OWNER_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
+  OWNER_ALERT_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   OWNER_FABIO_NAME: z.string().trim().min(2).max(80).default("Fabio0"),
   OWNER_FABIO_ID: z.string().trim().min(3).max(80).default("fabio0"),
   OWNER_FABIO_SECRET: z.string().min(32).optional(),
-  OWNER_FABIO_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  OWNER_FABIO_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   OWNER_RAFAEL_NAME: z.string().trim().min(2).max(80).default("Rafael0"),
   OWNER_RAFAEL_ID: z.string().trim().min(3).max(80).default("rafael0"),
   OWNER_RAFAEL_SECRET: z.string().min(32).optional(),
-  OWNER_RAFAEL_WHATSAPP: z.string().regex(/^\d{10,15}$/).optional(),
+  OWNER_RAFAEL_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
@@ -57,7 +58,7 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {}): Config {
   const values: Record<string, unknown> = { ...process.env, ...overrides };
-  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE"]) {
+  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE"]) {
     if (values[key] === "") delete values[key];
   }
   const parsed = schema.parse(values);

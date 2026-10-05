@@ -9,7 +9,7 @@ import { ownerAccounts } from "./owners.js";
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
 type Payload = Record<string, unknown>;
 const now = () => new Date().toISOString();
-const phoneValid = (phone: string) => /^\d{10,15}$/.test(phone);
+const phoneValid = (phone: string) => /^[1-9]\d{7,14}$/.test(phone);
 export const whatsappConfigured = (config: Config) => Boolean(config.WHATSAPP_PHONE_NUMBER_ID && config.WHATSAPP_ACCESS_TOKEN && config.WHATSAPP_APP_SECRET && config.WHATSAPP_VERIFY_TOKEN);
 const equal = (a: string, b: string) => timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 export function whatsappJoinUrl(config: Config) {
@@ -26,7 +26,15 @@ function template(config: Config, name: string, parameters: string[]): Payload {
 export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: string, phone: string, name: string, eventId: string) {
   if (!config.WHATSAPP_OWNER_ALERT_TEMPLATE) return;
   const count = (db.prepare("SELECT COUNT(*) AS n FROM participation_requests WHERE status='PENDING'").get() as { n: number }).n;
-  for (const owner of ownerAccounts(config)) if (owner.phone) queue(db,owner.phone,template(config,config.WHATSAPP_OWNER_ALERT_TEMPLATE,[String(count),name,phone]),`${eventId}:owner:${owner.id}:${requestId}`);
+  const recipients = config.OWNER_ALERT_WHATSAPP
+    ? [{ id: "primary", phone: config.OWNER_ALERT_WHATSAPP }]
+    : ownerAccounts(config).filter((owner) => owner.phone).map((owner) => ({ id: owner.id, phone: owner.phone! }));
+  for (const recipient of recipients) queue(
+    db,
+    recipient.phone,
+    template(config,config.WHATSAPP_OWNER_ALERT_TEMPLATE,[name,phone,String(count)]),
+    eventId + ":owner:" + recipient.id + ":" + requestId
+  );
 }
 
 export function queueParticipationDecision(
@@ -51,8 +59,11 @@ export function queueParticipationDecision(
   const dedupe = `decision:${requestId}:${status}:${groupCode ?? "-"}`;
 
   if (inServiceWindow && serviceExpiresAt) {
+    const credentialHint = config.WHATSAPP_OTP_TEMPLATE
+      ? "Sua Credencial temporária será enviada pelo WhatsApp e vale por 10 minutos."
+      : "Abra o aplicativo para solicitar sua Credencial de acesso pelo WhatsApp.";
     const body = status === "APPROVED"
-      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} usando seu número, o grupo ${groupCode} e o código de confirmação enviado pelo WhatsApp.`
+      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} usando seu número e o grupo ${groupCode}. ${credentialHint}`
       : `Olá, ${request.name}. Sua solicitação ao SOS YouTube não foi aprovada neste momento. Se acreditar que houve engano, responda por aqui para que os Owners possam revisar.`;
     queue(db,request.phone,{type:"text",text:{body}},dedupe,serviceExpiresAt.toISOString());
     return true;
@@ -69,7 +80,7 @@ type MetaGroupSummary = { id: string; subject: string };
 type MetaGroupInfo = { id?: string; subject?: string; participants?: Array<{ wa_id?: string }> };
 
 function groupCodeFromSubject(subject: string): string | undefined {
-  return /^SOS\s+YOUTUBER\s+([1-9]\d*)$/iu.exec(subject.trim())?.[1];
+  return /^SOS\s+YOUTUBER\s+([1-9]|[1-9]\d)$/iu.exec(subject.trim())?.[1];
 }
 
 async function graphJson<T>(config: Config, path: string): Promise<T> {
@@ -165,11 +176,21 @@ async function send(config: Config, recipient: string, payload: Payload): Promis
   if (!response.ok || !data.messages?.[0]?.id) throw new Error(`WHATSAPP_DELIVERY_${response.status}`);
   return data.messages[0].id;
 }
-export async function sendWhatsAppOtp(config: Config, phone: string, code: string) {
+function otpPayload(config: Config, code: string): Payload {
   if (!config.WHATSAPP_OTP_TEMPLATE) throw new Error("WHATSAPP_OTP_TEMPLATE_MISSING");
   const payload = template(config,config.WHATSAPP_OTP_TEMPLATE,[code]);
   (payload.template as { components: unknown[] }).components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: code }] });
-  await send(config,phone,payload);
+  return payload;
+}
+
+export async function sendWhatsAppOtp(config: Config, phone: string, code: string) {
+  await send(config,phone,otpPayload(config,code));
+}
+
+export function queueWhatsAppOtp(db: AppDatabase, config: Config, phone: string, code: string, dedupeKey: string, expiresAt: string) {
+  if (!config.WHATSAPP_OTP_TEMPLATE) return false;
+  queue(db,phone,otpPayload(config,code),dedupeKey,expiresAt);
+  return true;
 }
 export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit = 10) {
   if (!whatsappConfigured(config)) return;
@@ -200,7 +221,7 @@ export function whatsappStatus(db: AppDatabase, config: Config) {
   return {
     configured: whatsappConfigured(config),
     otpConfigured: Boolean(config.WHATSAPP_OTP_TEMPLATE),
-    ownerAlertsConfigured: Boolean(config.WHATSAPP_OWNER_ALERT_TEMPLATE && ownerAccounts(config).some((o) => o.phone)),
+    ownerAlertsConfigured: Boolean(config.WHATSAPP_OWNER_ALERT_TEMPLATE && (config.OWNER_ALERT_WHATSAPP || ownerAccounts(config).some((o) => o.phone))),
     decisionTemplateConfigured: Boolean(config.WHATSAPP_DECISION_TEMPLATE),
     groupsSyncEnabled: Boolean(config.WHATSAPP_GROUPS_SYNC_ENABLED),
     groupsLinked,
@@ -258,8 +279,8 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
             const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(msg.from) as { stage: string } | undefined;
             if (normalized.includes("quero participar")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
-              queue(db,msg.from,{type:"text",text:{body:`Olá! Bem-vindo ao SOS YouTube. A comunidade reúne dez links por ciclo; cada participante pode criar a seleção na própria conta YouTube. O acesso depende da confirmação de participação no grupo SOS YOUTUBER. Acesse ${config.WEB_APP_URL} após a aprovação.`}},`${msg.id}:welcome`,expires);
-              queue(db,msg.from,{type:"text",text:{body:"Deixe apenas seu nome ou como gostaria de ser chamado. Seu registro ficará em análise; o Owner conferirá seu grupo antes de liberar o acesso. Ao responder, você autoriza o uso do nome e número para essa solicitação."}},`${msg.id}:ask-name`,expires);
+              queue(db,msg.from,{type:"text",text:{body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e depende da validação do número no grupo informado.`}},`${msg.id}:welcome`,expires);
+              queue(db,msg.from,{type:"text",text:{body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires);
             } else if (conversation?.stage === "WAITING_NAME" && text.length>=2 && text.length<=80 && !/[\r\n]/.test(text) && !/https?:\/\//i.test(text)) {
               if (!db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from)) {
                 db.prepare("INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,created_at,updated_at) VALUES (?,?,?,'PENDING','WHATSAPP',?,?,?) ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='PENDING',source='WHATSAPP',whatsapp_verified_at=excluded.whatsapp_verified_at,updated_at=excluded.updated_at").run(randomUUID(),msg.from,text,now(),now(),now());
@@ -267,7 +288,8 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
                 queueOwnerAlerts(db,config,row.id,msg.from,text,msg.id);
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
-              queue(db,msg.from,{type:"text",text:{body:`Obrigado, ${text}! Sua identificação foi recebida. O painel dos Owners está atualizado; a liberação depende da conferência de participação no grupo. Não é necessário enviar seu nome novamente.`}},`${msg.id}:received`,expires);
+              queue(db,msg.from,{type:"text",text:{body:`Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`}},`${msg.id}:received`,expires);
+              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em ciclos de 10 links. Depois da liberação, entre no aplicativo com seu nome, WhatsApp e grupo SOS YOUTUBER. Sua Credencial de acesso será enviada pelo WhatsApp quando você solicitar a entrada."}},`${msg.id}:project-info`,expires);
             }
           }
         }

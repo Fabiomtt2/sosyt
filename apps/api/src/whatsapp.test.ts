@@ -31,15 +31,26 @@ describe("bot oficial WhatsApp", () => {
     expect((await post(intro,JSON.stringify(intro,null,2))).statusCode).toBe(200);
     await post(intro); expect(count("whatsapp_outbox")).toBe(2);
     await post(payload("m2","Luiza")); await post(payload("m2","Luiza"));
-    expect(count("participation_requests")).toBe(1); expect(count("whatsapp_outbox")).toBe(5);
+    expect(count("participation_requests")).toBe(1); expect(count("whatsapp_outbox")).toBe(6);
     const row=db.prepare("SELECT * FROM participation_requests").get() as Record<string,unknown>;
     expect(row).toMatchObject({name:"Luiza",phone:"5571999999001",source:"WHATSAPP",status:"PENDING"}); expect(row.whatsapp_verified_at).toBeTruthy();
     expect(count("group_memberships")).toBe(0);
     const sent: any[]=[]; vi.stubGlobal("fetch",vi.fn(async (_url,options) => { sent.push(JSON.parse(options.body)); return new Response(JSON.stringify({messages:[{id:`sent-${sent.length}`}]}),{status:200}); }));
     await flushWhatsAppOutbox(db,config);
-    expect(sent).toHaveLength(5); expect(sent.filter((s)=>s.type==="template").map((s)=>s.to).sort()).toEqual(["5571999999101","5571999999102"]);
-    expect(sent.find((s)=>s.type==="template").template.components[0].parameters.map((p:any)=>p.text)).toEqual(["1","Luiza","5571999999001"]);
-    await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(5);
+    expect(sent).toHaveLength(6); expect(sent.filter((s)=>s.type==="template").map((s)=>s.to).sort()).toEqual(["5571999999101","5571999999102"]);
+    expect(sent.find((s)=>s.type==="template").template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Luiza","5571999999001","1"]);
+    expect(sent.filter((s)=>s.type==="text").some((s)=>s.text.body.includes("validado em breve"))).toBe(true);
+    await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(6);
+  });
+  it("prioriza o número administrativo configurado para novo registro",async () => {
+    config.OWNER_ALERT_WHATSAPP="5511998765432";
+    await post(payload("alert-m1","Quero participar"));
+    await post(payload("alert-m2","Nina"));
+    const alerts=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE payload LIKE '%sos_pendente%'").all() as Array<{recipient:string;payload:string}>;
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].recipient).toBe("5511998765432");
+    const params=JSON.parse(alerts[0].payload).template.components[0].parameters.map((p:any)=>p.text);
+    expect(params).toEqual(["Nina","5571999999001","1"]);
   });
   it("notifica automaticamente a decisão do Owner e atualiza o estágio da conversa",async () => {
     await post(payload("decision-m1","Quero participar"));
@@ -55,6 +66,11 @@ describe("bot oficial WhatsApp", () => {
     const decisionPayload=JSON.parse(job.payload);
     expect(decisionPayload.type).toBe("text");
     expect(decisionPayload.text.body).toContain("aprovado no SOS YOUTUBER 1");
+    expect(count("login_codes")).toBe(1);
+    const credentialJob=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'approval-credential:%'").get() as {payload:string};
+    const credentialPayload=JSON.parse(credentialJob.payload);
+    expect(credentialPayload.type).toBe("template");
+    expect(credentialPayload.template.name).toBe("sos_codigo");
   });
   it("usa template de decisão fora da janela e deduplica o aviso",async () => {
     await post(payload("late-m1","Quero participar"));

@@ -38,11 +38,18 @@ describe("Owner e acesso por grupo", () => {
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael0"}})).statusCode).toBe(401);
     const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael0",identifier:"+55 71 [9] 9999-0002",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
     expect(rafael.statusCode).toBe(200);
-    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,identifier:"5571999990001"}})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,identifier:"5571999990099"}})).statusCode).toBe(401);
     expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael0",groupCode:"#"});
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,groupCode:"0"}})).statusCode).toBe(400);
     const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
     expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);
+  });
+  it("resolve o papel pelo nome e WhatsApp sem expor marcador Owner", async () => {
+    const fabio = await app.inject({ method:"POST", url:"/auth/role", payload:{ name:"Fabio0", phone:"+55 71 99999-0001" } });
+    expect(fabio.statusCode).toBe(200);
+    expect(fabio.json()).toEqual({ role:"owner" });
+    expect((await app.inject({ method:"POST", url:"/auth/role", payload:{ name:"Outra Pessoa", phone:"+55 71 99999-0001" } })).json()).toEqual({ role:"user" });
+    expect((await app.inject({ method:"POST", url:"/auth/role", payload:{ name:"Pessoa", phone:"+1 202 555 0187" } })).json()).toEqual({ role:"user" });
   });
   it("cadastro exige aprovação do número no grupo informado", async () => {
     expect((await requestCode()).statusCode).toBe(403); await approve();
@@ -73,8 +80,10 @@ describe("Owner e acesso por grupo", () => {
     const token = await participant(); await approve("5571999999001", "2");
     expect((await app.inject({ method: "GET", url: "/dashboard", headers: authorization(token) })).statusCode).toBe(403);
   });
-  it("Owner não pode cadastrar grupo zero; consentimento é obrigatório", async () => {
+  it("grupos ficam entre 1 e 99; consentimento é obrigatório", async () => {
     expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "0" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "100" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "99" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: "/participation/request", payload: { name: "Pessoa", phone: "5571999999001" } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: "/admin/login", payload: { ...ownerBody, name: "Outra Pessoa" } })).statusCode).toBe(401);
   });

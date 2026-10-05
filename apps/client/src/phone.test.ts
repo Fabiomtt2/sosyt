@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { formatBrazilMobileInput, isCompleteBrazilMobile } from "./phone";
+import { formatInternationalPhoneInput, isCompleteInternationalPhone } from "./phone";
 
-describe("telefone móvel brasileiro", () => {
-  it("formata DDI, DDD e nono dígito obrigatório", () => {
-    expect(formatBrazilMobileInput("5571999990001")).toBe("+55 71 [9]9999-0001");
-    expect(formatBrazilMobileInput("+55 71 99999-0001")).toBe("+55 71 [9]9999-0001");
+describe("WhatsApp internacional", () => {
+  it("não força +55 nem país ao começar a digitação", () => {
+    expect(formatInternationalPhoneInput("5")).toBe("5");
+    expect(formatInternationalPhoneInput("+1 202 555 0187")).toBe("+1 202 555 0187");
+    expect(formatInternationalPhoneInput("+351 912 345 678")).toBe("+351 912 345 678");
   });
 
-  it("aceita somente móvel brasileiro completo como cadastro", () => {
-    expect(isCompleteBrazilMobile("+55 71 [9]9999-0001")).toBe(true);
-    expect(isCompleteBrazilMobile("+55 71 [9]999-0002")).toBe(false);
+  it("aceita números completos de diferentes países", () => {
+    expect(isCompleteInternationalPhone("+55 71 99999-0001")).toBe(true);
+    expect(isCompleteInternationalPhone("+1 202 555 0187")).toBe(true);
+    expect(isCompleteInternationalPhone("+351 912 345 678")).toBe(true);
+    expect(isCompleteInternationalPhone("+1 20")).toBe(false);
   });
 });

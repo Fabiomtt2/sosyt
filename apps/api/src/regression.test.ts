@@ -25,12 +25,12 @@ describe("regressões de domínio e segurança", () => {
   });
   afterEach(async () => { await app.close(); db.close(); vi.unstubAllGlobals(); });
 
-  async function code(phone: string, groupCode = "123") {
+  async function code(phone: string, groupCode = "12") {
     const result = await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Pessoa Teste", phone, groupCode } });
     expect(result.statusCode).toBe(200);
     return result.json().devCode as string;
   }
-  async function register(phone = "71999999001", groupCode = "123") {
+  async function register(phone = "71999999001", groupCode = "12") {
     const otp = await code(phone, groupCode);
     const result = await app.inject({ method: "POST", url: "/auth/verify", payload: { phone, code: otp } });
     expect(result.statusCode).toBe(200);
@@ -60,10 +60,10 @@ describe("regressões de domínio e segurança", () => {
   }
 
   it("mantém quadro global com autoria, grupo e horário", async () => {
-    const a = await register(), b = await register("71999999002", "456");
+    const a = await register(), b = await register("71999999002", "45");
     expect((await submit(a.token, "dQw4w9WgXcQ")).statusCode).toBe(201);
     const slot = (await dashboard(b.token)).openRound.slots[0];
-    expect(slot.groupCode).toBe("123"); expect(slot.userName).toBe("Pessoa Teste"); expect(slot.createdAt).toBeTruthy();
+    expect(slot.groupCode).toBe("12"); expect(slot.userName).toBe("Pessoa Teste"); expect(slot.createdAt).toBeTruthy();
   });
   it("fecha dez contribuições, recompensa uma vez e abre novo ciclo", async () => {
     const users = [];
@@ -165,7 +165,7 @@ describe("regressões de domínio e segurança", () => {
   });
   it("limita reenvio de OTP e aceita CORS Android somente na origem configurada", async () => {
     await code("71999999001");
-    expect((await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Teste", phone: "71999999001", groupCode: "123" } })).statusCode).toBe(429);
+    expect((await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Teste", phone: "71999999001", groupCode: "12" } })).statusCode).toBe(429);
     const accepted = await app.inject({ method: "OPTIONS", url: "/dashboard", headers: { origin: "https://localhost", "access-control-request-method": "GET" } });
     expect(accepted.headers["access-control-allow-origin"]).toBe("https://localhost");
     const rejected = await app.inject({ method: "OPTIONS", url: "/dashboard", headers: { origin: "https://evil.example", "access-control-request-method": "GET" } });
