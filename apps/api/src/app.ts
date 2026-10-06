@@ -138,6 +138,27 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   await app.register(rateLimit, { global: false, errorResponseBuilder: () => ({ statusCode: 429, message: "Muitas tentativas. Aguarde antes de tentar novamente." }) });
   await app.register(jwt, { secret: config.JWT_SECRET, sign: { expiresIn: "8h" } });
 
+  function establishUserSession(name: string, phone: string, groupCode: string) {
+    const now = new Date().toISOString();
+    let user = db.prepare("SELECT id FROM users WHERE phone = ?").get(phone) as { id: string } | undefined;
+    db.transaction(() => {
+      if (!user) {
+        user = { id: randomUUID() };
+        db.prepare("INSERT INTO users (id, name, phone, group_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(user.id, name, phone, groupCode, now, now);
+        db.prepare("INSERT INTO wallets (user_id, updated_at) VALUES (?, ?)").run(user.id, now);
+        db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WELCOME', 10000, NULL, ?)")
+          .run(randomUUID(), user.id, now);
+      } else {
+        db.prepare("UPDATE users SET name = ?, group_code = ?, updated_at = ? WHERE id = ?").run(name, groupCode, now, user.id);
+      }
+    })();
+    return {
+      token: app.jwt.sign({ sub: user!.id, purpose: "session", aud: "conexao-session" }),
+      user: getUser(db, user!.id)
+    };
+  }
+
   async function authGuard(request: FastifyRequest, reply: FastifyReply) {
     await verifySession(request, reply);
     if (reply.sent) return;
@@ -162,6 +183,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.get("/health", async () => ({ ok: true }));
+
+  app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = requestCodeSchema.parse(request.body);
+    if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, body.groupCode)) {
+      return reply.code(403).send({ message: "Seu WhatsApp ainda não está autorizado no grupo SOS YOUTUBER informado. Use Quero participar para solicitar ou aguarde a aprovação." });
+    }
+    return reply.send(establishUserSession(body.name, body.phone, body.groupCode));
+  });
 
   app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!config.AUTH_DEV_MODE && (!whatsappConfigured(config) || !config.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({ message: "A entrega WhatsApp ainda precisa ser configurada pelos Owners." });

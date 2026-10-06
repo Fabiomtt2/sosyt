@@ -26,7 +26,8 @@ Antes de editar:
 - Nunca inserir `+55` automaticamente. País é livre; normalização/validação ocorre no backend.
 - Campo de grupo: **SOS YOUTUBER — Digite a qual grupo você pertence**; somente 1 a 99, sem zero inicial.
 - `#` é detalhe interno da API Owner. Nunca exibir `#` como valor, placeholder, palavra-chave ou instrução.
-- Campo secreto chama-se apenas **Credencial**.
+- Participante não possui campo secreto no fluxo principal. Após validação de telefone + grupo em `group_memberships`, entra diretamente.
+- Somente Owner recebe o campo **Credencial administrativa**; em desenvolvimento o valor é `sosyout`, enquanto produção exige segredo forte do servidor.
 - Roteamento automático: backend identifica participante vs Owner; a UI não pergunta o papel.
 - Owners aceitam nome configurado com sufixo 0 e alias equivalente sem 0/acento; privilégio só existe quando o WhatsApp também corresponde à conta configurada no `.env`.
 - Telefones reais, credenciais e número administrativo ficam somente no `.env` ignorado pelo Git.
@@ -36,7 +37,7 @@ Antes de editar:
 - A CTA abre primeiro a tela intermediária de participação. Ao enviar, os dados são registrados no backend/dashboard; em seguida, a interface oferece o WhatsApp com a mensagem pré-preenchida para iniciar o bot. Não pular essa tela com link direto.
 - O bot acolhe, explica o projeto, pergunta “Como gostaria de ser chamado?” e registra solicitação pendente.
 - Nova solicitação aparece no dashboard e gera alerta administrativo pela Cloud API quando configurada.
-- Aprovação acontece pelo dashboard; Credencial temporária usa o mesmo mecanismo OTP seguro já existente.
+- Aprovação acontece pelo dashboard ou pela sincronização oficial de grupo quando disponível. Participante aprovado entra diretamente; o mecanismo OTP legado permanece no backend, fora do fluxo principal.
 - Não duplicar CTAs de participação no login por apelo visual.
 
 ## Linguagem visual ASTRA
@@ -45,7 +46,7 @@ Antes de editar:
 - Intro: logo vermelha + “SOS YOUTUBER” em lockup horizontal; evitar empilhamento vertical não solicitado.
 - CTA de participação é um botão isolado, sem retângulo/card externo; deve ter a mesma altura/padding do botão `Continuar`.
 - A mensagem de segurança fica abaixo com respiro maior; duas primeiras linhas em peso normal e apenas `Você mantém o controle.` em negrito.
-- Sem cadeado decorativo grande. Segurança usa check verde discreto/padrão integrado ao texto.
+- Segurança usa escudo verde ilustrado em SVG, ancorado à base do bloco para acompanhar variações de altura do texto; não usar cadeado decorativo nem check circular genérico.
 - Texto auxiliar do login deve ficar em uma linha no desktop; mobile pode quebrar para evitar overflow.
 - Uma ideia por bloco, sem parede de texto, sem duplicação de chamadas.
 

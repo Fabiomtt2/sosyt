@@ -23,8 +23,8 @@ describe("Owner e acesso por grupo", () => {
   const requestCode = (phone = "5571999999001", groupCode = "1") => app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Pessoa", phone, groupCode } });
   const approve = (phone = "5571999999001", groupCode = "1") => app.inject({ method: "POST", url: "/admin/members", headers: authorization(ownerToken), payload: { phone, groupCode } });
   async function participant() {
-    await approve(); const code = (await requestCode()).json().devCode;
-    const login = await app.inject({ method: "POST", url: "/auth/verify", payload: { phone: "5571999999001", code } });
+    await approve();
+    const login = await app.inject({ method: "POST", url: "/auth/login", payload: { name: "Pessoa", phone: "5571999999001", groupCode: "1" } });
     expect(login.statusCode).toBe(200); return login.json().token as string;
   }
   it("hashtag sozinha não concede privilégio e Owner não usa sessão de participante", async () => {
@@ -34,16 +34,21 @@ describe("Owner e acesso por grupo", () => {
     const token = await participant();
     expect((await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(token) })).statusCode).toBe(401);
   });
-  it("Fabio0 e Rafael0 têm credenciais e sujeitos separados; nome/# não bastam", async () => {
+  it("Fabio0 e Rafael0 têm identidades separadas; sosyout funciona apenas no modo dev", async () => {
+    const dev = await app.inject({ method:"POST", url:"/admin/login", payload:{ ...ownerBody, secret:"sosyout" } });
+    expect(dev.statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael0"}})).statusCode).toBe(401);
     const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael0",identifier:"+55 71 [9] 9999-0002",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
     expect(rafael.statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,identifier:"5571999990099"}})).statusCode).toBe(401);
     expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael0",groupCode:"#"});
-    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,groupCode:"0"}})).statusCode).toBe(400);
     const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
     expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);
   });
+  it("login Owner rejeita marcador de grupo inválido", async () => {
+    expect((await app.inject({ method:"POST", url:"/admin/login", payload:{ ...ownerBody, groupCode:"0" } })).statusCode).toBe(400);
+  });
+
   it("resolve Owner por nome canônico ou alias sem zero + WhatsApp correto", async () => {
     for (const name of ["Fabio0", "Fábio"]) {
       const result = await app.inject({ method:"POST", url:"/auth/role", payload:{ name, phone:"+55 71 99999-0001" } });
@@ -68,9 +73,13 @@ describe("Owner e acesso por grupo", () => {
     expect(rafael.statusCode).toBe(200);
     expect((await app.inject({ url:"/admin/overview", headers:authorization(rafael.json().token) })).json().owner).toEqual({ name:"Rafael0", groupCode:"#" });
   });
-  it("cadastro exige aprovação do número no grupo informado", async () => {
-    expect((await requestCode()).statusCode).toBe(403); await approve();
-    expect((await requestCode("5571999999001", "2")).statusCode).toBe(403);
+  it("login direto exige aprovação do número no grupo informado; OTP legado continua protegido", async () => {
+    const direct = (groupCode = "1") => app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa", phone:"5571999999001", groupCode } });
+    expect((await direct()).statusCode).toBe(403);
+    expect((await requestCode()).statusCode).toBe(403);
+    await approve();
+    expect((await direct("2")).statusCode).toBe(403);
+    expect((await direct()).statusCode).toBe(200);
     expect((await requestCode()).statusCode).toBe(200);
   });
   it("solicitação registra pessoa uma vez, gera contato e aprovação libera login", async () => {
@@ -82,7 +91,7 @@ describe("Owner e acesso por grupo", () => {
     expect(overview.metrics.requestsTotal).toBe(1); expect(overview.metrics.pendingRequests).toBe(1);
     const decision = await app.inject({ method: "POST", url: `/admin/requests/${overview.requests[0].id}/decision`, headers: authorization(ownerToken), payload: { status: "APPROVED", groupCode: "2" } });
     expect(decision.statusCode).toBe(200);
-    expect((await requestCode("5571999999001", "2")).statusCode).toBe(200);
+    expect((await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Solicitante", phone:"5571999999001", groupCode:"2" } })).statusCode).toBe(200);
   });
   it("revogação e grupo desativado interrompem sessão existente", async () => {
     const token = await participant();

@@ -40,6 +40,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
     };
   })));
   expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
+  const [joinBox, continueBox] = await Promise.all([joinButton.boundingBox(), continueButton.boundingBox()]);
+  expect(joinBox).not.toBeNull(); expect(continueBox).not.toBeNull();
+  expect(Math.abs(joinBox!.y - continueBox!.y)).toBeLessThanOrEqual(3);
   expect(joinMetrics.paddingTop).toBe(continueMetrics.paddingTop);
   expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
   expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
@@ -62,6 +65,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({ path: resolve(evidence, "login-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(evidence, "login-mobile.png"), fullPage: true });
+  await continueButton.click();
+  await expect(page.getByText("Informe seu nome ou como prefere ser chamado.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Please fill out this field", { exact: false })).toHaveCount(0);
   await joinButton.click();
   await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
   await expect(page.getByText(/WhatsApp fica pronto para iniciar o bot/)).toBeVisible();
@@ -83,7 +89,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fabio0");
   await page.getByLabel("WhatsApp").fill("+55 71 99999-0001");
   await page.getByRole("button", { name: "Continuar", exact: true }).click();
-  await page.getByLabel("Credencial").fill("e2e-owner-secret-32-characters-long");
+  await page.getByLabel("Credencial administrativa").fill("sosyout");
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
   await expect(page.getByText("Pessoa E2E", { exact: true })).toBeVisible();
@@ -96,8 +102,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("button", { name: /Fabio0/ }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await page.getByLabel("WhatsApp").fill("5571900000001");
   await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1"); await page.getByRole("button", { name: "Continuar", exact: true }).click();
-  const code = await page.locator(".dev-code strong").innerText();
-  await page.getByLabel("Credencial").fill(code); await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page.getByLabel("Credencial administrativa")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Vamos montar a próxima seleção?" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/dQw4w9WgXcQ");
@@ -112,13 +117,12 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("2 de 10 vídeos", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({ path: resolve(evidence, "participante-mobile.png"), fullPage: true });
-  const owner = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "e2e-owner-secret-32-characters-long" } });
+  const owner = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "sosyout" } });
   expect(owner.ok()).toBeTruthy(); const ownerToken = (await owner.json()).token;
   for (let n = 3; n <= 10; n++) {
     const phone = `55719000000${String(n).padStart(2, "0")}`;
     const member = await request.post("http://127.0.0.1:17333/admin/members", { headers: { authorization: `Bearer ${ownerToken}` }, data: { phone, groupCode: n % 2 ? "1" : "2" } }); expect(member.ok()).toBeTruthy();
-    const code = await request.post("http://127.0.0.1:17333/auth/request-code", { data: { name: `Participante ${n}`, phone, groupCode: n % 2 ? "1" : "2" } }); expect(code.ok()).toBeTruthy();
-    const login = await request.post("http://127.0.0.1:17333/auth/verify", { data: { phone, code: (await code.json()).devCode } }); expect(login.ok()).toBeTruthy();
+    const login = await request.post("http://127.0.0.1:17333/auth/login", { data: { name: `Participante ${n}`, phone, groupCode: n % 2 ? "1" : "2" } }); expect(login.ok()).toBeTruthy();
     const token = (await login.json()).token;
     const shared = await request.get("http://127.0.0.1:17333/dashboard", { headers: { authorization: `Bearer ${token}` } });
     expect((await shared.json()).openRound.slots[0].userName).toBe("Pessoa E2E");

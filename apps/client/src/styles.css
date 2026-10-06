@@ -20,11 +20,16 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; letter-spacing: -.04em; }
 .brand-panel h1 { font-size: clamp(3rem, 6vw, 5.7rem); line-height: .98; margin-bottom: 30px; position: relative; z-index: 1; }
 .lead { max-width: 580px; font-size: 1.15rem; color: #cbd0d9; line-height: 1.65; position: relative; z-index: 1; }
 .lead-choice { display: block; margin-top: 3px; }
-.participation-cluster { width: 300px; max-width: 100%; margin-top: 30px; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; }
+.participation-cluster { width: 300px; max-width: 100%; margin-top: 66px; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; }
 .intro-join { width: 100%; min-height: 50px; margin: 0; }
 .login-card form > .primary { min-height: 50px; }
-.trust-note { display: grid; grid-template-columns: 28px 1fr; align-items: center; gap: 10px; margin-top: 28px; padding: 0 4px; color: #eef2f6; text-align: left; }
-.security-check { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #21a366; color: white; font-weight: 900; font-size: .88rem; box-shadow: 0 8px 18px #0003; }
+.trust-note { display: grid; grid-template-columns: 34px 1fr; align-items: end; gap: 11px; margin-top: 30px; padding: 0 4px; color: #eef2f6; text-align: left; }
+.security-emblem { width: 32px; height: 36px; display: grid; place-items: end center; align-self: end; filter: drop-shadow(0 8px 14px #0004); }
+.security-emblem svg { width: 32px; height: 36px; overflow: visible; }
+.shield-shadow { fill: #0f6b45; }
+.shield-face { fill: #23a66b; }
+.shield-highlight { fill: #72d7a5; opacity: .8; }
+.shield-check { fill: none; stroke: white; stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
 .trust-copy { display: grid; gap: 2px; font-size: .77rem; line-height: 1.45; font-weight: 500; }
 .trust-copy span, .trust-copy strong { display: block; }
 .trust-copy strong { color: white; font-weight: 800; }
@@ -113,7 +118,7 @@ footer { margin-top: 42px; border-top: 1px solid var(--line); padding-top: 22px;
   .brand-panel { min-height: 380px; padding: 44px 28px; }
   .brand-lockup { margin-bottom: 30px; }
   .brand-mark { margin: 0; }
-  .participation-cluster { width: min(300px, 100%); }
+  .participation-cluster { width: min(300px, 100%); margin-top: 30px; }
   .login-card { padding: 44px 28px; }
   .login-helper { white-space: normal; font-size: .82rem; }
   .profile div { display: none; }

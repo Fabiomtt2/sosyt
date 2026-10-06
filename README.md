@@ -24,9 +24,9 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. O script local cria segredos separados para `OWNER_FABIO_SECRET` e `OWNER_RAFAEL_SECRET` e preserva configuração já existente. Os nomes padrão são `Fabio0` e `Rafael0`; ambos usam `#` como marcador/palavra-chave de Owner. O telefone configurado para cada Owner é a identidade de login e deve permanecer apenas no `.env` local. Nunca publique o `.env`.
+Abra http://localhost:5173. Os nomes padrão de Owner são `Fabio0` e `Rafael0`, com aliases sem o sufixo zero. O telefone configurado para cada Owner faz parte da identificação; o marcador `#` existe apenas internamente na API e nunca é solicitado na interface. Dados reais de Owner permanecem somente no `.env` local. Nunca publique o `.env`.
 
-Em desenvolvimento, `AUTH_DEV_MODE=true` mostra o OTP na interface e `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção esses modos são recusados pelo carregador de configuração. Para entrega real de OTP e automação de atendimento, configure a Cloud API Meta conforme `docs/WHATSAPP-INTEGRACAO.md`.
+Em desenvolvimento, `AUTH_DEV_MODE=true` habilita a credencial administrativa local definida para teste; o participante aprovado entra diretamente por nome + WhatsApp + grupo. O mecanismo OTP permanece apenas como compatibilidade/legado no backend. `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção os modos de demonstração são recusados pelo carregador de configuração.
 
 A API lê o `.env` da raiz e mantém o banco em `apps/api/data/conexao-youtube.db`. O cliente usa `VITE_API_URL=http://localhost:3333` por padrão.
 

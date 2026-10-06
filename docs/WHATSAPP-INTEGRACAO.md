@@ -6,7 +6,7 @@
 2. Meta entrega a mensagem ao endpoint HTTPS `/webhooks/whatsapp`. O servidor verifica HMAC SHA-256 do corpo original com WHATSAPP_APP_SECRET e confere o ID do número Business; WHATSAPP_BUSINESS_ACCOUNT_ID acrescenta conferência da conta.
 3. O bot enfileira acolhimento e pedido do nome de preferência. Ao responder o nome, o número recebido pela Meta/wa_id é associado à solicitação, marcada WHATSAPP no painel. O nome é autodeclarado; a origem do telefone é o webhook assinado, não o texto digitado no site.
 4. No mesmo fluxo que cria a pendência no dashboard, o bot agenda o alerta “Novo Usuário! Registro pendente 📨” para `OWNER_ALERT_WHATSAPP` quando configurado; se ele estiver vazio, usa os telefones das contas Owner. O alerta leva nome, número e quantidade de pendências.
-5. A aprovação acontece pelo dashboard. Após aprovar uma solicitação WhatsApp, o bot responde ao participante e, quando o template OTP está configurado, emite uma Credencial temporária pelo mesmo mecanismo seguro de autenticação. Quando a Groups API oficial expõe o grupo, entrada/saída também sincroniza `group_memberships`; grupos não expostos continuam com conferência Owner.
+5. A aprovação acontece pelo dashboard ou pela sincronização oficial do grupo. Depois que telefone + grupo constam em `group_memberships`, o participante entra diretamente no aplicativo, sem Credencial/OTP. O adaptador OTP legado permanece no backend, mas não faz parte do fluxo principal. Quando a Groups API oficial expõe o grupo, entrada/saída sincroniza `group_memberships`; grupos não expostos continuam com conferência Owner.
 
 Mensagens recebidas são deduplicadas por ID. Solicitações são deduplicadas por telefone. Respostas/alertas ficam em fila persistente; worker executa a cada cinco segundos, tem lease, timeout, até cinco tentativas e retentativa administrativa. Respostas livres só são tentadas dentro de 24h da mensagem original; notificações aos Owners usam template para não depender de janela aberta. Falhas de envio OTP invalidam o código.
 
@@ -36,7 +36,7 @@ O template de alerta deve ter parâmetros de corpo nesta ordem: `{{1}}` nome dec
 
 O OTP deve usar o template aprovado de autenticação compatível com os componentes enviados pelo adaptador. O número deve estar habilitado na Cloud API. Publicar HTTPS e configurar no aplicativo Meta o callback e assinatura `messages`. O desafio GET valida hub.mode, hub.verify_token e hub.challenge; o POST verifica X-Hub-Signature-256. Só desativar AUTH_DEV_MODE após teste real de entrega e validade do código.
 
-Nenhuma conta Meta, template ou número foi cadastrado externamente nesta etapa. Sem credenciais, o worker não envia e webhook/login real respondem que a integração precisa ser configurada. A integração não foi testada contra a Meta real: os testes usam respostas controladas.
+Estado operacional deste Xubuntu em 05/10/2026: as credenciais Meta e templates necessários estão ausentes. Portanto bot real, webhook externo, alerta automático ao Owner e sincronização/verificação real de grupos não estão operacionais neste ambiente. Os adaptadores e testes controlados existem, mas isso não equivale a uma integração Meta ativa.
 
 ## Grupos SOS YOUTUBER
 

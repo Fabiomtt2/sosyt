@@ -23,11 +23,11 @@ const schema = z.object({
   OWNER_ALERT_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   OWNER_FABIO_NAME: z.string().trim().min(2).max(80).default("Fabio0"),
   OWNER_FABIO_ID: z.string().trim().min(3).max(80).default("fabio0"),
-  OWNER_FABIO_SECRET: z.string().min(32).optional(),
+  OWNER_FABIO_SECRET: z.string().min(1).optional(),
   OWNER_FABIO_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   OWNER_RAFAEL_NAME: z.string().trim().min(2).max(80).default("Rafael0"),
   OWNER_RAFAEL_ID: z.string().trim().min(3).max(80).default("rafael0"),
-  OWNER_RAFAEL_SECRET: z.string().min(32).optional(),
+  OWNER_RAFAEL_SECRET: z.string().min(1).optional(),
   OWNER_RAFAEL_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
@@ -71,6 +71,9 @@ export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {
     }
     if (!parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY || Buffer.from(parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY, "base64").length !== 32) throw new Error("Configure uma chave de cifra de 32 bytes em produção.");
     if (parsed.MERCADO_PAGO_ACCESS_TOKEN && !parsed.MERCADO_PAGO_WEBHOOK_SECRET) throw new Error("Configure a assinatura dos webhooks de pagamento.");
+    for (const [label, secret] of [["OWNER_FABIO_SECRET", parsed.OWNER_FABIO_SECRET], ["OWNER_RAFAEL_SECRET", parsed.OWNER_RAFAEL_SECRET]] as const) {
+      if (secret && secret.length < 32) throw new Error(`${label} deve ter pelo menos 32 caracteres em produção.`);
+    }
   }
   return { ...parsed, DATABASE_PATH: parsed.DATABASE_PATH === ":memory:" ? ":memory:" : resolve(fileURLToPath(new URL("../../../", import.meta.url)), parsed.DATABASE_PATH) };
 }
