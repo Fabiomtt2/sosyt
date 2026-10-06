@@ -6,6 +6,11 @@ async function fillBrazilPhone(page: any, subscriber: string) {
   await page.getByPlaceholder("Buscar país ou DDI").fill("Brasil");
   await page.getByRole("button", { name: "Brasil +55" }).click();
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
+  const dddRail = page.locator(".ddd-rail");
+  const before = await dddRail.evaluate((el: HTMLElement) => el.scrollLeft);
+  await page.getByRole("button", { name: "Próximos DDDs" }).click();
+  await page.waitForTimeout(250);
+  expect(await dddRail.evaluate((el: HTMLElement) => el.scrollLeft)).toBeGreaterThan(before);
   await page.getByRole("button", { name: "DDD 71 BA" }).click();
   await page.getByLabel("WhatsApp").fill(subscriber);
 }
@@ -22,6 +27,22 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Sem reprodução oculta.", { exact: true })).toBeVisible();
   await expect(page.getByText("Você mantém o controle.", { exact: true })).toBeVisible();
   await expect(page.getByText("WhatsApp do Owner", { exact: true })).toHaveCount(0);
+
+  const pageHeightBeforeCountry = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.getByRole("button", { name: "Selecionar país e DDI" }).click();
+  const countryPopover = page.getByRole("dialog", { name: "País e DDI" });
+  await expect(countryPopover).toBeVisible();
+  const countryBox = await countryPopover.boundingBox();
+  expect(countryBox).not.toBeNull();
+  expect(countryBox!.height).toBeLessThanOrEqual(360);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(pageHeightBeforeCountry);
+  const countryList = page.locator(".phone-option-list");
+  const countryScrollBefore = await countryList.evaluate((el: HTMLElement) => el.scrollTop);
+  await page.getByRole("button", { name: "Próximos países" }).click();
+  await page.waitForTimeout(250);
+  expect(await countryList.evaluate((el: HTMLElement) => el.scrollTop)).toBeGreaterThan(countryScrollBefore);
+  await page.keyboard.press("Escape");
+  await expect(countryPopover).toHaveCount(0);
 
   const helperIsSingleLine = await page.locator(".login-helper").evaluate((element) => {
     const style = getComputedStyle(element);
@@ -55,7 +76,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
   const [joinBox, continueBox] = await Promise.all([joinButton.boundingBox(), continueButton.boundingBox()]);
   expect(joinBox).not.toBeNull(); expect(continueBox).not.toBeNull();
-  expect(Math.abs(joinBox!.y - continueBox!.y)).toBeLessThanOrEqual(3);
+  expect(Math.abs((joinBox!.y + joinBox!.height / 2) - (continueBox!.y + continueBox!.height / 2))).toBeLessThanOrEqual(1);
   expect(joinMetrics.paddingTop).toBe(continueMetrics.paddingTop);
   expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
   expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
@@ -90,8 +111,27 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
   await expect(page.getByText(/continuaremos pelo WhatsApp/)).toBeVisible();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
-  await expect(page.getByRole("button", { name: "Selecionar país e DDI" })).toContainText("DDI");
+  const countryTrigger = page.getByRole("button", { name: "Selecionar país e DDI" });
+  await expect(countryTrigger).toContainText("DDI");
+  await countryTrigger.click();
+  const countryDialog = page.getByRole("dialog", { name: "País e DDI" });
+  await expect(countryDialog).toBeVisible();
+  const countryBounds = await countryDialog.boundingBox();
+  expect(countryBounds).not.toBeNull();
+  expect(countryBounds!.y + countryBounds!.height).toBeLessThanOrEqual(844);
+  await expect(page.getByRole("button", { name: "Países anteriores" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Próximos países" })).toBeVisible();
+  await page.getByRole("button", { name: "Próximos países" }).click();
+  await expect.poll(async () => page.locator(".phone-option-list").evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
+  await expect(countryDialog).toHaveCount(0);
   await fillBrazilPhone(page, "900000001");
+  await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
+  await expect(page.getByRole("button", { name: "DDDs anteriores" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Próximos DDDs" })).toBeVisible();
+  await page.getByRole("button", { name: "Próximos DDDs" }).click();
+  await expect.poll(async () => page.locator(".ddd-rail").evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await page.keyboard.press("Escape");
   const groupField = page.getByLabel("Digite o número correspondente ao seu grupo");
   await groupField.fill("123");
   await expect(groupField).toHaveValue("123");
@@ -136,7 +176,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const ownerEnter = page.getByRole("button", { name: "Entrar", exact: true });
   const [ownerJoinBox, ownerEnterBox] = await Promise.all([joinButton.boundingBox(), ownerEnter.boundingBox()]);
   expect(ownerJoinBox).not.toBeNull(); expect(ownerEnterBox).not.toBeNull();
-  expect(Math.abs(ownerJoinBox!.y - ownerEnterBox!.y)).toBeLessThanOrEqual(3);
+  expect(Math.abs((ownerJoinBox!.y + ownerJoinBox!.height / 2) - (ownerEnterBox!.y + ownerEnterBox!.height / 2))).toBeLessThanOrEqual(1);
   await page.getByLabel("Credencial", { exact: true }).fill("sosyout");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
@@ -152,7 +192,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("button", { name: /Fábio/ })).toBeVisible();
   await expect(page.getByText(/Sistema v0\.1\.0/)).toBeVisible();
   const transportCard = page.locator(".transport-status-card");
-  await expect(transportCard.getByText("AINDA INATIVO 🚫", { exact: true })).toBeVisible();
+  await expect(transportCard.getByText("AINDA INATIVO", { exact: true })).toBeVisible();
   const transportBackground = await transportCard.evaluate((el: HTMLElement) => getComputedStyle(el).backgroundColor);
   expect(transportBackground).toBe("rgb(109, 111, 118)");
 
@@ -167,7 +207,18 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
 
   await page.getByRole("button", { name: "Grupos e acesso", exact: true }).click();
   await expect(page.getByRole("button", { name: "Explicar grupos e acesso" })).toBeVisible();
-  expect(await page.locator(".group-admin-card").count()).toBeGreaterThan(0);
+  await expect(page.getByText("Grupos 1–12 de 999", { exact: true })).toBeVisible();
+  expect(await page.locator(".group-admin-card").count()).toBe(12);
+  await page.getByRole("button", { name: "Próximos grupos", exact: true }).click();
+  await expect(page.getByText("Grupos 13–24 de 999", { exact: true })).toBeVisible();
+  await page.getByLabel("Ir para o grupo").fill("999");
+  await page.getByRole("button", { name: "Localizar no carrossel" }).click();
+  await expect(page.getByText("Grupos 997–999 de 999", { exact: true })).toBeVisible();
+  const group999 = page.locator(".group-admin-card").filter({ hasText: "SOS YOUTUBER 999" });
+  await expect(group999).toBeVisible();
+  await group999.getByRole("button", { name: "Ativar grupo" }).click();
+  await expect(group999.getByText("Ativo", { exact: true })).toBeVisible();
+  await expect(page.locator(".manual-access-section").getByText("Código do país + DDD + Número do WhatsApp.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Explicar grupos e acesso" }).click();
   await expect(page.getByRole("dialog", { name: "Ajuda sobre grupos e acesso" })).toBeVisible();
   await expect(page.getByText("Eles não são filas de vídeos:", { exact: false })).toBeVisible();
@@ -178,18 +229,38 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("button", { name: "Fechar ajuda" }).click();
 
   await page.getByRole("button", { name: "Configurar integração" }).click();
-  await expect(page.getByRole("dialog", { name: "Configurar integração WhatsApp" })).toBeVisible();
+  const integrationDialog = page.getByRole("dialog", { name: "Configurar integração WhatsApp" });
+  await expect(integrationDialog).toBeVisible();
+  const integrationOverflowY = await integrationDialog.evaluate((el) => getComputedStyle(el).overflowY);
+  expect(["auto", "scroll"]).toContain(integrationOverflowY);
+  await expect(page.getByRole("radio", { name: /Meta Oficial/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Híbrido/ })).toBeVisible();
+  await page.getByRole("radio", { name: /Híbrido/ }).click();
+  await page.getByRole("button", { name: "Explicar o modo selecionado" }).click();
+  await expect(page.getByRole("dialog", { name: "O que muda no modo híbrido?" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "O que muda no modo híbrido?" })).toHaveCount(0);
+  await expect(integrationDialog).toBeVisible();
   await expect(page.getByText("PENDENTE", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Credencial de acesso da Meta", { exact: true })).toBeVisible();
   await expect(page.getByText("Para ativar mensagens reais pela Meta", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explicar endereço do servidor complementar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explicar endereço de retorno da Meta" })).toBeVisible();
+  const scrollMetrics = await integrationDialog.evaluate((el: HTMLElement) => ({ clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,scrollTop:el.scrollTop }));
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+  await integrationDialog.evaluate((el: HTMLElement) => el.scrollTo({ top:el.scrollHeight, behavior:"instant" as ScrollBehavior }));
+  expect(await integrationDialog.evaluate((el: HTMLElement) => el.scrollTop)).toBeGreaterThan(scrollMetrics.scrollTop);
   const astraStatus = await page.locator(".astra-status-grid article").first().evaluate((element) => {
     const style=getComputedStyle(element);
-    return { color:style.color, backgroundImage:style.backgroundImage };
+    return { color:style.color, backgroundColor:style.backgroundColor };
   });
   expect(astraStatus.color).toBe("rgb(255, 255, 255)");
-  expect(astraStatus.backgroundImage).toContain("linear-gradient");
+  expect(astraStatus.backgroundColor).toBe("rgb(216, 40, 59)");
+  const hybridModeBackground = await page.getByRole("radio", { name: /Híbrido/ }).evaluate((element) => getComputedStyle(element).backgroundImage);
+  expect(hybridModeBackground).toContain("linear-gradient");
   await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: "Fechar configuração" }).click();
+  await page.keyboard.press("Escape");
+  await expect(integrationDialog).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(evidence, "owner-mobile.png"), fullPage: true });

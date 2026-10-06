@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, LogOut, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
 import { ApiError, ownerApi, type OwnerOverview } from "./api";
 import { WhatsAppIntegrationModal } from "./WhatsAppIntegrationModal";
 import { ParticipantAdminModal } from "./ParticipantAdminModal";
-import { INTERNATIONAL_PHONE_PATTERN, formatInternationalPhoneInput } from "./phone";
+import { PhoneField, isCompletePhoneField } from "./PhoneField";
 
 function localMonth() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bahia", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -12,6 +12,9 @@ function localMonth() {
 const date = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "—";
 const money = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const coins = (millis: number) => (millis / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+const GROUP_PAGE_SIZE=12;
+const MANUAL_GROUP_PAGE_SIZE=12;
+const ALL_GROUP_CODES=Array.from({length:999},(_,index)=>String(index+1));
 
 function AdminHelpModal({ topic, onClose }: { topic: "groups" | "manual"; onClose: () => void }) {
   return <div className="modal-backdrop admin-help-backdrop" onMouseDown={onClose}>
@@ -50,12 +53,13 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   const [manualName,setManualName] = useState("");
   const [phone, setPhone] = useState("");
   const [group, setGroup] = useState("1");
-  const [newGroup, setNewGroup] = useState("");
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [showWhatsAppConfig,setShowWhatsAppConfig] = useState(false);
   const [participantPhone,setParticipantPhone] = useState<string>();
   const [helpTopic,setHelpTopic] = useState<"groups"|"manual">();
-  const groupRail=useRef<HTMLDivElement>(null);
+  const [groupPage,setGroupPage]=useState(0);
+  const [groupJump,setGroupJump]=useState("");
+  const [manualGroupPage,setManualGroupPage]=useState(0);
 
   const load = useCallback(async () => {
     try { setData(await ownerApi.overview(month)); setError(""); }
@@ -71,13 +75,17 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   }
   async function addMember(event: FormEvent) {
     event.preventDefault();
-    await act(() => ownerApi.approveMember(phone, group, manualName), "Autorização manual registrada com auditoria.");
+    await act(async () => {
+      await ownerApi.group(group,true);
+      return ownerApi.approveMember(phone, group, manualName);
+    }, "Autorização manual registrada com auditoria.");
     setManualName(""); setPhone("");
   }
-  async function addGroup(event: FormEvent) {
+  function jumpToGroup(event:FormEvent) {
     event.preventDefault();
-    await act(() => ownerApi.group(newGroup, true), "Grupo adicionado e ativado.");
-    setNewGroup("");
+    const code=Number(groupJump);
+    if(!Number.isInteger(code) || code<1 || code>999) return;
+    setGroupPage(Math.floor((code-1)/GROUP_PAGE_SIZE));
   }
   async function checkVersion() {
     setBusy(true); setError(""); setNotice("");
@@ -93,7 +101,13 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   if (!data) return <main className="loading"><ShieldCheck /><span>Carregando painel do Owner…</span>{error && <p className="error">{error}</p>}</main>;
   const m = data.metrics;
   const activeGroups = data.groups.filter((item) => item.enabled);
-  const scrollGroups = (direction:number) => groupRail.current?.scrollBy({ left: direction * 310, behavior:"smooth" });
+  const groupMap=new Map(data.groups.map((item)=>[item.code,item]));
+  const groupPageCount=Math.ceil(ALL_GROUP_CODES.length/GROUP_PAGE_SIZE);
+  const groupStart=groupPage*GROUP_PAGE_SIZE;
+  const visibleGroupCodes=ALL_GROUP_CODES.slice(groupStart,groupStart+GROUP_PAGE_SIZE);
+  const manualPageCount=Math.ceil(ALL_GROUP_CODES.length/MANUAL_GROUP_PAGE_SIZE);
+  const manualStart=manualGroupPage*MANUAL_GROUP_PAGE_SIZE;
+  const manualGroupCodes=ALL_GROUP_CODES.slice(manualStart,manualStart+MANUAL_GROUP_PAGE_SIZE);
 
   return <div className="app-shell owner-shell">
     <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>Conexão <strong>Youtube</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} aria-label="Atualizar painel"><RefreshCw size={18} /></button><button className="profile" onClick={onLogout} aria-label={`Sair da conta de ${data.owner.name}`}><span><ShieldCheck size={19} /></span><div><strong>{data.owner.name}</strong><small>Painel administrativo</small></div><LogOut size={16} /></button></div></header>
@@ -109,11 +123,11 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
       </section>
 
       <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
-        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><h2 className="bot-config-title"><Bot size={22}/>CONFIGURAR BOT SOS YOUTUBE</h2></div><button className="primary compact" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured ? "Modificar" : "Configurar integração"}</button></div>
+        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><h2 className="bot-config-title"><Bot size={22}/>CONFIGURAR BOT SOS YOUTUBE</h2></div><button className={`primary compact integration-config-button mode-${data.whatsapp.integration.mode.toLowerCase()}`} onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured ? "Modificar" : "Configurar integração"}</button></div>
         <div className="integration-summary-grid">
-          <div><span>Modo</span><strong>{data.whatsapp.integration.mode === "HYBRID" ? "Híbrido" : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : "Meta oficial"}</strong><small>{data.whatsapp.integration.mode === "HYBRID" ? "Meta para mensagens + complemento opcional para grupos tradicionais." : data.whatsapp.integration.mode === "DISABLED" ? "Automação externa pausada; gestão manual continua disponível." : "WhatsApp Business Platform como canal principal."}</small></div>
+          <div className={`integration-mode-card mode-${data.whatsapp.integration.mode.toLowerCase()}`}><span>Modo</span><strong>{data.whatsapp.integration.mode === "HYBRID" ? <><b className="summary-mode-symbol">∞ + ▶</b> Híbrido</> : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : <><b className="summary-mode-symbol">∞</b> Meta oficial</>}</strong><small>{data.whatsapp.integration.mode === "HYBRID" ? "Meta para mensagens + complemento opcional para grupos tradicionais." : data.whatsapp.integration.mode === "DISABLED" ? "Automação externa pausada; gestão manual continua disponível." : "WhatsApp Business Platform como canal principal."}</small></div>
           <div><span>Credenciais Meta</span><strong>{data.whatsapp.integration.tokenValidatedAt ? "Validadas" : data.whatsapp.integration.accessTokenConfigured ? "Salvas · validar" : "Token necessário"}</strong><small>{data.whatsapp.integration.tokenValidatedAt ? `Última validação: ${date(data.whatsapp.integration.tokenValidatedAt)}` : "Enquanto não houver token validado, envio real pela API oficial permanece indisponível."}</small></div>
-          <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Transporte nesta execução</span><strong>{data.whatsapp.configured ? "ATIVO ✅" : "AINDA INATIVO 🚫"}</strong><small>{data.whatsapp.queued} na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} aceitas pelo provedor.</small></div>
+          <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Transporte nesta execução</span><strong>{data.whatsapp.configured ? "ATIVO ✅" : "AINDA INATIVO"}</strong><small>{data.whatsapp.queued} na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} aceitas pelo provedor.</small></div>
         </div>
         <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) SOS oficial(is) vinculado(s) · ${data.whatsapp.automaticMemberships} associação(ões) automática(s).` : "Nenhum grupo SOS oficial sincronizado ainda. A conferência Owner permanece disponível e o modo híbrido poderá complementar grupos tradicionais."}</p>
         <div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Sincronização dos grupos SOS concluída.")}>Sincronizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens elegíveis recolocadas na fila.")}>Repetir envios com falha</button>}</div>
@@ -152,31 +166,42 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
 
       {tab === "groups" && <section className="owner-panel groups-admin-panel">
         <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">Controle quais grupos SOS YOUTUBER podem autenticar e receber novas aprovações.</p></div><span className="live-chip"><RefreshCw size={13}/>Atualiza a cada 10 s</span></div>
+        <div className="group-carousel-meta"><strong>Grupos {groupStart+1}–{Math.min(groupStart+GROUP_PAGE_SIZE,999)} de 999</strong><span>Todos os números podem ser ativados e administrados.</span></div>
         <div className="group-carousel-shell">
-          <button className="carousel-arrow" aria-label="Grupos anteriores" onClick={()=>scrollGroups(-1)}><ChevronLeft/></button>
-          <div className="group-carousel" ref={groupRail}>{data.groups.map((g) => {
-            const members=data.members.filter((m)=>m.groupCode===g.code && !m.revokedAt).length;
-            return <article className={`group-admin-card ${g.enabled ? "enabled":"disabled"}`} key={g.code}>
-              <div className="group-card-top"><span className="group-index">SOS YOUTUBER {g.code}</span><span className={g.enabled ? "table-status on":"table-status off"}>{g.enabled ? "Ativo":"Pausado"}</span></div>
+          <button className="carousel-arrow" aria-label="Grupos anteriores" disabled={groupPage===0} onClick={()=>setGroupPage((page)=>Math.max(0,page-1))}><ChevronLeft/></button>
+          <div className="group-carousel">{visibleGroupCodes.map((code) => {
+            const stored=groupMap.get(code);
+            const enabled=Boolean(stored?.enabled);
+            const members=data.members.filter((m)=>m.groupCode===code && !m.revokedAt).length;
+            return <article className={`group-admin-card ${enabled ? "enabled":"disabled"}`} key={code}>
+              <div className="group-card-top"><span className="group-index">SOS YOUTUBER {code}</span><span className={enabled ? "table-status on":"table-status off"}>{enabled ? "Ativo":stored ? "Pausado":"Disponível"}</span></div>
               <strong>{members} participante{members===1?"":"s"} com acesso</strong>
-              <small>Validação: {g.membershipMode === "META_GROUPS_API" ? "Meta / prova externa" : "Owner"}</small>
-              <small>{g.lastSyncedAt ? `Última sincronização: ${date(g.lastSyncedAt)}` : "Sem sincronização externa"}</small>
-              <button className={g.enabled ? "secondary":"primary compact"} disabled={busy} onClick={() => void act(() => ownerApi.group(g.code, !g.enabled), g.enabled ? `SOS YOUTUBER ${g.code} pausado; dados preservados.` : `SOS YOUTUBER ${g.code} ativado.`)}>{g.enabled ? "Pausar grupo":"Ativar grupo"}</button>
+              <small>Validação: {stored?.membershipMode === "META_GROUPS_API" ? "Meta / prova externa" : "Owner"}</small>
+              <small>{stored?.lastSyncedAt ? `Última sincronização: ${date(stored.lastSyncedAt)}` : "Sem sincronização externa"}</small>
+              <button className={enabled ? "secondary":"primary compact"} disabled={busy} onClick={() => void act(() => ownerApi.group(code,!enabled), enabled ? `SOS YOUTUBER ${code} pausado; dados preservados.` : `SOS YOUTUBER ${code} ativado.`)}>{enabled ? "Pausar grupo":"Ativar grupo"}</button>
             </article>;
           })}</div>
-          <button className="carousel-arrow" aria-label="Próximos grupos" onClick={()=>scrollGroups(1)}><ChevronRight/></button>
+          <button className="carousel-arrow" aria-label="Próximos grupos" disabled={groupPage>=groupPageCount-1} onClick={()=>setGroupPage((page)=>Math.min(groupPageCount-1,page+1))}><ChevronRight/></button>
         </div>
 
-        <form className="owner-inline-form add-group-form" onSubmit={addGroup}><label>Novo grupo<input inputMode="numeric" pattern="[1-9][0-9]{0,2}" maxLength={3} value={newGroup} onChange={(e) => setNewGroup(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))} placeholder="1 a 999" required /></label><button className="secondary" disabled={busy}>Adicionar grupo</button></form>
+        <form className="group-jump-form" onSubmit={jumpToGroup}><label>Ir para o grupo<input inputMode="numeric" pattern="[1-9][0-9]{0,2}" maxLength={3} value={groupJump} onChange={(e)=>setGroupJump(e.target.value.replace(/\D/g,"").slice(0,3))} placeholder="Ex.: 347"/></label><button className="secondary">Localizar no carrossel</button></form>
 
         <div className="manual-access-section">
           <div className="heading-with-help"><h3>Autorização manual excepcional</h3><button className="help-icon" aria-label="Explicar autorização manual" onClick={()=>setHelpTopic("manual")}><HelpCircle size={18}/></button></div>
           <p className="muted">Use quando você já conferiu a pessoa fora do fluxo normal de solicitações. O registro fica associado ao Owner responsável.</p>
-          <form className="owner-inline-form manual-access-form" onSubmit={addMember}>
+          <form className="manual-access-form modern-manual-form" onSubmit={addMember}>
             <label>Nome<input value={manualName} onChange={(e)=>setManualName(e.target.value)} placeholder="Nome do participante" required /></label>
-            <label>WhatsApp<input inputMode="tel" value={phone} onChange={(e) => setPhone(formatInternationalPhoneInput(e.target.value))} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
-            <label>Grupo<select value={group} onChange={(e) => setGroup(e.target.value)}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label>
-            <button className="primary compact" disabled={busy || !activeGroups.length}>Registrar autorização</button>
+            <div className="field-block"><label>WhatsApp</label><PhoneField id="manual-whatsapp" value={phone} onChange={setPhone} required/><small className="field-help-copy">Código do país + DDD + Número do WhatsApp.</small></div>
+            <div className="manual-group-field">
+              <div className="manual-group-heading"><strong>Grupo</strong><span>SOS YOUTUBER {group}</span></div>
+              <div className="manual-group-picker">
+                <button type="button" className="carousel-arrow" aria-label="Grupos manuais anteriores" disabled={manualGroupPage===0} onClick={()=>setManualGroupPage((page)=>Math.max(0,page-1))}><ChevronLeft/></button>
+                <div className="manual-group-rail">{manualGroupCodes.map((code)=><button type="button" className={code===group ? "selected":""} key={code} onClick={()=>setGroup(code)}>{code}</button>)}</div>
+                <button type="button" className="carousel-arrow" aria-label="Próximos grupos manuais" disabled={manualGroupPage>=manualPageCount-1} onClick={()=>setManualGroupPage((page)=>Math.min(manualPageCount-1,page+1))}><ChevronRight/></button>
+              </div>
+              <small className="field-help-copy">Escolha de 1 a 999. Se o grupo ainda não estiver ativo, ele será ativado antes da autorização.</small>
+            </div>
+            <button className="primary compact" disabled={busy || !manualName.trim() || !isCompletePhoneField(phone)}>Registrar autorização</button>
           </form>
         </div>
 

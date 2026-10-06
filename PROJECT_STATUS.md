@@ -52,13 +52,16 @@ Automação de grupos:
 
 Isso não simula acesso a grupos comuns não expostos pela API oficial. A validação real depende da conta Meta, OBA/eligibilidade e IDs retornados pelo provedor.
 
-## Continuidade e UI Premium — 05/10/2026
+## Continuidade e UI Premium — 06/10/2026
 
 - `docs/ANCHOR-YOUTUBE-FINAL.md` é a âncora canônica obrigatória; `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` define o protocolo operacional.
 - Intro preserva a identidade ASTRA com lockup horizontal da marca e uma única CTA `Quero participar`. O botão voltou ao vermelho simples anterior; o bloco de segurança é textual, **sem escudo/ícone verde**.
 - A CTA `Quero participar` abre a tela intermediária; o envio cria uma página persistente `Solicitação em análise`, com acompanhamento automático/manual. Após aprovação, a mesma página muda para `Cadastro aprovado`; o usuário escolhe quando voltar ao acesso.
 - Login continua universal: `WhatsApp` internacional e grupo SOS YOUTUBER 1–999; sem +55 automático, sem rótulos Owner e sem `#` visível. `Credencial administrativa` só aparece para Owner.
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
+- País/DDI fica contido em popover com rolagem interna e setas ↑/↓; DDD brasileiro usa trilho horizontal ‹/›. Ambos fecham com `Esc` e não alteram a altura da página.
+- `Grupos e acesso` pagina funcionalmente o espaço 1–999 em carrossel; grupos não persistidos podem ser ativados diretamente. A autorização manual usa o mesmo `PhoneField` internacional e seletor visual 1–999.
+- Modal do BOT possui scroll interno, fecha por `Esc` em camadas e explica Oficial/Híbrido/Desativado. Resumo e botão usam azul Meta no Oficial, mistura azul→vermelho no Híbrido e cinza no Desativado; transporte inativo mostra `AINDA INATIVO` sem emoji.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
 - Webapp/XFCE é a prioridade corrente; APK não é prioridade desta rodada.
 

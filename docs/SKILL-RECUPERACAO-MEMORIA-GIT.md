@@ -92,12 +92,12 @@ Commit pequeno, temático, somente após verde. Registrar no `PROJECT_STATUS.md`
 ## Regras anti-amnésia específicas deste projeto
 
 - Não inferir o fluxo de `Quero participar` pela aparência atual. Recuperar histórico de `App.tsx`, `owner.ts` e `whatsapp.ts`.
-- Fluxo recuperado em 05/10/2026: **CTA → tela intermediária de dados → `/participation/request` → pendência/dashboard → `whatsappUrl` com mensagem pronta → usuário confirma Enviar → bot Cloud API continua onboarding**.
+- Fluxo canônico em 06/10/2026: **CTA → tela intermediária → `/participation/request` → página persistente de pendência/dashboard → decisão Owner/verificações → mesma página mostra `Cadastro aprovado` → usuário volta ao acesso**. Não exigir segunda CTA/deep link como etapa obrigatória.
 - `wa.me` não envia mensagem sozinho. Nunca descrever o deep link como envio automático.
 - Bot já possui acolhimento, pergunta “Como gostaria de ser chamado?”, pendência, alerta administrativo e decisão. Participante não recebe Credencial/OTP no fluxo principal; após aprovação entra diretamente com nome + WhatsApp + grupo. Não reintroduzir a etapa de Credencial sem um novo requisito explícito.
 - Owner/usuário já usam login único; `#` é interno. Não reintroduzir UI específica de Owner.
 - Telefone é internacional e não recebe `+55` automático.
-- Grupo é 1–99.
+- Grupo é 1–999.
 - Webapp/XFCE é a prioridade corrente; APK não deve desviar a rodada sem solicitação explícita.
 
 ## Heartbeat de recuperação

@@ -31,8 +31,8 @@
 ## Regras de produto confirmadas em 05/10/2026
 - Quadro global compartilhado entre os grupos SOS YOUTUBER; 10 posições sequenciais e permanentes por ciclo.
 - Owners: nomes configurados `Fabio0` e `Rafael0` aceitam também os aliases `Fábio` e `Rafael`; privilégio exige o WhatsApp correspondente configurado no `.env`. Em desenvolvimento a credencial administrativa é `sosyout`; produção continua exigindo segredo forte configurado no servidor. O marcador `#` é somente interno e nunca deve aparecer como instrução/campo da UI.
-- Login participante: nome + `WhatsApp` internacional + grupo SOS YOUTUBER 1–99. Não existe etapa de Credencial/OTP no fluxo principal; o backend só cria sessão se `group_memberships` confirmar telefone + grupo. Campo de credencial aparece exclusivamente após identificação de Owner.
-- Intro: uma única CTA `Quero participar`; ela abre a tela de dados já validada. O envio registra a solicitação/dashboard e então oferece o WhatsApp com mensagem pronta para iniciar o bot. Não pular essa tela com link direto. Preservar lockup horizontal da marca e bloco de segurança integrado, sem cadeado decorativo.
+- Login participante: nome + `WhatsApp` internacional + grupo SOS YOUTUBER 1–999. Não existe etapa de Credencial/OTP no fluxo principal; o backend só cria sessão se `group_memberships` confirmar telefone + grupo. Campo de credencial aparece exclusivamente após identificação de Owner.
+- Intro: uma única CTA `Quero participar`; ela abre a tela de dados já validada. O envio registra solicitação persistente no dashboard e a própria tela acompanha o resultado. Não criar segunda CTA obrigatória para WhatsApp. Preservar lockup horizontal da marca e o bloco textual de segurança, sem escudo/ícone verde.
 - WhatsApp: onboarding/bot/OTP/alertas/decisão automatizados pela Cloud API quando configurada.
 - Grupos: associação deve ser automatizada pela Groups API oficial quando a conta/grupo forem elegíveis; eventos reais de participante alimentam `group_memberships`. Fallback Owner permanece para grupos não sincronizados.
 - YouTube: criar playlist somente após ciclo pronto, por participante do ciclo e com OAuth explícito.

@@ -345,7 +345,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   });
   app.post("/admin/members", { preHandler: ownerGuard }, async (request, reply) => {
     const body = z.object({ phone: phoneSchema, groupCode: groupSchema, name: z.string().trim().min(2).max(80).optional() }).parse(request.body);
-    if (!db.prepare("SELECT 1 FROM groups WHERE code = ? AND enabled = 1").get(body.groupCode)) return reply.code(400).send({ message: "Grupo inexistente ou desativado." });
+    db.prepare("INSERT INTO groups (code,enabled) VALUES (?,1) ON CONFLICT(code) DO UPDATE SET enabled=1").run(body.groupCode);
     let pending = db.prepare("SELECT id,name,phone,source FROM participation_requests WHERE phone=?").get(body.phone) as { id: string; name: string; phone: string; source: string } | undefined;
     const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
     const approvedBy = { id: account.id, name: request.user.displayName?.trim() || account.name };
@@ -385,7 +385,8 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const row = db.prepare("SELECT id,phone,name,source,preferred_group FROM participation_requests WHERE id=?").get(id) as { id: string; phone: string; name: string; source: string; preferred_group?: string } | undefined;
     if (!row) return reply.code(404).send({ message: "Solicitação não encontrada." });
     const group = body.groupCode ?? row.preferred_group;
-    if (body.status === "APPROVED" && (!group || !db.prepare("SELECT 1 FROM groups WHERE code=? AND enabled=1").get(group))) return reply.code(400).send({ message: "Escolha um grupo ativo para aprovar." });
+    if (body.status === "APPROVED" && !group) return reply.code(400).send({ message: "Escolha um grupo para aprovar." });
+    if (body.status === "APPROVED") db.prepare("INSERT INTO groups (code,enabled) VALUES (?,1) ON CONFLICT(code) DO UPDATE SET enabled=1").run(group);
     const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
     const approvedBy = { id: account.id, name: request.user.displayName?.trim() || account.name };
     const now = new Date().toISOString();

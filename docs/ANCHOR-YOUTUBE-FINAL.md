@@ -134,9 +134,11 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - “Voltar para tela de login” usa seta e linguagem neutra.
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
-- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO 🚫` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
+- O seletor internacional de telefone nunca pode expandir/quebrar a página: países ficam em viewport interno com rolagem suave e setas ↑/↓; o DDD brasileiro usa trilho horizontal com ‹/›. Ambos fecham com `Esc`.
+- O modal `Configurar WhatsApp` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. Modo Meta oficial usa azul; Híbrido usa transição azul Meta → vermelho YouTube; Desativado usa cinza. Termos técnicos e campos híbridos devem ter ajuda `?` em linguagem leiga.
+- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
 - Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
-- `Grupos e acesso` usa carrossel dos grupos configurados com estado, quantidade de acessos, modo de validação e ajuda `?`. `Autorização manual excepcional` exige nome + WhatsApp + grupo, cria registro administrativo quando necessário e grava data/Owner responsável.
+- `Grupos e acesso` cobre virtualmente todos os grupos `1–999` em páginas de carrossel, sem renderizar 999 cards ao mesmo tempo. Grupo ainda não persistido aparece como `Disponível` e o próprio card pode ativá-lo no servidor. Há navegação anterior/próxima e salto direto para um número. `Autorização manual excepcional` reutiliza o mesmo seletor internacional de WhatsApp do login e um seletor visual de grupo 1–999; ao autorizar, ativa o grupo escolhido se necessário e grava data/Owner responsável.
 
 ## 10. Gate obrigatório
 

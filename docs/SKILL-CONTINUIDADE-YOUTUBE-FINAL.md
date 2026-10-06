@@ -46,7 +46,7 @@ Antes de editar:
 - Intro: logo vermelha + “SOS YOUTUBER” em lockup horizontal; evitar empilhamento vertical não solicitado.
 - CTA de participação é um botão isolado, sem retângulo/card externo; deve ter a mesma altura/padding do botão `Continuar`.
 - A mensagem de segurança fica abaixo com respiro maior; duas primeiras linhas em peso normal e apenas `Você mantém o controle.` em negrito.
-- Segurança usa escudo verde ilustrado em SVG, ancorado à base do bloco para acompanhar variações de altura do texto; não usar cadeado decorativo nem check circular genérico.
+- O bloco de segurança é somente textual: `Sem views automáticas / Sem reprodução oculta / Você mantém o controle`. Não usar escudo, cadeado ou outro ícone verde.
 - Texto auxiliar do login deve ficar em uma linha no desktop; mobile pode quebrar para evitar overflow.
 - Uma ideia por bloco, sem parede de texto, sem duplicação de chamadas.
 

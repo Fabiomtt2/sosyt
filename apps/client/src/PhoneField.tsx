@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, HelpCircle, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search, X } from "lucide-react";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
 
 const displayNames = new Intl.DisplayNames(["pt-BR"], { type: "region" });
@@ -64,6 +64,8 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   const [dddOpen,setDddOpen]=useState(false);
   const [search,setSearch]=useState("");
   const root=useRef<HTMLDivElement>(null);
+  const countryListRef=useRef<HTMLDivElement>(null);
+  const dddRailRef=useRef<HTMLDivElement>(null);
 
   useEffect(()=>{
     if (!value) return;
@@ -82,8 +84,15 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
         setDddOpen(false);
       }
     };
+    const escape=(event:KeyboardEvent)=>{
+      if (event.key==="Escape") {
+        setCountryOpen(false);
+        setDddOpen(false);
+      }
+    };
     document.addEventListener("mousedown",close);
-    return ()=>document.removeEventListener("mousedown",close);
+    document.addEventListener("keydown",escape);
+    return ()=>{ document.removeEventListener("mousedown",close); document.removeEventListener("keydown",escape); };
   },[]);
 
   function compose(nextCountry=country,nextDdd=ddd,nextSubscriber=subscriber) {
@@ -115,6 +124,14 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     setDdd(next);
     setDddOpen(false);
     emit(country,next,subscriber);
+  }
+
+  function scrollCountries(direction:number) {
+    countryListRef.current?.scrollBy({ top:direction*190, behavior:"smooth" });
+  }
+
+  function scrollDdds(direction:number) {
+    dddRailRef.current?.scrollBy({ left:direction*300, behavior:"smooth" });
   }
 
   function changeSubscriber(raw:string) {
@@ -164,15 +181,23 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     {countryOpen && <div className="phone-popover country-popover" role="dialog" aria-label="País e DDI">
       <div className="phone-popover-head"><strong>País e DDI</strong><button type="button" onClick={()=>setCountryOpen(false)} aria-label="Fechar lista de países"><X size={17}/></button></div>
       <label className="phone-search"><Search size={16}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar país ou DDI"/></label>
-      <div className="phone-option-list">{filtered.map((entry)=><button type="button" key={entry.country} aria-label={`${entry.name} +${entry.callingCode}`} className={entry.country===country ? "selected" : ""} onClick={()=>chooseCountry(entry.country)}>
-        <span className="phone-flag">{entry.flag}</span><span className="phone-option-name">{entry.name}</span><strong>+{entry.callingCode}</strong>
-      </button>)}</div>
+      <div className="country-scroll-shell">
+        <button type="button" className="popover-scroll-arrow vertical" aria-label="Países anteriores" onClick={()=>scrollCountries(-1)}><ChevronUp size={17}/></button>
+        <div className="phone-option-list" ref={countryListRef}>{filtered.map((entry)=><button type="button" key={entry.country} aria-label={`${entry.name} +${entry.callingCode}`} className={entry.country===country ? "selected" : ""} onClick={()=>chooseCountry(entry.country)}>
+          <span className="phone-flag">{entry.flag}</span><span className="phone-option-name">{entry.name}</span><strong>+{entry.callingCode}</strong>
+        </button>)}</div>
+        <button type="button" className="popover-scroll-arrow vertical" aria-label="Próximos países" onClick={()=>scrollCountries(1)}><ChevronDown size={17}/></button>
+      </div>
     </div>}
 
     {dddOpen && country==="BR" && <div className="phone-popover ddd-popover" role="dialog" aria-label="DDD do Brasil">
       <div className="phone-popover-head"><strong>DDD do Brasil</strong><button type="button" onClick={()=>setDddOpen(false)} aria-label="Fechar lista de DDD"><X size={17}/></button></div>
       <p className="phone-popover-copy">Escolha o DDD do número cadastrado no WhatsApp.</p>
-      <div className="ddd-grid">{BRAZIL_DDDS.map(([code,state])=><button type="button" key={code} aria-label={`DDD ${code} ${state}`} className={code===ddd ? "selected" : ""} onClick={()=>chooseDdd(code)}><strong>{code}</strong><span>{state}</span></button>)}</div>
+      <div className="ddd-carousel-shell">
+        <button type="button" className="popover-scroll-arrow horizontal" aria-label="DDDs anteriores" onClick={()=>scrollDdds(-1)}><ChevronLeft size={17}/></button>
+        <div className="ddd-rail" ref={dddRailRef}>{BRAZIL_DDDS.map(([code,state])=><button type="button" key={code} aria-label={`DDD ${code} ${state}`} className={code===ddd ? "selected" : ""} onClick={()=>chooseDdd(code)}><strong>{code}</strong><span>{state}</span></button>)}</div>
+        <button type="button" className="popover-scroll-arrow horizontal" aria-label="Próximos DDDs" onClick={()=>scrollDdds(1)}><ChevronRight size={17}/></button>
+      </div>
     </div>}
   </div>;
 }
