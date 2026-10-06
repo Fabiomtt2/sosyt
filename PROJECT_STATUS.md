@@ -18,7 +18,7 @@ Histórico principal:
 - `02249e3` — evidências UI;
 - `9978481` — auditoria externa de integrações.
 
-A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/continuidade é **`docs/ANCHOR-YOUTUBE-FINAL.md`**. `.env` é local/ignorado e não deve ser exibido ou versionado.
+A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/continuidade é **`docs/ANCHOR-YOUTUBE-FINAL.md`**. O checkpoint de recuperação crítico corrente é **`docs/RECOVERY-CHECKPOINT-20261006-CRITICAL-OWNER-UI.md`**, com P0 de identidade/solicitação Owner e P1 visuais ainda abertos. `.env` é local/ignorado e não deve ser exibido ou versionado.
 
 ## Produto consolidado
 

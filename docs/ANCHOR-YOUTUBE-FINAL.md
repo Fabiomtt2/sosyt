@@ -7,6 +7,7 @@ Data-base: 06/10/2026.
 
 ## 1. Governança
 
+- **Checkpoint crítico mais recente:** `docs/RECOVERY-CHECKPOINT-20261006-CRITICAL-OWNER-UI.md`. Enquanto os REDs nele listados estiverem abertos, toda nova instância deve lê-lo imediatamente após esta âncora e antes de editar.
 - Projeto mutável: `YouTube Final`.
 - `Conexão Youtube` é origem histórica ASTRA para auditoria/comparação; não editar durante convergências.
 - Antes de qualquer edição: `git status --short`, `git log -5 --oneline`, ler `AGENTS.md`, esta âncora, `PROJECT_STATUS.md` e as skills de continuidade/recuperação.
