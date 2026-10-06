@@ -4,7 +4,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem Filas g
 
 ## Fluxo implementado
 
-- Uma única tela de login usa nome, WhatsApp com código do país e grupo SOS YOUTUBER de 1 a 99. O backend identifica automaticamente se o cadastro corresponde a participante ou Owner; `#` permanece apenas como detalhe interno da API e nunca é exibido na interface.
+- Uma única tela de login usa nome, WhatsApp internacional com país/DDI + bandeira, DDD brasileiro quando aplicável e grupo SOS YOUTUBER de 1 a 999. O backend identifica automaticamente se o cadastro corresponde a participante ou Owner; `#` permanece apenas como detalhe interno da API e nunca é exibido na interface.
 - `Quero participar` registra uma solicitação persistente e mantém uma tela de acompanhamento até a decisão. Reenvios do mesmo WhatsApp ficam protegidos por bloqueio temporário de 120 minutos; a aprovação aparece nessa mesma tela antes do retorno ao login. O contato público usa `OWNER_WHATSAPP` quando definido ou Rafael como fallback. A automação oficial usa Meta Cloud API quando conectada; WPPConnect é o complemento self-hosted planejado para grupos tradicionais, com ativação explícita no painel Owner.
 - A associação ao grupo SOS YOUTUBER é automatizada quando a Groups API oficial expõe grupos elegíveis: o worker reconhece `SOS YOUTUBER N`, sincroniza participantes e webhooks de entrada/saída atualizam o acesso. Grupos que a Meta não expõe permanecem disponíveis para conferência Owner.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes em cada Fila. O mesmo vídeo não pode ser reutilizado em Fila posterior.
@@ -39,7 +39,7 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação corrente de 06/10/2026: 65 testes de API, 6 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação corrente de 06/10/2026: 65 testes de API, 9 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Preview público
 

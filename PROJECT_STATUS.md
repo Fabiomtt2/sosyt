@@ -25,7 +25,7 @@ A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/cont
 - Quadro global entre todos os grupos SOS YOUTUBER com Filas de 10 posições sequenciais, URL, autor, grupo e horário permanentes. Ao completar 10, a Fila fecha e outra abre sem apagar a anterior.
 - URL precisa ser YouTube; validação estrutural sempre e consulta externa quando `YOUTUBE_API_KEY` existe.
 - `Fabio0` e `Rafael0`: contas Owner separadas, identificadas automaticamente por nome + WhatsApp configurado; em desenvolvimento usam a credencial administrativa `sosyout`. Em produção o servidor exige segredo Owner forte. O `#` permanece apenas como detalhe interno da API.
-- Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–99. O backend resolve automaticamente participante/Owner. Se o participante ainda não estiver aprovado, a UI registra a solicitação pendente e mostra confirmação amigável; após aprovação, entra diretamente quando `group_memberships` confirma telefone + grupo. Não há Credencial/OTP no fluxo principal.
+- Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–999. O backend resolve automaticamente participante/Owner. Se o participante ainda não estiver aprovado, a UI registra a solicitação pendente e mostra confirmação amigável; após aprovação, entra diretamente quando `group_memberships` confirma telefone + grupo. Não há Credencial/OTP no fluxo principal.
 - 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
 - Ao fechar o ciclo, recompensa de curadoria existente permanece.
 - Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
@@ -57,7 +57,7 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 - `docs/ANCHOR-YOUTUBE-FINAL.md` é a âncora canônica obrigatória; `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` define o protocolo operacional.
 - Intro preserva a identidade ASTRA com lockup horizontal da marca e uma única CTA `Quero participar`. O botão voltou ao vermelho simples anterior; o bloco de segurança é textual, **sem escudo/ícone verde**.
 - A CTA `Quero participar` abre a tela intermediária; o envio cria uma página persistente `Solicitação em análise`, com acompanhamento automático/manual. Após aprovação, a mesma página muda para `Cadastro aprovado`; o usuário escolhe quando voltar ao acesso.
-- Login continua universal: `WhatsApp` internacional e grupo SOS YOUTUBER 1–99; sem +55 automático, sem rótulos Owner e sem `#` visível. `Credencial administrativa` só aparece para Owner.
+- Login continua universal: `WhatsApp` internacional e grupo SOS YOUTUBER 1–999; sem +55 automático, sem rótulos Owner e sem `#` visível. `Credencial administrativa` só aparece para Owner.
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
 - Webapp/XFCE é a prioridade corrente; APK não é prioridade desta rodada.
@@ -78,7 +78,7 @@ A intro também fixa por teste: botão `Quero participar` isolado e com a mesma 
 Gate completo executado após recuperação por Git e refinamento visual:
 - `git diff --check`: aprovado;
 - backend: 65/65 testes;
-- cliente: 6/6 testes;
+- cliente: 9/9 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
 - Playwright E2E: 1/1 aprovado no fluxo completo;

@@ -10,7 +10,7 @@ import { generateAndSaveVerifyToken, gitVersionInfo, readWhatsAppIntegration, sa
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
-const groupSchema = z.string().regex(/^(?:[1-9]|[1-9]\d)$/);
+const groupSchema = z.string().regex(/^[1-9]\d{0,2}$/);
 export function hasMembership(db: AppDatabase, phone: string, group?: string): boolean {
   const member = db.prepare("SELECT m.group_code FROM group_memberships m JOIN groups g ON g.code = m.group_code WHERE m.phone = ? AND m.revoked_at IS NULL AND g.enabled = 1").get(phone) as { group_code: string } | undefined;
   return Boolean(member && (!group || member.group_code === group));
@@ -36,7 +36,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema, groupCode: groupSchema.optional(), consent: z.literal(true) }).parse(request.body);
     const member = db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(body.phone) as { groupCode: string } | undefined;
     if (member) return reply.code(409).send({ code: "ALREADY_REGISTERED", alreadyApproved: true, groupCode: member.groupCode, message: "Esse número já foi registrado. Entre pelo acesso normal com o grupo autorizado ou fale com um Owner se precisar atualizar seu cadastro." });
-    if (body.groupCode && !db.prepare("SELECT 1 FROM groups WHERE code = ? AND enabled = 1").get(body.groupCode)) return reply.code(400).send({ message: "Selecione um grupo disponível." });
+    if (body.groupCode) db.prepare("INSERT OR IGNORE INTO groups (code,enabled,membership_mode) VALUES (?,1,'OWNER')").run(body.groupCode);
 
     const existing = db.prepare("SELECT id,status,retry_block_until AS retryBlockUntil FROM participation_requests WHERE phone=?").get(body.phone) as
       | { id: string; status: "PENDING" | "APPROVED" | "DECLINED"; retryBlockUntil?: string }

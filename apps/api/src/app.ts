@@ -31,7 +31,7 @@ declare module "@fastify/jwt" {
 const requestCodeSchema = z.object({
   name: z.string().trim().min(2).max(80),
   phone: z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país.")),
-  groupCode: z.string().trim().regex(/^(?:[1-9]|[1-9]\d)$/, "Informe um grupo SOS YOUTUBER entre 1 e 99.")
+  groupCode: z.string().trim().regex(/^[1-9]\d{0,2}$/, "Informe um grupo SOS YOUTUBER entre 1 e 999.")
 });
 const verifyCodeSchema = z.object({
   phone: z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país.")),

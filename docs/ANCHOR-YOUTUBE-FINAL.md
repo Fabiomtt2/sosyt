@@ -17,8 +17,8 @@ Data-base: 06/10/2026.
 
 ## 2. Identidades e acesso
 
-- Tela de entrada é neutra: nome + WhatsApp internacional + grupo SOS YOUTUBER 1–99.
-- Nunca forçar `+55`; telefone é internacional.
+- Tela de entrada é neutra: nome + WhatsApp internacional + grupo SOS YOUTUBER 1–999.
+- Nunca forçar `+55`; telefone é internacional. O login usa um controle único moderno: seletor de país/DDI com bandeira, DDD brasileiro quando aplicável e uma única caixa numérica para o restante do telefone. País/DDD usam popovers, não `<select>` nativo.
 - Nome de Owner é comparado sem diferenciar maiúsculas/minúsculas, acentos e alias final `0`.
 - Owners canônicos: `Fabio0` e `Rafael0`; aliases `Fábio/Fabio` e `Rafael` são válidos quando o WhatsApp correspondente também confere.
 - Telefones Owner reais ficam em `OWNER_FABIO_WHATSAPP` e `OWNER_RAFAEL_WHATSAPP`.
@@ -128,13 +128,13 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Preservar navy/vermelho/creme, Manrope + DM Sans, cards arredondados, profundidade sutil e boa hierarquia.
 - Premium = refinamento e consistência; não trocar identidade sem aprovação.
 - Lockup `SOS YOUTUBER` horizontal.
-- `Quero participar` usa novamente o botão vermelho simples da identidade original ASTRA. Ele e a ação principal do login mantêm a mesma altura, eixo vertical, raio e tipografia; não adicionar gradiente/neon especial sem nova aprovação.
+- `Quero participar` usa novamente o botão vermelho simples da identidade original ASTRA. Ele e a ação principal do login mantêm a mesma altura, eixo vertical, raio e tipografia; a diferença de centro vertical medida no desktop deve permanecer ≤1 px. O texto de segurança desce/sobe junto com o botão. Não adicionar gradiente/neon especial sem nova aprovação.
 - O bloco “Sem views automáticas / Sem reprodução oculta / Você mantém o controle” é somente textual. Não usar escudo ou outro ícone verde nesse bloco nem no cartão de solicitação. Apenas “Você mantém o controle.” fica em negrito.
 - Uma CTA de participação; sem duplicação apelativa.
 - “Voltar para tela de login” usa seta e linguagem neutra.
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
-- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro.
+- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO 🚫` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
 - Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
 - `Grupos e acesso` usa carrossel dos grupos configurados com estado, quantidade de acessos, modo de validação e ajuda `?`. `Autorização manual excepcional` exige nome + WhatsApp + grupo, cria registro administrativo quando necessário e grava data/Owner responsável.
 
@@ -165,7 +165,7 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Cooldown de 30 minutos aplicado no servidor.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
-- Gate mais recente: 65/65 API, 6/6 cliente, TypeScript/build/PWA verdes e E2E 1/1.
+- Gate mais recente: 65/65 API, 9/9 cliente, TypeScript/build/PWA verdes e E2E 1/1.
 
 ## 12. Pendências conscientes
 

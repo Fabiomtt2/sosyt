@@ -24,7 +24,7 @@ function AdminHelpModal({ topic, onClose }: { topic: "groups" | "manual"; onClos
         <div className="help-points">
           <p><strong>Ativo</strong> permite login e novas aprovações naquele grupo. <strong>Pausado</strong> suspende novos acessos sem apagar usuários, saldos ou histórico.</p>
           <p><strong>Validação Owner</strong> significa que a autorização é feita manualmente pelos Owners. Quando uma integração externa de grupo estiver realmente validada, o card indicará esse modo separadamente.</p>
-          <p>Os grupos aparecem em carrossel porque podem existir de 1 a 99. A tela mostra apenas controles administrativos; nenhum participante vê este painel.</p>
+          <p>Os grupos aparecem em carrossel porque podem crescer de 1 até 999 sem transformar a tela em uma lista longa. A tela mostra apenas controles administrativos; nenhum participante vê este painel.</p>
         </div>
       </> : <>
         <h2>O que é autorização manual?</h2>
@@ -113,7 +113,7 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
         <div className="integration-summary-grid">
           <div><span>Modo</span><strong>{data.whatsapp.integration.mode === "HYBRID" ? "Híbrido" : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : "Meta oficial"}</strong><small>{data.whatsapp.integration.mode === "HYBRID" ? "Meta para mensagens + complemento opcional para grupos tradicionais." : data.whatsapp.integration.mode === "DISABLED" ? "Automação externa pausada; gestão manual continua disponível." : "WhatsApp Business Platform como canal principal."}</small></div>
           <div><span>Credenciais Meta</span><strong>{data.whatsapp.integration.tokenValidatedAt ? "Validadas" : data.whatsapp.integration.accessTokenConfigured ? "Salvas · validar" : "Token necessário"}</strong><small>{data.whatsapp.integration.tokenValidatedAt ? `Última validação: ${date(data.whatsapp.integration.tokenValidatedAt)}` : "Enquanto não houver token validado, envio real pela API oficial permanece indisponível."}</small></div>
-          <div><span>Transporte nesta execução</span><strong>{data.whatsapp.configured ? "Ativo" : "Ainda inativo"}</strong><small>{data.whatsapp.queued} na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} aceitas pelo provedor.</small></div>
+          <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Transporte nesta execução</span><strong>{data.whatsapp.configured ? "ATIVO ✅" : "AINDA INATIVO 🚫"}</strong><small>{data.whatsapp.queued} na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} aceitas pelo provedor.</small></div>
         </div>
         <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) SOS oficial(is) vinculado(s) · ${data.whatsapp.automaticMemberships} associação(ões) automática(s).` : "Nenhum grupo SOS oficial sincronizado ainda. A conferência Owner permanece disponível e o modo híbrido poderá complementar grupos tradicionais."}</p>
         <div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Sincronização dos grupos SOS concluída.")}>Sincronizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens elegíveis recolocadas na fila.")}>Repetir envios com falha</button>}</div>
@@ -167,7 +167,7 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
           <button className="carousel-arrow" aria-label="Próximos grupos" onClick={()=>scrollGroups(1)}><ChevronRight/></button>
         </div>
 
-        <form className="owner-inline-form add-group-form" onSubmit={addGroup}><label>Novo grupo<input inputMode="numeric" pattern="[1-9]|[1-9][0-9]" maxLength={2} value={newGroup} onChange={(e) => setNewGroup(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} placeholder="1 a 99" required /></label><button className="secondary" disabled={busy}>Adicionar grupo</button></form>
+        <form className="owner-inline-form add-group-form" onSubmit={addGroup}><label>Novo grupo<input inputMode="numeric" pattern="[1-9][0-9]{0,2}" maxLength={3} value={newGroup} onChange={(e) => setNewGroup(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))} placeholder="1 a 999" required /></label><button className="secondary" disabled={busy}>Adicionar grupo</button></form>
 
         <div className="manual-access-section">
           <div className="heading-with-help"><h3>Autorização manual excepcional</h3><button className="help-icon" aria-label="Explicar autorização manual" onClick={()=>setHelpTopic("manual")}><HelpCircle size={18}/></button></div>

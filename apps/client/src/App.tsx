@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState, useRef, type FormEvent } from "react"
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
-import { ArrowLeft, Check, CircleDollarSign, Clock3, ExternalLink, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
+import { ArrowLeft, Check, CircleDollarSign, Clock3, ExternalLink, HelpCircle, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
 import { OwnerDashboard } from "./OwnerDashboard";
 import { WatchProgress, readSavedWatchPercent } from "./WatchProgress";
 import { api, ownerApi, participationApi, ApiError, type Dashboard, type ParticipationStatus, type Pix, type Round } from "./api";
-import { INTERNATIONAL_PHONE_PATTERN, formatInternationalPhoneInput, isCompleteInternationalPhone } from "./phone";
+import { PhoneField, isCompletePhoneField } from "./PhoneField";
 
 const COOLDOWN_KEY = "conexao_cooldown_until";
 const PENDING_REQUEST_KEY = "conexao_participation_request";
@@ -30,6 +30,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [credential, setCredential] = useState("");
   const [consent, setConsent] = useState(false);
   const [joined, setJoined] = useState<ParticipationStatus>();
+  const [groupHelpOpen,setGroupHelpOpen] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", groupCode: "" });
 
   const [busy, setBusy] = useState(false);
@@ -65,7 +66,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         localStorage.setItem(PENDING_REQUEST_KEY,state.requestToken);
         setForm((current) => ({
           name: state.name ?? current.name,
-          phone: state.phone ? formatInternationalPhoneInput(state.phone) : current.phone,
+          phone: state.phone ? `+${state.phone.replace(/\D/g,"")}` : current.phone,
           groupCode: state.approvedGroup ?? state.preferredGroup ?? current.groupCode
         }));
       } catch (cause) {
@@ -145,10 +146,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     try {
       const name = form.name.trim();
       if (name.length < 2) throw new Error("Informe seu nome ou como prefere ser chamado.");
-      if (!isCompleteInternationalPhone(form.phone)) throw new Error("Informe um WhatsApp válido com código do país.");
+      if (!isCompletePhoneField(form.phone)) throw new Error("Informe um WhatsApp válido escolhendo o país, o DDD quando necessário e o número.");
 
       if (joinMode) {
-        if (!/^(?:[1-9]|[1-9][0-9])$/.test(form.groupCode)) throw new Error("Digite o número do seu grupo SOS YOUTUBER, de 1 a 99.");
+        if (!/^[1-9]\d{0,2}$/.test(form.groupCode)) throw new Error("Digite o número correspondente ao seu grupo SOS YOUTUBER, de 1 a 999.");
         if (!consent) throw new Error("Autorize o uso do nome e número para enviar a solicitação.");
         try {
           const result = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
@@ -164,7 +165,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         if (role.role === "owner") {
           setStep("credential");
         } else {
-          if (!/^(?:[1-9]|[1-9][0-9])$/.test(form.groupCode)) throw new Error("Digite o número do seu grupo SOS YOUTUBER, de 1 a 99.");
+          if (!/^[1-9]\d{0,2}$/.test(form.groupCode)) throw new Error("Digite o número correspondente ao seu grupo SOS YOUTUBER, de 1 a 999.");
           try {
             const result = await api.login({ name, phone: form.phone, groupCode: form.groupCode });
             localStorage.removeItem("conexao_owner_token");
@@ -246,8 +247,12 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         <div className="access-fields">
           {step === "profile" ? <>
             <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
-            <label>WhatsApp<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatInternationalPhoneInput(e.target.value) })} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
-            <label>SOS YOUTUBER — Digite a qual grupo você pertence<input inputMode="numeric" maxLength={2} pattern="[1-9]|[1-9][0-9]" value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(/[^0-9]/g, "").slice(0, 2) })} placeholder="1 a 99" required={joinMode} /></label>
+            <div className="field-block"><label htmlFor="whatsapp">WhatsApp</label><PhoneField id="whatsapp" value={form.phone} onChange={(phone)=>setForm({...form,phone})} required /></div>
+            <div className="field-block group-field-block">
+              <div className="field-label-row"><label htmlFor="sos-group">Digite o número correspondente ao seu grupo</label><button type="button" className="field-help-button" aria-label="Por que informar o número do grupo?" onClick={()=>setGroupHelpOpen(true)}><HelpCircle size={16}/></button></div>
+              <input id="sos-group" inputMode="numeric" maxLength={3} pattern="[1-9][0-9]{0,2}" value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(/[^0-9]/g, "").slice(0, 3) })} placeholder="Ex.: SOS YOUTUBER 3 → digite 3" required={joinMode} />
+              <small className="field-help-copy">Somente números, de 1 a 999.</small>
+            </div>
             {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o SOS YouTube a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
           </> : <>
             <label>Credencial<input type="password" autoComplete="current-password" value={credential} onChange={(e) => setCredential(e.target.value)} placeholder="Digite sua credencial" /></label>
@@ -261,6 +266,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       </form>}
       {!cooldownActive && step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
     </section>
+    {groupHelpOpen && <div className="login-help-backdrop" onMouseDown={()=>setGroupHelpOpen(false)}><section className="login-help-popover" role="dialog" aria-modal="true" aria-label="Explicação do número do grupo" onMouseDown={(e)=>e.stopPropagation()}><button className="close" aria-label="Fechar explicação" onClick={()=>setGroupHelpOpen(false)}>×</button><HelpCircle size={22}/><h3>Por que informar o número do grupo?</h3><p>O número identifica qual grupo <strong>SOS YOUTUBER</strong> deve ser conferido durante seu cadastro. Exemplo: se você participa do <strong>SOS YOUTUBER 3</strong>, digite apenas <strong>3</strong>.</p><p>Sua liberação só acontece depois que o sistema/Owner confirma que o WhatsApp cadastrado corresponde ao grupo informado e que o cadastro foi aprovado. Informar outro número de grupo não libera acesso.</p><button className="secondary" onClick={()=>setGroupHelpOpen(false)}>Entendi</button></section></div>}
   </main>;
 }
 

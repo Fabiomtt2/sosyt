@@ -15,7 +15,7 @@ const schema = z.object({
   AUTH_DEV_MODE: booleanString.default(true),
   PAYMENTS_DEV_MODE: booleanString.default(true),
   REQUIRE_GROUP_MEMBERSHIP: booleanString.default(true),
-  ALLOWED_GROUP_CODES: z.string().regex(/^(?:[1-9]|[1-9]\d)(,(?:[1-9]|[1-9]\d))*$/).default("1,2"),
+  ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]\d{0,2}(,[1-9]\d{0,2})*$/).default("1,2"),
   OWNER_NAME: z.string().trim().min(2).max(80).default("Owner"),
   OWNER_LOGIN_ID: z.string().trim().min(3).max(80).default("owner"),
   OWNER_ADMIN_SECRET: z.string().min(32).optional(),

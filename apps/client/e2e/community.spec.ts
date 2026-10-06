@@ -1,6 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
+async function fillBrazilPhone(page: any, subscriber: string) {
+  await page.getByRole("button", { name: "Selecionar país e DDI" }).click();
+  await page.getByPlaceholder("Buscar país ou DDI").fill("Brasil");
+  await page.getByRole("button", { name: "Brasil +55" }).click();
+  await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
+  await page.getByRole("button", { name: "DDD 71 BA" }).click();
+  await page.getByLabel("WhatsApp").fill(subscriber);
+}
+
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
   const evidence = resolve("../../docs/evidencias"), errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -81,11 +90,12 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
   await expect(page.getByText(/continuaremos pelo WhatsApp/)).toBeVisible();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
-  const joinPhone = page.getByLabel("WhatsApp");
-  await joinPhone.fill("5");
-  await expect(joinPhone).toHaveValue("5");
-  await joinPhone.fill("5571900000001");
-  await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1");
+  await expect(page.getByRole("button", { name: "Selecionar país e DDI" })).toContainText("DDI");
+  await fillBrazilPhone(page, "900000001");
+  const groupField = page.getByLabel("Digite o número correspondente ao seu grupo");
+  await groupField.fill("123");
+  await expect(groupField).toHaveValue("123");
+  await groupField.fill("1");
   await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Enviar dados e continuar" }).click();
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
   await expect(page.getByText("Sua solicitação de cadastro foi registrada e será validada em breve.", { exact: true })).toBeVisible();
@@ -118,7 +128,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fábio");
-  await page.getByLabel("WhatsApp").fill("+55 71 99999-0001");
+  await fillBrazilPhone(page, "999990001");
   await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Credencial", exact: true })).toBeVisible();
   await expect(page.getByLabel("Credencial administrativa")).toHaveCount(0);
@@ -141,6 +151,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({ path: resolve(evidence, "owner-solicitacoes-desktop.png"), fullPage: true });
   await expect(page.getByRole("button", { name: /Fábio/ })).toBeVisible();
   await expect(page.getByText(/Sistema v0\.1\.0/)).toBeVisible();
+  const transportCard = page.locator(".transport-status-card");
+  await expect(transportCard.getByText("AINDA INATIVO 🚫", { exact: true })).toBeVisible();
+  const transportBackground = await transportCard.evaluate((el: HTMLElement) => getComputedStyle(el).backgroundColor);
+  expect(transportBackground).toBe("rgb(109, 111, 118)");
 
   await page.getByRole("button", { name: "Participantes", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pessoa E2E", exact: true })).toBeVisible();
@@ -184,8 +198,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({ path: resolve(evidence, "owner-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: /Fábio/ }).click();
 
-  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await page.getByLabel("WhatsApp").fill("5571900000001");
-  await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1"); await page.getByRole("button", { name: "Continuar", exact: true }).click();
+  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await fillBrazilPhone(page, "900000001");
+  await page.getByLabel("Digite o número correspondente ao seu grupo").fill("1"); await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByLabel("Credencial", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Vamos montar a próxima seleção?" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });

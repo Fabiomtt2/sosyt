@@ -24,7 +24,7 @@ Antes de editar:
 - Uma única tela de acesso: nome + WhatsApp internacional + grupo SOS YOUTUBER quando aplicável.
 - O campo se chama apenas **WhatsApp**. Nunca `WhatsApp do Owner`.
 - Nunca inserir `+55` automaticamente. País é livre; normalização/validação ocorre no backend.
-- Campo de grupo: **SOS YOUTUBER — Digite a qual grupo você pertence**; somente 1 a 99, sem zero inicial.
+- Campo de grupo: **Digite o número correspondente ao seu grupo**; somente 1 a 999, sem zero inicial, com ajuda `?` explicando a validação.
 - `#` é detalhe interno da API Owner. Nunca exibir `#` como valor, placeholder, palavra-chave ou instrução.
 - Participante não possui campo secreto no fluxo principal. Após validação de telefone + grupo em `group_memberships`, entra diretamente.
 - Somente Owner recebe o campo **Credencial** depois de nome + WhatsApp identificarem uma conta Owner; em desenvolvimento o valor é `sosyout`, enquanto produção exige segredo forte do servidor.
@@ -61,7 +61,7 @@ Antes de editar:
 - rejeição de `video_id` já usado em qualquer Fila;
 - dashboards participante e Owner;
 - telefone internacional;
-- grupos 1–99.
+- grupos 1–999.
 
 ## Gate antes de checkpoint
 ```

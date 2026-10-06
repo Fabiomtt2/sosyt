@@ -82,8 +82,8 @@ describe("Owner e acesso por grupo", () => {
     expect((await direct()).statusCode).toBe(200);
     expect((await requestCode()).statusCode).toBe(200);
   });
-  it("solicitação persiste, bloqueia reenvio por 120 min e aprovação libera o mesmo acompanhamento", async () => {
-    const body = { name: "Pessoa Solicitante", phone: "5571999999001", groupCode: "2", consent: true };
+  it("solicitação aceita grupo de três dígitos, persiste, bloqueia reenvio por 120 min e aprovação libera o mesmo acompanhamento", async () => {
+    const body = { name: "Pessoa Solicitante", phone: "5571999999001", groupCode: "123", consent: true };
     const result = await app.inject({ method: "POST", url: "/participation/request", payload: body });
     expect(result.statusCode).toBe(200);
     expect(result.json()).toMatchObject({ status:"PENDING", message:"Sua solicitação de cadastro foi registrada e será validada em breve." });
@@ -102,14 +102,15 @@ describe("Owner e acesso por grupo", () => {
 
     const before = await app.inject({ method:"POST", url:"/participation/status", payload:{ token:result.json().requestToken } });
     expect(before.statusCode).toBe(200);
-    expect(before.json()).toMatchObject({ status:"PENDING", phone:"5571999999001", preferredGroup:"2" });
+    expect(before.json()).toMatchObject({ status:"PENDING", phone:"5571999999001", preferredGroup:"123" });
+    expect(db.prepare("SELECT 1 FROM groups WHERE code='123'").get()).toBeTruthy();
 
-    const decision = await app.inject({ method: "POST", url: `/admin/requests/${overview.requests[0].id}/decision`, headers: authorization(ownerToken), payload: { status: "APPROVED", groupCode: "2" } });
+    const decision = await app.inject({ method: "POST", url: `/admin/requests/${overview.requests[0].id}/decision`, headers: authorization(ownerToken), payload: { status: "APPROVED", groupCode: "123" } });
     expect(decision.statusCode).toBe(200);
     const after = await app.inject({ method:"POST", url:"/participation/status", payload:{ token:result.json().requestToken } });
     expect(after.statusCode).toBe(200);
-    expect(after.json()).toMatchObject({ status:"APPROVED", approvedGroup:"2" });
-    expect((await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Solicitante", phone:"5571999999001", groupCode:"2" } })).statusCode).toBe(200);
+    expect(after.json()).toMatchObject({ status:"APPROVED", approvedGroup:"123" });
+    expect((await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Solicitante", phone:"5571999999001", groupCode:"123" } })).statusCode).toBe(200);
   });
 
   it("grupo verificado exige aprovação Owner, presença do membro e Owner admin antes de liberar acesso", async () => {
@@ -199,10 +200,10 @@ describe("Owner e acesso por grupo", () => {
     const token = await participant(); await approve("5571999999001", "2");
     expect((await app.inject({ method: "GET", url: "/dashboard", headers: authorization(token) })).statusCode).toBe(403);
   });
-  it("grupos ficam entre 1 e 99; consentimento é obrigatório", async () => {
+  it("grupos ficam entre 1 e 999; consentimento é obrigatório", async () => {
     expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "0" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "100" } })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "99" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "1000" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/admin/groups", headers: authorization(ownerToken), payload: { code: "999" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: "/participation/request", payload: { name: "Pessoa", phone: "5571999999001" } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: "/admin/login", payload: { ...ownerBody, name: "Outra Pessoa" } })).statusCode).toBe(401);
   });

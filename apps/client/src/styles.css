@@ -23,7 +23,7 @@ h1, h2, h3 { font-family: "Manrope", sans-serif; letter-spacing: -.04em; }
 .lead-choice { display: block; margin-top: 3px; }
 .participation-cluster { width: 300px; max-width: 100%; margin-top: 102px; padding: 0; border: 0; background: transparent; box-shadow: none; position: relative; z-index: 1; }
 .intro-join { width: 100%; min-height: 50px; margin: 0; }
-.access-form { min-height: 332px; display: flex; flex-direction: column; gap: 18px; }
+.access-form { min-height: 381px; display: flex; flex-direction: column; gap: 18px; }
 .access-fields { display: grid; gap: 18px; }
 .access-actions { display: grid; gap: 10px; margin-top: auto; position: relative; }
 .access-actions > .primary { min-height: 50px; width: 100%; }
@@ -444,4 +444,73 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
   .astra-integration-modal{padding:24px}
   .integration-section-title{align-items:flex-start}
   .bot-config-title{font-size:1rem}
+}
+
+
+/* Login internacional e estado do transporte — 06/10/2026 */
+.field-block{display:grid;gap:8px;min-width:0}
+.field-block>label,.field-label-row>label{font-size:.84rem;font-weight:700;color:#514b52}
+.field-label-row{display:flex;align-items:center;gap:7px}
+.field-help-button{width:24px;height:24px;border:0;border-radius:50%;background:#f1ece8;color:#963148;display:grid;place-items:center;padding:0;cursor:pointer}
+.field-help-button:hover{background:#eadfe1;color:#741f35}
+.field-help-copy{color:#8b8289;font-size:.73rem;line-height:1.35}
+
+.phone-field-wrap{position:relative;display:grid;gap:6px;min-width:0}
+.phone-field{display:flex;align-items:stretch;min-height:49px;border:1px solid #d7d1ca;border-radius:13px;background:#fff;overflow:visible;transition:border-color .18s ease,box-shadow .18s ease;position:relative}
+.phone-field:focus-within{border-color:#c83a4d;box-shadow:0 0 0 4px #c83a4d12}
+.phone-field.valid{border-color:#b9d6c4}
+.phone-country-trigger,.phone-ddd-trigger{border:0;background:#f6f2ee;color:#3f3940;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 11px;font-size:.82rem;font-weight:800;cursor:pointer;white-space:nowrap}
+.phone-country-trigger{border-radius:12px 0 0 12px;border-right:1px solid #e1dbd5;min-width:82px}
+.phone-ddd-trigger{border-right:1px solid #e1dbd5;min-width:70px}
+.phone-country-trigger:hover,.phone-ddd-trigger:hover{background:#eee8e2}
+.phone-flag{font-size:1.05rem;line-height:1}
+.phone-number-input{border:0!important;box-shadow:none!important;border-radius:0 12px 12px 0!important;min-width:0;flex:1;padding:13px 14px!important;background:transparent!important;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.phone-number-input:focus{box-shadow:none!important}
+.phone-field-hint{display:flex;gap:8px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;color:#8b8389;font-size:.7rem;line-height:1.35;padding:0 2px}
+.phone-hint-error{color:#a03442;font-weight:700}
+
+.phone-popover{position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:30;background:#fff;border:1px solid #ddd6cf;border-radius:18px;box-shadow:0 24px 65px #1720332b;padding:12px;display:grid;gap:10px;max-height:360px}
+.phone-popover-head{display:flex;align-items:center;justify-content:space-between;padding:3px 3px 2px}
+.phone-popover-head strong{font-family:Manrope,sans-serif}
+.phone-popover-head button{border:0;background:#f2eeea;border-radius:9px;width:30px;height:30px;display:grid;place-items:center;color:#6c646b}
+.phone-search{display:flex!important;align-items:center;gap:8px;border:1px solid #dfd8d2;border-radius:11px;padding:0 11px;background:#faf8f5}
+.phone-search input{border:0!important;box-shadow:none!important;background:transparent!important;padding:11px 2px!important;min-width:0}
+.phone-option-list{overflow:auto;display:grid;gap:3px;padding-right:2px}
+.phone-option-list>button{border:0;background:#fff;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:8px;text-align:left;padding:9px 10px;border-radius:10px;color:#484148;cursor:pointer}
+.phone-option-list>button:hover,.phone-option-list>button.selected{background:#f6eeef}
+.phone-option-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phone-option-list strong{font-size:.78rem;color:#8e3046}
+.phone-popover-copy{font-size:.76rem;color:#756e74;margin:0 3px}
+.ddd-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;overflow:auto}
+.ddd-grid>button{border:1px solid #e2dcd6;background:#fff;border-radius:10px;padding:8px 5px;display:grid;gap:2px;text-align:center;cursor:pointer}
+.ddd-grid>button:hover,.ddd-grid>button.selected{border-color:#c94859;background:#fff2f3}
+.ddd-grid strong{font-size:.82rem}
+.ddd-grid span{font-size:.62rem;color:#8b8389}
+
+.login-help-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:22px;background:#0d14229e;backdrop-filter:blur(7px)}
+.login-help-popover{position:relative;width:min(520px,100%);background:#fff;border-radius:22px;padding:30px;box-shadow:0 30px 90px #0006;color:#3f3940}
+.login-help-popover>svg{color:#a32c44;margin-bottom:8px}
+.login-help-popover h3{font-size:1.28rem;margin-bottom:10px}
+.login-help-popover p{color:#6e666d;line-height:1.6;margin:9px 0}
+.login-help-popover .close{top:12px;right:12px}
+
+.integration-summary-grid>.transport-status-card.inactive{background:#6d6f76!important;color:#fff!important;box-shadow:0 12px 26px #34363c20!important}
+.integration-summary-grid>.transport-status-card.inactive span{color:#e9eaed!important}
+.integration-summary-grid>.transport-status-card.inactive strong{color:#fff!important}
+.integration-summary-grid>.transport-status-card.inactive small{color:#f1f2f4!important}
+.integration-summary-grid>.transport-status-card.active{background:linear-gradient(145deg,#26724f 0%,#328f64 100%)!important;color:#fff!important;box-shadow:0 12px 26px #135a3a26!important}
+.integration-summary-grid>.transport-status-card.active span{color:#dff6e9!important}
+.integration-summary-grid>.transport-status-card.active strong{color:#fff!important}
+.integration-summary-grid>.transport-status-card.active small{color:#edf9f2!important}
+
+@media(max-width:560px){
+  .phone-field{flex-wrap:nowrap}
+  .phone-country-trigger{min-width:72px;padding:0 8px}
+  .phone-ddd-trigger{min-width:58px;padding:0 7px}
+  .ddd-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .phone-popover{left:-4px;right:-4px}
+}
+
+@media(min-width:901px){
+  .participation-cluster{transform:translateY(24px)}
 }
