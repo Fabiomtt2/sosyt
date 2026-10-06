@@ -105,15 +105,18 @@ Mesmo com o E2E anterior verde, o usuário ainda percebe desalinhamento entre `Q
 - comparar não só bounding box, mas baseline visual/sombra/padding;
 - não aceitar “teste passou” como prova suficiente se a evidência visual continuar ruim.
 
+## Fechamento dos REDs desta rodada
+
+- ✅ **P0 Owner × solicitação pendente:** corrigido. A candidatura persistente agora pode ser suprimida apenas na sessão atual quando o usuário escolhe outra identidade; Owner reconhecido tem prioridade absoluta para a etapa `Credencial`. Credencial errada não cria solicitação, não altera `blockedUntil` e não exibe cooldown de cadastro.
+- ✅ **DDD incremental:** seletor brasileiro aceita busca invisível por teclado; `7` filtra 7x e `71` leva ao DDD 71, preservando o carrossel ‹/› e sem nova caixa visual.
+- ✅ **Modal de integração:** criado `apps/client/src/integration.css` como skin canônica carregada após o CSS legado. Botão externo permanece vermelho ASTRA; modal branco/creme; cards de status brancos com acento lateral vermelho; Meta Oficial azul; Híbrido vaporwave com Meta/YouTube 50/50; Desativado cinza; scroll interno, Esc em camadas e ajudas contextuais preservados.
+- ✅ **E2E:** cenário cobre os três pontos acima; o gate final com `integration.css` realmente carregado fechou verde 1/1 em 36,8 s, além de 65/65 testes de API, 9/9 testes de cliente, TypeScript e build/PWA verdes.
+
 ## Próxima ordem de execução
 
-1. Corrigir P0 de identidade/solicitação pendente do Owner e adicionar regressão automática.
-2. Implementar filtro/salto digitável do DDD.
-3. Fazer screenshot/medição real do login no Xubuntu e corrigir alinhamento se necessário.
-4. Consolidar CSS do modal de integração em uma única linguagem ASTRA e redesenhar Oficial/Híbrido/Desativado.
-5. Refinar dashboard Owner: status pendente/aprovado, participante clicável e ajuda de Grupos/Acesso.
-6. Gate completo: diff-check + testes + lint + build + E2E + evidências desktop/mobile.
-7. Atualizar ANCHOR/PROJECT_STATUS e publicar commits no origin/main.
+1. Revisar a evidência visual nova no XFCE/GitHub Pages com cache-bust.
+2. Continuar refinamento administrativo apenas se a auditoria visual do usuário encontrar nova divergência real.
+3. Backend HTTPS público continua sendo a dependência para BOT/SQLite/webhooks reais fora do Xubuntu.
 
 ## Regra de heartbeat reforçada
 

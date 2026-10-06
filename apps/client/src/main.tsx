@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
+import "./integration.css";
 
 if (import.meta.env.DEV) {
   if ("serviceWorker" in navigator) {

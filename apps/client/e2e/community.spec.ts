@@ -286,11 +286,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(await integrationDialog.evaluate((el: HTMLElement) => el.scrollTop)).toBeGreaterThan(scrollMetrics.scrollTop);
   const astraStatus = await page.locator(".astra-status-grid article").first().evaluate((element) => {
     const style=getComputedStyle(element);
-    return { color:style.color, backgroundColor:style.backgroundColor, borderLeftWidth:style.borderLeftWidth };
+    return { color:style.color, backgroundColor:style.backgroundColor, borderLeftColor:style.borderLeftColor, borderLeftWidth:style.borderLeftWidth };
   });
-  expect(astraStatus.backgroundColor).toBe("rgb(216, 40, 59)");
-  expect(astraStatus.color).toBe("rgb(255, 255, 255)");
-  expect(astraStatus.borderLeftWidth).toBe("0px");
+  expect(astraStatus.backgroundColor).toBe("rgb(255, 255, 255)");
+  expect(astraStatus.borderLeftColor).toBe("rgb(231, 43, 59)");
+  expect(astraStatus.borderLeftWidth).toBe("4px");
   const hybridMode = page.getByRole("radio", { name: /Híbrido/ });
   const hybridModeBackground = await hybridMode.evaluate((element) => getComputedStyle(element).backgroundImage);
   expect(hybridModeBackground).toContain("linear-gradient");

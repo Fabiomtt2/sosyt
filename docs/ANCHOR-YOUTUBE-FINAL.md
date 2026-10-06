@@ -7,13 +7,14 @@ Data-base: 06/10/2026.
 
 ## 1. Governança
 
-- **Checkpoint crítico mais recente:** `docs/RECOVERY-CHECKPOINT-20261006-CRITICAL-OWNER-UI.md`. Enquanto os REDs nele listados estiverem abertos, toda nova instância deve lê-lo imediatamente após esta âncora e antes de editar.
+- **Checkpoint crítico mais recente:** `docs/RECOVERY-CHECKPOINT-20261006-CRITICAL-OWNER-UI.md`. Os REDs registrados nessa rodada estão fechados no estado atual, mas toda nova instância deve lê-lo imediatamente após esta âncora para não reintroduzi-los.
 - Projeto mutável: `YouTube Final`.
 - `Conexão Youtube` é origem histórica ASTRA para auditoria/comparação; não editar durante convergências.
 - Antes de qualquer edição: `git status --short`, `git log -5 --oneline`, ler `AGENTS.md`, esta âncora, `PROJECT_STATUS.md` e as skills de continuidade/recuperação.
 - Nunca reset/clean/stash ou descarte de WIP sem autorização explícita.
 - Git, testes e handoffs validados têm precedência sobre memória do agente.
 - Heartbeat ao usuário em marcos importantes e no máximo aproximadamente 5 minutos em execução prolongada.
+- Estado de candidatura pendente nunca pode sobrepor a etapa Owner: ao escolher “Acessar com outro número”, o pedido continua no servidor/localStorage, mas sua reapresentação automática é suprimida apenas no estado em memória da sessão React atual. Fechar/reabrir a página permite retomar o acompanhamento persistido novamente.
 - Segredos, telefones reais e tokens nunca são versionados; ficam no `.env` ignorado.
 
 ## 2. Identidades e acesso
@@ -136,7 +137,7 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
 - O seletor internacional de telefone nunca pode expandir/quebrar a página: países ficam em viewport interno com rolagem suave e setas ↑/↓; o DDD brasileiro usa trilho horizontal com ‹/›. Com o seletor DDD aberto, a digitação numérica funciona como busca incremental invisível (`7` → DDDs 7x; `71` → DDD 71), sem campo de busca extra. Ambos fecham com `Esc`.
-- O modal `Configurar integração` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. O botão que abre a integração permanece **vermelho ASTRA**, independentemente do modo. Meta Oficial usa azul; Híbrido usa gradiente vaporwave azul/roxo/magenta e mostra Meta + YouTube em metades geométricas 50/50 sem recorte; Desativado usa cinza. O modal usa superfícies brancas/creme e separadores suaves — não blocos pretos/vermelhos. Termos técnicos e campos híbridos devem ter ajuda `?` em linguagem leiga.
+- O modal `Configurar integração` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. O botão que abre a integração permanece **vermelho ASTRA**, independentemente do modo. Meta Oficial usa azul; Híbrido usa gradiente vaporwave azul/roxo/magenta e mostra Meta + YouTube em metades geométricas 50/50 sem recorte; Desativado usa cinza. A composição principal usa superfícies brancas/creme e separadores suaves; os cards-resumo de estado também permanecem brancos, com acento lateral vermelho ASTRA, nunca blocos vermelhos agressivos. `apps/client/src/integration.css`, carregado após `styles.css`, é a skin canônica desta integração e deve impedir que CSS legado volte a dominar o modal. Termos técnicos e campos híbridos devem ter ajuda `?` em linguagem leiga.
 - Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
 - Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
 - `Grupos e acesso` cobre virtualmente todos os grupos `1–999` em páginas de carrossel, sem renderizar 999 cards ao mesmo tempo. Grupo ainda não persistido aparece como `Disponível` e o próprio card pode ativá-lo no servidor. Há navegação anterior/próxima e salto direto para um número. `Autorização manual excepcional` reutiliza o mesmo seletor internacional de WhatsApp do login e um seletor visual de grupo 1–999; ao autorizar, ativa o grupo escolhido se necessário e grava data/Owner responsável.
