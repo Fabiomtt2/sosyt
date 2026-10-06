@@ -3,7 +3,7 @@
 ## Âncora
 - Árvore canônica de integração: `YouTube Final`.
 - `Conexão Youtube` é a fonte histórica/WIP ASTRA e deve permanecer somente leitura durante o merge.
-- Ler antes de agir: `git status`, `git log`, `PROJECT_STATUS.md`, `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo.
+- Ler antes de agir: `git status`, `git log`, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md`, `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo. A âncora canônica é obrigatória e deve ser atualizada no mesmo checkpoint de qualquer mudança de regra.
 
 ## Recuperação obrigatória
 - Se o usuário disser que algo já foi corrigido/validado, que a instância se perdeu ou pedir retomada exata, interromper edições e executar integralmente `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md` antes de agir.

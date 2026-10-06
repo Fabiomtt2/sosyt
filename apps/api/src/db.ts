@@ -180,12 +180,18 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("groups", "last_synced_at", "TEXT");
   addColumn("group_memberships", "source", "TEXT NOT NULL DEFAULT 'OWNER'");
   addColumn("users", "last_seen_at", "TEXT");
+  addColumn("users", "cooldown_until", "TEXT");
+  addColumn("users", "cooldown_reason", "TEXT");
   addColumn("participation_requests", "source", "TEXT NOT NULL DEFAULT 'WEB'");
   addColumn("participation_requests", "whatsapp_verified_at", "TEXT");
   addColumn("submissions", "author_name", "TEXT");
   addColumn("submissions", "author_group", "TEXT");
   addColumn("oauth_states", "round_id", "TEXT");
+  addColumn("playlist_watch_progress", "finalized_at", "TEXT");
+  addColumn("playlist_watch_progress", "finalize_reason", "TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_whatsapp_group_id ON groups(whatsapp_group_id) WHERE whatsapp_group_id IS NOT NULL;");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_submissions_video_id ON submissions(video_id);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_users_cooldown_until ON users(cooldown_until);");
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);

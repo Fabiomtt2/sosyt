@@ -86,6 +86,46 @@ function walletView(db: AppDatabase, userId: string) {
   };
 }
 
+function cooldownState(db: AppDatabase, userId: string) {
+  const row = db.prepare("SELECT cooldown_until AS cooldownUntil, cooldown_reason AS cooldownReason FROM users WHERE id = ?").get(userId) as
+    | { cooldownUntil?: string; cooldownReason?: string }
+    | undefined;
+  if (!row?.cooldownUntil) return undefined;
+  const until = Date.parse(row.cooldownUntil);
+  if (!Number.isFinite(until) || until <= Date.now()) return undefined;
+  return {
+    cooldownUntil: row.cooldownUntil,
+    cooldownReason: row.cooldownReason ?? "Intervalo após conclusão de uma fila",
+    secondsRemaining: Math.max(1, Math.ceil((until - Date.now()) / 1000))
+  };
+}
+
+function pendingReadyRound(db: AppDatabase, userId: string) {
+  return db.prepare(`SELECT r.id, r.sequence FROM rounds r
+    JOIN submissions s ON s.round_id = r.id
+    LEFT JOIN playlist_watch_progress p ON p.round_id = r.id AND p.user_id = ?
+    WHERE r.status = 'READY' AND s.user_id = ? AND p.finalized_at IS NULL
+    ORDER BY r.sequence ASC LIMIT 1`).get(userId, userId) as { id: string; sequence: number } | undefined;
+}
+
+function finalizeRoundTask(db: AppDatabase, userId: string, roundId: string, reason: "COMPLETE" | "MANUAL") {
+  const stamp = new Date();
+  const current = db.prepare("SELECT finalized_at AS finalizedAt, percent FROM playlist_watch_progress WHERE round_id=? AND user_id=?")
+    .get(roundId,userId) as { finalizedAt?: string; percent: number } | undefined;
+  if (!current) throw new Error("Acompanhe a playlist antes de concluir esta tarefa.");
+  if (current.finalizedAt) {
+    const cooldown = cooldownState(db,userId);
+    return { finalizedAt: current.finalizedAt, percent: current.percent, ...cooldown };
+  }
+  const finalizedAt = stamp.toISOString();
+  const cooldownUntil = new Date(stamp.getTime()+30*60_000).toISOString();
+  db.prepare("UPDATE playlist_watch_progress SET finalized_at=?, finalize_reason=? WHERE round_id=? AND user_id=?")
+    .run(finalizedAt,reason,roundId,userId);
+  db.prepare("UPDATE users SET cooldown_until=?, cooldown_reason=?, updated_at=? WHERE id=?")
+    .run(cooldownUntil,`Fila concluída em ${current.percent}%`,finalizedAt,userId);
+  return { finalizedAt, percent: current.percent, cooldownUntil, secondsRemaining: 1800 };
+}
+
 function roundView(db: AppDatabase, roundId: string) {
   const round = db.prepare("SELECT id, sequence, status, created_at AS createdAt, completed_at AS completedAt FROM rounds WHERE id = ?").get(roundId) as Row;
   const submissions = db.prepare(`SELECT s.id, s.slot, s.youtube_url AS youtubeUrl, s.video_id AS videoId,
@@ -164,6 +204,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (reply.sent) return;
     const user = getUser(db, request.user.sub);
     if (!user) return reply.code(401).send({ message: "Sessão inválida ou expirada." });
+    const cooldown = cooldownState(db, request.user.sub);
+    if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Seu intervalo após concluir uma fila ainda está em andamento.", ...cooldown });
     if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, String(user.phone), String(user.groupCode))) return reply.code(403).send({ message: "Seu acesso precisa da aprovação do Owner em um grupo SOS YOUTUBER." });
     db.prepare("UPDATE users SET last_seen_at = ? WHERE id = ?").run(new Date().toISOString(), request.user.sub);
   }
@@ -188,6 +230,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const body = requestCodeSchema.parse(request.body);
     if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, body.groupCode)) {
       return reply.code(403).send({ message: "Seu WhatsApp ainda não está autorizado no grupo SOS YOUTUBER informado. Use Quero participar para solicitar ou aguarde a aprovação." });
+    }
+    const existing = db.prepare("SELECT id FROM users WHERE phone=?").get(body.phone) as { id: string } | undefined;
+    if (existing) {
+      const cooldown = cooldownState(db,existing.id);
+      if (cooldown) return reply.code(423).send({ code:"COOLDOWN_ACTIVE", message:"Você concluiu uma fila recentemente. Seu novo acesso será liberado automaticamente ao fim deste intervalo.", ...cooldown });
     }
     return reply.send(establishUserSession(body.name, body.phone, body.groupCode));
   });
@@ -246,15 +293,18 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/dashboard", { preHandler: authGuard }, async (request) => {
     ensureOpenRound(db);
     const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
-    const ready = db.prepare(`SELECT DISTINCT r.id FROM rounds r JOIN submissions s ON s.round_id = r.id
-      WHERE r.status = 'READY' AND s.user_id = ? ORDER BY r.sequence DESC`).all(request.user.sub) as Array<{ id: string }>;
+    const ready = db.prepare(`SELECT DISTINCT r.id FROM rounds r
+      JOIN submissions s ON s.round_id = r.id
+      LEFT JOIN playlist_watch_progress p ON p.round_id = r.id AND p.user_id = ?
+      WHERE r.status = 'READY' AND s.user_id = ? AND p.finalized_at IS NULL
+      ORDER BY r.sequence ASC`).all(request.user.sub,request.user.sub) as Array<{ id: string }>;
     const contributionCount = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?")
       .get(open.id, request.user.sub) as { count: number };
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
     const exports = db.prepare("SELECT round_id AS roundId, status, added_count AS addedCount, youtube_playlist_id AS playlistId FROM playlist_exports WHERE user_id = ?")
       .all(request.user.sub) as Array<{ roundId: string; status: string; playlistId?: string }>;
-    const watchRows = db.prepare("SELECT round_id AS roundId, watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson, percent, updated_at AS updatedAt FROM playlist_watch_progress WHERE user_id = ?")
-      .all(request.user.sub) as Array<{ roundId: string; watchedSecondsJson: string; durationsJson: string; percent: number; updatedAt: string }>;
+    const watchRows = db.prepare("SELECT round_id AS roundId, watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson, percent, finalized_at AS finalizedAt, finalize_reason AS finalizeReason, updated_at AS updatedAt FROM playlist_watch_progress WHERE user_id = ?")
+      .all(request.user.sub) as Array<{ roundId: string; watchedSecondsJson: string; durationsJson: string; percent: number; finalizedAt?: string; finalizeReason?: string; updatedAt: string }>;
     const watchRewardRefs = db.prepare("SELECT reference_id AS referenceId FROM wallet_ledger WHERE user_id = ? AND kind = 'WATCH_PROGRESS'")
       .all(request.user.sub) as Array<{ referenceId?: string }>;
     return {
@@ -273,6 +323,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
               durations: JSON.parse(watch.durationsJson) as number[],
               percent: watch.percent,
               rewardCoins: watchRewardRefs.filter((entry) => entry.referenceId?.startsWith(id + ":")).length,
+              finalizedAt: watch.finalizedAt,
+              finalizeReason: watch.finalizeReason,
               updatedAt: watch.updatedAt
             } : undefined
           } : undefined
@@ -289,8 +341,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       .get(roundId, request.user.sub);
     if (!exported) return reply.code(409).send({ message: "Crie sua playlist deste ciclo antes de salvar o acompanhamento." });
 
-    const existing = db.prepare("SELECT watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson FROM playlist_watch_progress WHERE round_id = ? AND user_id = ?")
-      .get(roundId, request.user.sub) as { watchedSecondsJson: string; durationsJson: string } | undefined;
+    const existing = db.prepare("SELECT watched_seconds_json AS watchedSecondsJson, durations_json AS durationsJson, finalized_at AS finalizedAt FROM playlist_watch_progress WHERE round_id = ? AND user_id = ?")
+      .get(roundId, request.user.sub) as { watchedSecondsJson: string; durationsJson: string; finalizedAt?: string } | undefined;
+    if (existing?.finalizedAt) return reply.code(409).send({ message: "Esta tarefa já foi concluída. O progresso final permanece salvo." });
     const previousWatched = existing ? JSON.parse(existing.watchedSecondsJson) as number[] : Array(10).fill(0);
     const previousDurations = existing ? JSON.parse(existing.durationsJson) as number[] : Array(10).fill(0);
     const durations = body.durations.map((duration, index) => Math.max(duration, previousDurations[index] ?? 0));
@@ -327,8 +380,22 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     })();
     const rewardCoins = (db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id = ? AND kind = 'WATCH_PROGRESS' AND reference_id LIKE ?")
       .get(request.user.sub, `${roundId}:%`) as { n: number }).n;
+    const finalization = percent >= 100 ? db.transaction(() => finalizeRoundTask(db,request.user.sub,roundId,"COMPLETE"))() : undefined;
 
-    return { watchedSeconds, durations, percent, rewardCoins, rewardDeltaCoins, walletTotal: walletView(db, request.user.sub).total, updatedAt: now };
+    return { watchedSeconds, durations, percent, rewardCoins, rewardDeltaCoins, walletTotal: walletView(db, request.user.sub).total, updatedAt: now, ...finalization };
+  });
+
+  app.post("/rounds/:id/watch-progress/finalize", { preHandler: authGuard }, async (request, reply) => {
+    const roundId = z.string().uuid().parse((request.params as { id: string }).id);
+    const eligible = db.prepare(`SELECT 1 FROM submissions s JOIN rounds r ON r.id=s.round_id
+      JOIN playlist_exports e ON e.round_id=r.id AND e.user_id=? AND e.status='SUCCESS'
+      WHERE r.id=? AND r.status='READY' AND s.user_id=? LIMIT 1`).get(request.user.sub,roundId,request.user.sub);
+    if (!eligible) return reply.code(409).send({ message:"Esta fila ainda não está pronta para ser concluída por esta conta." });
+    const stamp = new Date().toISOString();
+    db.prepare(`INSERT OR IGNORE INTO playlist_watch_progress
+      (round_id,user_id,watched_seconds_json,durations_json,percent,updated_at)
+      VALUES (?,?,?,?,0,?)`).run(roundId,request.user.sub,JSON.stringify(Array(10).fill(0)),JSON.stringify(Array(10).fill(0)),stamp);
+    return db.transaction(() => finalizeRoundTask(db,request.user.sub,roundId,"MANUAL"))();
   });
 
   app.post("/rounds/current/submissions", { preHandler: authGuard }, async (request, reply) => {
@@ -338,6 +405,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     catch { return reply.code(400).send({ message: "Informe um vídeo válido e acessível do YouTube." }); }
     try {
       const result = db.transaction(() => {
+        const pending = pendingReadyRound(db,request.user.sub);
+        if (pending) throw new Error(`Finalize sua tarefa da Fila ${pending.sequence} antes de contribuir em uma nova fila.`);
+        const duplicate = db.prepare("SELECT 1 FROM submissions WHERE video_id=? LIMIT 1").get(verified.videoId);
+        if (duplicate) throw new Error("Este vídeo do YouTube já foi usado em uma fila anterior ou atual. Escolha outro vídeo.");
         const open = db.prepare("SELECT id, sequence FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string; sequence: number };
         const next = db.prepare("SELECT COUNT(*) + 1 AS slot FROM submissions WHERE round_id = ?").get(open.id) as { slot: number };
         if (next.slot > 10) throw new Error("Este ciclo já foi concluído. Atualize a página.");

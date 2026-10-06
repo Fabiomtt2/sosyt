@@ -18,20 +18,22 @@ Histórico principal:
 - `02249e3` — evidências UI;
 - `9978481` — auditoria externa de integrações.
 
-A governança corrente está em `AGENTS.md`. `.env` é local/ignorado e não deve ser exibido ou versionado.
+A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/continuidade é **`docs/ANCHOR-YOUTUBE-FINAL.md`**. `.env` é local/ignorado e não deve ser exibido ou versionado.
 
 ## Produto consolidado
 
-- Quadro global entre todos os grupos SOS YOUTUBER com 10 posições sequenciais, URL, autor, grupo e horário permanentes.
+- Quadro global entre todos os grupos SOS YOUTUBER com Filas de 10 posições sequenciais, URL, autor, grupo e horário permanentes. Ao completar 10, a Fila fecha e outra abre sem apagar a anterior.
 - URL precisa ser YouTube; validação estrutural sempre e consulta externa quando `YOUTUBE_API_KEY` existe.
 - `Fabio0` e `Rafael0`: contas Owner separadas, identificadas automaticamente por nome + WhatsApp configurado; em desenvolvimento usam a credencial administrativa `sosyout`. Em produção o servidor exige segredo Owner forte. O `#` permanece apenas como detalhe interno da API.
 - Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–99. O backend resolve automaticamente participante/Owner. Se o participante ainda não estiver aprovado, a UI registra a solicitação pendente e mostra confirmação amigável; após aprovação, entra diretamente quando `group_memberships` confirma telefone + grupo. Não há Credencial/OTP no fluxo principal.
 - 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
 - Ao fechar o ciclo, recompensa de curadoria existente permanece.
 - Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
-- Acompanhamento de reprodução usa IFrame Player API, conta avanço natural com aba visível, ignora saltos grandes e sincroniza progresso por usuário/ciclo.
+- Acompanhamento de reprodução usa IFrame Player API, conta avanço natural com aba visível, ignora saltos grandes e sincroniza progresso por usuário/Fila. Fechar pausa; `Concluir tarefa` encerra no percentual atual. 100% conclui automaticamente.
 - Regra confirmada pelo usuário: cada marco de 10% consolidado gera 1 moeda interna, máximo 10 por playlist/ciclo. Ledger `WATCH_PROGRESS` torna os marcos idempotentes.
-- Moedas são crédito interno para controlar capacidade de contribuição; não são saque ou pagamento em dinheiro.
+- Moedas são crédito interno para controlar capacidade de contribuição; não são saque ou pagamento em dinheiro. O Owner vê separadamente origem inicial/promocional, comprada e bônus/recompensa.
+- Participante de uma Fila READY não pode contribuir na próxima até finalizar sua tarefa. Após conclusão manual ou 100%, há cooldown persistente de 30 minutos (`423 COOLDOWN_ACTIVE`); depois volta ao fluxo comum.
+- O mesmo `video_id` do YouTube não pode ser reutilizado em Filas posteriores.
 
 ## WhatsApp
 
@@ -52,9 +54,9 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 
 ## Continuidade e UI Premium — 05/10/2026
 
-- `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` é a âncora operacional obrigatória para novas instâncias/agentes.
+- `docs/ANCHOR-YOUTUBE-FINAL.md` é a âncora canônica obrigatória; `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` define o protocolo operacional.
 - Intro preserva a identidade ASTRA com lockup horizontal da marca, uma única CTA `Quero participar` e segurança integrada por escudo verde ilustrado em SVG, ancorado à base do bloco de texto.
-- A CTA `Quero participar` abre a tela intermediária já validada; o envio registra os dados no painel e a etapa de sucesso oferece o WhatsApp com mensagem pronta para iniciar o bot. A CTA não deve pular diretamente para o WhatsApp.
+- A CTA `Quero participar` abre a tela intermediária já validada; o envio registra os dados no painel e a etapa de sucesso informa que a equipe continuará pelo WhatsApp. Não existe segunda CTA obrigatória para o candidato.
 - Login continua universal: `WhatsApp` internacional e grupo SOS YOUTUBER 1–99; sem +55 automático, sem rótulos Owner e sem `#` visível. `Credencial administrativa` só aparece para Owner.
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
@@ -75,7 +77,7 @@ A intro também fixa por teste: botão `Quero participar` isolado e com a mesma 
 
 Gate completo executado após recuperação por Git e refinamento visual:
 - `git diff --check`: aprovado;
-- backend: 59/59 testes;
+- backend: 60/60 testes;
 - cliente: 6/6 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
@@ -86,10 +88,10 @@ Gate completo executado após recuperação por Git e refinamento visual:
 
 - Web/API locais respondem em `http://localhost:5173` e `http://localhost:3333`.
 - `/auth/login` é o fluxo principal do participante: só concede sessão se telefone + grupo já estiverem ativos em `group_memberships`; caso contrário retorna 403 em português.
-- Owner identificado por nome/alias + WhatsApp recebe apenas o campo `Credencial administrativa`; em `AUTH_DEV_MODE=true`, `sosyout` é aceito para teste local.
+- Owner identificado por nome/alias + WhatsApp recebe apenas o campo `Credencial`; em `AUTH_DEV_MODE=true`, `sosyout` é aceito para teste local.
 - Banco local, no diagnóstico desta rodada, tinha `0` memberships ativos e `0` usuários cadastrados; por isso nenhum participante real conseguia entrar antes de aprovação.
 - Grupos públicos atuais: `1`, `2`, `10`.
-- O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. Os números Owner/alerta já estão configurados neste Xubuntu; o que falta para o transporte oficial são as credenciais da Meta Cloud API. O fallback estudado é WAHA/NOWEB, sem Chromium.
+- O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. Os números Owner/alerta já estão configurados neste Xubuntu; o que falta para o transporte oficial são as credenciais da Meta Cloud API. O complemento escolhido para grupos tradicionais é WPPConnect, ainda não pareado/ativado.
 - O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto.
 
 ## Pendências externas/produção

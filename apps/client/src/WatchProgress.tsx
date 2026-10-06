@@ -104,7 +104,8 @@ export function WatchProgress({
   userId,
   initialProgress,
   initialBalance,
-  onClose
+  onClose,
+  onFinalized
 }: {
   playlistId: string;
   roundId: string;
@@ -112,6 +113,7 @@ export function WatchProgress({
   initialProgress?: WatchProgressState;
   initialBalance: number;
   onClose: () => void;
+  onFinalized: (cooldownUntil: string) => void;
 }) {
   const storageKey = useMemo(() => `conexao_watch_progress:${userId}:${roundId}:${playlistId}`, [playlistId, roundId, userId]);
   const [progress, setProgress] = useState<SavedProgress>(() => mergeProgress(readSaved(storageKey), initialProgress));
@@ -120,11 +122,14 @@ export function WatchProgress({
   const [syncState, setSyncState] = useState<"idle" | "syncing" | "saved" | "offline">("idle");
   const [confirmedCoins, setConfirmedCoins] = useState(initialProgress?.rewardCoins ?? 0);
   const [walletTotal, setWalletTotal] = useState(initialBalance);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const playerHost = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | undefined>(undefined);
   const lastSample = useRef<{ wallMs: number; playerSeconds: number; index: number } | undefined>(undefined);
   const latestProgress = useRef(progress);
   const lastSynced = useRef("");
+  const finalizedHandled = useRef(false);
 
   const percent = progressPercent(progress);
   const earnedCoins = Math.floor(percent / 10);
@@ -152,6 +157,10 @@ export function WatchProgress({
         setConfirmedCoins(saved.rewardCoins ?? Math.floor(saved.percent / 10));
         if (typeof saved.walletTotal === "number") setWalletTotal(saved.walletTotal);
         setSyncState("saved");
+        if (saved.cooldownUntil && !finalizedHandled.current) {
+          finalizedHandled.current = true;
+          onFinalized(saved.cooldownUntil);
+        }
       } catch {
         if (!cancelled) setSyncState("offline");
       }
@@ -166,6 +175,17 @@ export function WatchProgress({
     localStorage.setItem(storageKey, JSON.stringify(snapshot));
     void api.saveWatchProgress(roundId, snapshot).catch(() => undefined);
     onClose();
+  }
+
+  async function finishTask() {
+    setFinalizing(true);
+    try {
+      const result = await api.finalizeWatchProgress(roundId);
+      finalizedHandled.current = true;
+      onFinalized(result.cooldownUntil);
+    } finally {
+      setFinalizing(false);
+    }
   }
 
   useEffect(() => {
@@ -276,10 +296,17 @@ export function WatchProgress({
           <small>{active ? <><Eye size={14} /> Verificação ativa</> : <><PauseCircle size={14} /> Verificação interrompida</>}</small>
           <small>{syncState === "syncing" ? "Sincronizando com sua conta…" : syncState === "saved" ? `Progresso salvo · ${confirmedCoins} moedas confirmadas · saldo ${walletTotal}` : syncState === "offline" ? `Sem sincronização agora · ${Math.max(0, earnedCoins - confirmedCoins)} moeda(s) pendente(s)` : `Saldo ${walletTotal}`}</small>
         </div>
-        {percent >= 100 && <div className="notice"><Check size={18} /><span>Os dez vídeos atingiram 100% de reprodução acompanhada nesta conta.</span></div>}
+        {percent >= 100 && <div className="notice"><Check size={18} /><span>Os dez vídeos atingiram 100% de reprodução acompanhada nesta conta. A tarefa será encerrada e seu intervalo de 30 minutos começará automaticamente.</span></div>}
         <p className="muted">
           A cada 10% consolidado, 1 moeda interna é adicionada ao saldo usado para salvar links. Cada marco é único: fechar, reabrir ou sincronizar novamente não duplica moedas.
         </p>
+        <p className="muted">Fechar esta janela apenas pausa o acompanhamento. Seu percentual e suas moedas continuam salvos.</p>
+        {!confirmFinish ? <button className="secondary" disabled={finalizing || percent >= 100} onClick={() => setConfirmFinish(true)}>Concluir tarefa</button>
+          : <div className="completion-warning" role="alert">
+              <strong>Concluir significa encerrar sua participação nesta fila.</strong>
+              <p>O acompanhamento será encerrado no percentual atual e suas recompensas ficarão limitadas aos marcos já atingidos. Depois disso, haverá um intervalo de 30 minutos antes de um novo acesso.</p>
+              <div className="ready-actions"><button className="secondary" disabled={finalizing} onClick={() => setConfirmFinish(false)}>Continuar acompanhando</button><button className="primary" disabled={finalizing} onClick={() => void finishTask()}>{finalizing ? "Concluindo…" : "Confirmar conclusão"}</button></div>
+            </div>}
       </section>
     </div>
   );

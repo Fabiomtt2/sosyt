@@ -11,7 +11,7 @@ Se houver qualquer sinal de perda de contexto, executar primeiro `docs/SKILL-REC
 Antes de editar:
 1. `git status --short`
 2. `git log -5 --oneline --decorate`
-3. ler `AGENTS.md`, `PROJECT_STATUS.md` e este arquivo;
+3. ler `AGENTS.md`, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md` e este arquivo;
 4. preservar WIP; nunca reset/clean/stash sem autorização explícita;
 5. tratar `Conexão Youtube` como origem histórica ASTRA somente leitura durante auditorias.
 
@@ -34,7 +34,7 @@ Antes de editar:
 
 ## Participação e WhatsApp
 - Há uma única CTA principal **Quero participar** na intro.
-- A CTA abre primeiro a tela intermediária de participação. Ao enviar, os dados são registrados no backend/dashboard; em seguida, a interface oferece o WhatsApp com a mensagem pré-preenchida para iniciar o bot. Não pular essa tela com link direto.
+- A CTA abre primeiro a tela intermediária de participação. Ao enviar, os dados são registrados no backend/dashboard e a interface confirma de forma amigável que a equipe entrará em contato pelo WhatsApp. O bot/transportador continua o fluxo quando configurado; não exigir que o candidato abra manualmente um segundo CTA.
 - O bot acolhe, explica o projeto, pergunta “Como gostaria de ser chamado?” e registra solicitação pendente.
 - Nova solicitação aparece no dashboard e gera alerta administrativo pela Cloud API quando configurada.
 - Aprovação acontece pelo dashboard ou pela sincronização oficial de grupo quando disponível. Participante não aprovado recebe confirmação de cadastro pendente, não erro de login; aprovado entra diretamente sem Credencial/OTP.
@@ -51,12 +51,14 @@ Antes de editar:
 - Uma ideia por bloco, sem parede de texto, sem duplicação de chamadas.
 
 ## Motor já validado — não reescrever sem divergência explícita
-- quadro global de 10 slots permanentes;
+- Filas globais sequenciais de 10 slots permanentes; ao fechar uma Fila, a seguinte abre sem apagar histórico;
 - validação de URL YouTube;
 - OAuth explícito e criação de playlist privada;
 - autoria/grupo/horário persistentes;
 - WhatsApp bot/outbox/webhooks e decisões;
 - moedas internas e acompanhamento de reprodução conforme regras já documentadas;
+- conclusão manual/100%, cooldown persistente de 30 minutos e bloqueio de nova Fila enquanto tarefa anterior estiver pendente;
+- rejeição de `video_id` já usado em qualquer Fila;
 - dashboards participante e Owner;
 - telefone internacional;
 - grupos 1–99.

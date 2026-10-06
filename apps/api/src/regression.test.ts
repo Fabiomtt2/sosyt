@@ -77,7 +77,14 @@ describe("regressões de domínio e segurança", () => {
     expect(view.wallet).toMatchObject({ promo: 9, reward: 1, total: 10, extraPasses: 0 });
     await dashboard(users[0].token);
     expect((await dashboard(users[0].token)).wallet.reward).toBe(1);
-    expect((await submit(users[0].token, "next0000001")).statusCode).toBe(201);
+    const blocked = await submit(users[0].token, "next0000001");
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().message).toContain("Fila 1");
+    const newcomer = await register("71999999011");
+    const repeated = await submit(newcomer.token, "vid00000001");
+    expect(repeated.statusCode).toBe(409);
+    expect(repeated.json().message).toContain("já foi usado");
+    expect((await submit(newcomer.token, "next0000001")).statusCode).toBe(201);
   });
   it("persiste acompanhamento por conta sem permitir regressão de progresso", async () => {
     const user = await register();
@@ -113,12 +120,17 @@ describe("regressões de domínio e segurança", () => {
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(user.token),
       payload: { watchedSeconds: Array(10).fill(10), durations: Array(10).fill(10) }
     });
-    expect(full.json()).toMatchObject({ percent: 100, rewardCoins: 10, rewardDeltaCoins: 7, walletTotal: 20 });
+    expect(full.statusCode).toBe(200);
+    expect(full.json()).toMatchObject({ percent: 100, rewardCoins: 10, rewardDeltaCoins: 7, walletTotal: 20, secondsRemaining: 1800 });
+    expect(full.json().cooldownUntil).toBeTruthy();
     const duplicateFull = await app.inject({
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(user.token),
       payload: { watchedSeconds: Array(10).fill(10), durations: Array(10).fill(10) }
     });
-    expect(duplicateFull.json()).toMatchObject({ rewardCoins: 10, rewardDeltaCoins: 0, walletTotal: 20 });
+    expect(duplicateFull.statusCode).toBe(423);
+    expect(duplicateFull.json().code).toBe("COOLDOWN_ACTIVE");
+    const relogin = await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Teste", phone:"71999999001", groupCode:"12" } });
+    expect(relogin.statusCode).toBe(423);
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(10);
 
     const outsider = await register("71999999002");
@@ -126,6 +138,36 @@ describe("regressões de domínio e segurança", () => {
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(outsider.token),
       payload: { watchedSeconds: Array(10).fill(1), durations: Array(10).fill(10) }
     })).statusCode).toBe(409);
+  });
+
+  it("conclusão manual preserva percentual e recompensas e aplica cooldown persistente de 30 minutos", async () => {
+    const user = await register("71999999012");
+    const roundId = await readyRound(user.userId);
+    const stamp = new Date().toISOString();
+    db.prepare("INSERT INTO playlist_exports (id,round_id,user_id,youtube_playlist_id,status,added_count,created_at,updated_at) VALUES (?,?,?,?, 'SUCCESS',10,?,?)")
+      .run(randomUUID(),roundId,user.userId,"playlist-manual-finish",stamp,stamp);
+
+    const progress = await app.inject({
+      method:"PUT", url:`/rounds/${roundId}/watch-progress`, headers:headers(user.token),
+      payload:{ watchedSeconds:[10,10,10,7,0,0,0,0,0,0], durations:Array(10).fill(10) }
+    });
+    expect(progress.statusCode).toBe(200);
+    expect(progress.json()).toMatchObject({ percent:37, rewardCoins:3, walletTotal:13 });
+
+    const finish = await app.inject({ method:"POST", url:`/rounds/${roundId}/watch-progress/finalize`, headers:headers(user.token) });
+    expect(finish.statusCode).toBe(200);
+    expect(finish.json()).toMatchObject({ percent:37, secondsRemaining:1800 });
+    const saved = db.prepare("SELECT percent,finalized_at AS finalizedAt,finalize_reason AS reason FROM playlist_watch_progress WHERE round_id=? AND user_id=?")
+      .get(roundId,user.userId) as { percent:number; finalizedAt:string; reason:string };
+    expect(saved).toMatchObject({ percent:37, reason:"MANUAL" });
+    expect(saved.finalizedAt).toBeTruthy();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(3);
+
+    const during = await app.inject({ method:"POST",url:"/auth/login",payload:{ name:"Pessoa Teste",phone:"71999999012",groupCode:"12" } });
+    expect(during.statusCode).toBe(423);
+    db.prepare("UPDATE users SET cooldown_until=? WHERE id=?").run(new Date(Date.now()-1000).toISOString(),user.userId);
+    const after = await app.inject({ method:"POST",url:"/auth/login",payload:{ name:"Pessoa Teste",phone:"71999999012",groupCode:"12" } });
+    expect(after.statusCode).toBe(200);
   });
 
   it("rejeita grupo zero e URL falsa sem débito", async () => {

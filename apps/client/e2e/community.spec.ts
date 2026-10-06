@@ -131,8 +131,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/dQw4w9WgXcQ");
   await page.getByRole("button", { name: "Salvar no espaço 1" }).click();
-  await expect(page.getByText("Você já participou deste ciclo.", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Comprar créditos" }).click();
+  await expect(page.getByText("Você já participou desta fila.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Comprar moedas" }).click();
   await page.getByLabel("E-mail do pagador").fill("e2e@example.com"); await page.getByLabel("CPF do pagador").fill("12345678901");
   await page.getByRole("button", { name: "Gerar Pix" }).click(); await page.getByRole("button", { name: "Simular aprovação" }).click();
   await expect(page.getByText("Pagamento confirmado:", { exact: false })).toBeVisible();
@@ -156,7 +156,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByText("Ver os 10 vídeos, autores e horários", { exact: true }).click();
   await expect(page.locator(".cycle-details .slot.filled")).toHaveCount(10);
   await expect(page.locator(".cycle-details").getByRole("button", { name: "Criar playlist" })).toHaveCount(2);
-  await expect(page.getByText("0 de 10 vídeos", { exact: true })).toBeVisible();
+  await expect(page.getByText("0 de 10 vídeos", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Finalize esta fila antes da próxima." })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({ path: resolve(evidence, "ciclo-completo-mobile.png"), fullPage: true });
   await page.locator(".ready-card > button").click();

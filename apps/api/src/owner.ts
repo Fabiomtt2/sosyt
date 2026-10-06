@@ -87,7 +87,9 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
       groups: db.prepare("SELECT code, enabled, whatsapp_group_id AS whatsappGroupId, membership_mode AS membershipMode, last_synced_at AS lastSyncedAt FROM groups ORDER BY length(code), code").all(),
       requests: db.prepare("SELECT id, name, phone, preferred_group AS preferredGroup, status, source, whatsapp_verified_at AS whatsappVerifiedAt, created_at AS createdAt FROM participation_requests ORDER BY CASE status WHEN 'PENDING' THEN 0 ELSE 1 END, updated_at DESC LIMIT 200").all(),
       users: db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode,u.created_at AS createdAt,u.last_seen_at AS lastSeenAt,
-        w.promo_millis + w.reward_millis + w.purchased_millis AS balanceMillis,w.extra_slot_passes AS extraPasses,w.payment_hold AS paymentHold
+        w.promo_millis + w.reward_millis + w.purchased_millis AS balanceMillis,
+        w.promo_millis AS promoMillis,w.purchased_millis AS purchasedMillis,w.reward_millis AS rewardMillis,
+        w.extra_slot_passes AS extraPasses,w.payment_hold AS paymentHold
         FROM users u JOIN wallets w ON w.user_id = u.id ORDER BY u.created_at DESC LIMIT 200`).all(),
       members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, revoked_at AS revokedAt, source FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
       purchases: db.prepare("SELECT p.id,u.name,u.phone,p.provider,p.status,p.amount_cents AS amountCents,p.created_at AS createdAt,p.approved_at AS approvedAt FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC LIMIT 200").all()
