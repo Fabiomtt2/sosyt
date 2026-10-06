@@ -795,3 +795,140 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
     box-shadow:0 28px 80px #17203355;
   }
 }
+
+
+/* 06/10 — consolidação visual Owner/Integrações */
+.request-block-explanation{margin-top:-4px!important;font-size:.79rem!important;line-height:1.5}
+.integration-config-button{
+  background:#e72b3b!important;
+  border-color:#e72b3b!important;
+  color:#fff!important;
+  box-shadow:0 10px 22px #a91c2d22!important;
+}
+.integration-config-button:hover{background:#c82134!important;border-color:#c82134!important}
+.astra-integration-modal{
+  background:#fffdfa!important;
+  border:1px solid #e7dfd8!important;
+  box-shadow:0 32px 90px #1017254d!important;
+}
+.astra-status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 20px}
+.astra-status-grid article{
+  background:#fff!important;
+  color:#27232a!important;
+  border:1px solid #e7dfd8!important;
+  border-left:4px solid #e72b3b!important;
+  box-shadow:none!important;
+  border-radius:13px!important;
+  padding:13px 15px!important;
+}
+.astra-status-grid article span{color:#8a7f86!important}
+.astra-status-grid article strong{color:#2e2930!important}
+.astra-status-grid article small{color:#756d73!important}
+.soft-token-message{
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+  color:#6e676d!important;
+  justify-content:center;
+  text-align:center;
+  max-width:720px;
+  margin:4px auto 20px!important;
+  padding:8px 20px!important;
+}
+.soft-token-message>svg{color:#ad2942;flex:0 0 auto}
+.integration-section{background:transparent!important}
+.integration-section input,.integration-section select{
+  min-height:48px!important;
+  background:#fff!important;
+  color:#28232a!important;
+  border:1px solid #dcd4ce!important;
+}
+.mode-choice{min-height:112px;align-items:center;transform:none!important}
+.mode-choice.selected{transform:none!important}
+.mode-choice.hybrid.selected{
+  background:linear-gradient(135deg,#3d6cf5 0%,#7359de 38%,#c54ddb 68%,#ef5b91 100%)!important;
+  border-color:#7758dc!important;
+  color:#fff!important;
+}
+.mode-choice.hybrid.selected small{color:#faf5ff!important}
+.mode-symbol.hybrid{
+  width:52px!important;
+  height:36px!important;
+  grid-template-columns:1fr 1fr!important;
+  overflow:hidden!important;
+  padding:0!important;
+  border-radius:11px!important;
+}
+.mode-symbol.hybrid .meta-half,.mode-symbol.hybrid .youtube-half{
+  width:100%;
+  height:100%;
+  display:grid;
+  place-items:center;
+}
+.mode-symbol.hybrid .meta-half{background:#edf4ff;color:#1769e0}
+.mode-symbol.hybrid .youtube-half{background:#fff0f4;color:#e72b3b}
+.mode-choice.hybrid.selected .mode-symbol.hybrid{box-shadow:0 0 0 1px #ffffff44}
+.integration-mode-card.mode-hybrid{
+  background:linear-gradient(135deg,#3d6cf5 0%,#7359de 38%,#c54ddb 68%,#ef5b91 100%)!important;
+}
+.summary-hybrid-icons{
+  display:inline-grid!important;
+  grid-template-columns:1fr 1fr;
+  width:38px;
+  height:20px;
+  border-radius:6px;
+  overflow:hidden;
+  padding:0!important;
+  vertical-align:middle;
+  margin-right:6px;
+}
+.summary-hybrid-icons span,.summary-hybrid-icons svg{margin:auto}
+.summary-hybrid-icons span{color:#eaf2ff}
+.summary-hybrid-icons svg{color:#fff}
+.hybrid-section{
+  background:#fbf9ff!important;
+  border:1px solid #e7ddf4!important;
+  border-radius:16px!important;
+  padding:20px!important;
+  margin:4px 0 18px!important;
+}
+.mode-explanation{
+  background:transparent!important;
+  border:0!important;
+  color:#6d6570!important;
+  padding:2px 0!important;
+  box-shadow:none!important;
+}
+.webhook-line{
+  background:transparent!important;
+  border:0!important;
+  border-top:1px solid #ebe3dd!important;
+  border-radius:0!important;
+  padding:18px 0!important;
+  box-shadow:none!important;
+}
+.generated-token{
+  background:#fff7f4!important;
+  color:#3b3135!important;
+  border:1px solid #edd6d1!important;
+}
+.generated-token code{color:#9f2844!important}
+.integration-actions .primary{background:#e72b3b!important;border-color:#e72b3b!important}
+.group-admin-card{
+  background:#fff!important;
+  color:#342d34!important;
+  border:1px solid #e4dcd6!important;
+  box-shadow:0 10px 24px #1720330b!important;
+}
+.group-admin-card.enabled{background:#fffaf8!important;border-color:#e7cfd3!important}
+.manual-access-section{
+  background:#fffaf8!important;
+  border:1px solid #eadfda!important;
+  box-shadow:none!important;
+}
+.manual-group-rail button{background:#fff!important;color:#655d64!important;border-color:#ded6d0!important}
+.manual-group-rail button.selected{background:#e72b3b!important;color:#fff!important;border-color:#e72b3b!important}
+.modern-manual-form input,.group-jump-form input,.group-jump-form button{min-height:48px!important}
+@media(max-width:800px){
+  .astra-status-grid{grid-template-columns:1fr}
+}

@@ -16,9 +16,12 @@ async function fillBrazilPhone(page: any, subscriber: string) {
 }
 
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
+  test.setTimeout(120_000);
   const evidence = resolve("../../docs/evidencias"), errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/");
+  await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
+  await page.reload();
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByRole("heading", { name: "Entre na sua conexão" })).toBeVisible();
   await expect(page.getByText("Quero participar", { exact: true })).toHaveCount(1);
@@ -127,6 +130,14 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(countryDialog).toHaveCount(0);
   await fillBrazilPhone(page, "900000001");
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
+  await page.keyboard.type("7");
+  await expect(page.getByRole("button", { name: "DDD 71 BA" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "DDD 55 RS" })).toHaveCount(0);
+  await page.keyboard.type("1");
+  await expect(page.getByRole("button", { name: "DDD 71 BA" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "DDD 73 BA" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   await expect(page.getByRole("button", { name: "DDDs anteriores" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Próximos DDDs" })).toBeVisible();
   await page.getByRole("button", { name: "Próximos DDDs" }).click();
@@ -139,7 +150,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Enviar dados e continuar" }).click();
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
   await expect(page.getByText("Sua solicitação de cadastro foi registrada e será validada em breve.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Nova solicitação liberada em", { exact: true })).toBeVisible();
+  await expect(page.getByText("Proteção contra cadastro repetido", { exact: true })).toBeVisible();
+  await expect(page.getByText(/nunca é acionado por senha ou credencial incorreta/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Verificar situação" })).toBeVisible();
   await expect(page.getByText("Pode fechar esta página.", { exact: false })).toBeVisible();
   await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
@@ -160,11 +172,21 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
     data: { name: "Pessoa Pendente", phone: "5571900000099", groupCode: "2", consent: true }
   });
   expect(pendingSeed.ok()).toBeTruthy();
+  const pendingSeedState = await pendingSeed.json();
 
   await page.getByRole("button", { name: "Verificar situação" }).click();
   await expect(page.getByRole("heading", { name: "Cadastro aprovado" })).toBeVisible();
   await expect(page.getByText("seu acesso foi liberado no SOS YOUTUBER 1", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Voltar ao acesso" }).click();
+
+  await page.evaluate(({ token, phone }) => localStorage.setItem("conexao_participation_request", JSON.stringify({ token, phone })), {
+    token: pendingSeedState.requestToken,
+    phone: "5571900000099"
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
+  await expect(page.getByText("Pessoa Pendente", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Acessar com outro número" }).click();
 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fábio");
@@ -177,6 +199,14 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const [ownerJoinBox, ownerEnterBox] = await Promise.all([joinButton.boundingBox(), ownerEnter.boundingBox()]);
   expect(ownerJoinBox).not.toBeNull(); expect(ownerEnterBox).not.toBeNull();
   expect(Math.abs((ownerJoinBox!.y + ownerJoinBox!.height / 2) - (ownerEnterBox!.y + ownerEnterBox!.height / 2))).toBeLessThanOrEqual(1);
+  await page.getByLabel("Credencial", { exact: true }).fill("credencial-errada");
+  await ownerEnter.click();
+  await expect(page.getByRole("heading", { name: "Credencial", exact: true })).toBeVisible();
+  await expect(page.getByText("Credencial incorreta. Confira e tente novamente.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toHaveCount(0);
+  const pendingAfterOwnerError = await request.post("http://127.0.0.1:17333/participation/status", { data: { token: pendingSeedState.requestToken } });
+  expect(pendingAfterOwnerError.ok()).toBeTruthy();
+  expect((await pendingAfterOwnerError.json()).blockedUntil).toBe(pendingSeedState.blockedUntil);
   await page.getByLabel("Credencial", { exact: true }).fill("sosyout");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
@@ -228,7 +258,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("rota administrativa excepcional", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Fechar ajuda" }).click();
 
-  await page.getByRole("button", { name: "Configurar integração" }).click();
+  const integrationConfigButton = page.getByRole("button", { name: "Configurar integração" });
+  const integrationButtonStyle = await integrationConfigButton.evaluate((element) => ({ backgroundColor:getComputedStyle(element).backgroundColor, color:getComputedStyle(element).color }));
+  expect(integrationButtonStyle.backgroundColor).toBe("rgb(231, 43, 59)");
+  expect(integrationButtonStyle.color).toBe("rgb(255, 255, 255)");
+  await integrationConfigButton.click();
   const integrationDialog = page.getByRole("dialog", { name: "Configurar integração WhatsApp" });
   await expect(integrationDialog).toBeVisible();
   const integrationOverflowY = await integrationDialog.evaluate((el) => getComputedStyle(el).overflowY);
@@ -252,12 +286,22 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(await integrationDialog.evaluate((el: HTMLElement) => el.scrollTop)).toBeGreaterThan(scrollMetrics.scrollTop);
   const astraStatus = await page.locator(".astra-status-grid article").first().evaluate((element) => {
     const style=getComputedStyle(element);
-    return { color:style.color, backgroundColor:style.backgroundColor };
+    return { color:style.color, backgroundColor:style.backgroundColor, borderLeftWidth:style.borderLeftWidth };
   });
-  expect(astraStatus.color).toBe("rgb(255, 255, 255)");
   expect(astraStatus.backgroundColor).toBe("rgb(216, 40, 59)");
-  const hybridModeBackground = await page.getByRole("radio", { name: /Híbrido/ }).evaluate((element) => getComputedStyle(element).backgroundImage);
+  expect(astraStatus.color).toBe("rgb(255, 255, 255)");
+  expect(astraStatus.borderLeftWidth).toBe("0px");
+  const hybridMode = page.getByRole("radio", { name: /Híbrido/ });
+  const hybridModeBackground = await hybridMode.evaluate((element) => getComputedStyle(element).backgroundImage);
   expect(hybridModeBackground).toContain("linear-gradient");
+  const hybridSplit = await hybridMode.locator(".mode-symbol.hybrid").evaluate((element) => {
+    const [meta,youtube]=Array.from(element.children).map((child)=>child.getBoundingClientRect());
+    return { metaWidth:meta.width, youtubeWidth:youtube.width, containerWidth:element.getBoundingClientRect().width };
+  });
+  expect(Math.abs(hybridSplit.metaWidth-hybridSplit.youtubeWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs((hybridSplit.metaWidth+hybridSplit.youtubeWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
+  await expect(hybridMode.locator(".youtube-half svg")).toBeVisible();
+  expect(await integrationDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
   await page.keyboard.press("Escape");
   await expect(integrationDialog).toHaveCount(0);

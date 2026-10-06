@@ -63,9 +63,11 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   const [countryOpen,setCountryOpen]=useState(false);
   const [dddOpen,setDddOpen]=useState(false);
   const [search,setSearch]=useState("");
+  const [dddSearch,setDddSearch]=useState("");
   const root=useRef<HTMLDivElement>(null);
   const countryListRef=useRef<HTMLDivElement>(null);
   const dddRailRef=useRef<HTMLDivElement>(null);
+  const dddSearchTimer=useRef<number | undefined>(undefined);
 
   useEffect(()=>{
     if (!value) return;
@@ -95,6 +97,31 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     return ()=>{ document.removeEventListener("mousedown",close); document.removeEventListener("keydown",escape); };
   },[]);
 
+  useEffect(()=>{
+    if (!dddOpen) {
+      setDddSearch("");
+      if (dddSearchTimer.current) window.clearTimeout(dddSearchTimer.current);
+      return;
+    }
+    const incremental=(event:KeyboardEvent)=>{
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+        setDddSearch((current)=>{
+          const next=(current+event.key).slice(-2);
+          if (dddSearchTimer.current) window.clearTimeout(dddSearchTimer.current);
+          dddSearchTimer.current=window.setTimeout(()=>setDddSearch(""),1200);
+          return next;
+        });
+      } else if (event.key==="Backspace" && dddSearch) {
+        event.preventDefault();
+        setDddSearch((current)=>current.slice(0,-1));
+      }
+    };
+    document.addEventListener("keydown",incremental);
+    return ()=>document.removeEventListener("keydown",incremental);
+  },[dddOpen,dddSearch]);
+
   function compose(nextCountry=country,nextDdd=ddd,nextSubscriber=subscriber) {
     if (!nextCountry || !nextSubscriber) return "";
     const calling=getCountryCallingCode(nextCountry);
@@ -122,6 +149,7 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
 
   function chooseDdd(next:string) {
     setDdd(next);
+    setDddSearch("");
     setDddOpen(false);
     emit(country,next,subscriber);
   }
@@ -145,6 +173,7 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     const q=search.trim().toLocaleLowerCase("pt-BR");
     return !q || entry.name.toLocaleLowerCase("pt-BR").includes(q) || entry.callingCode.includes(q.replace(/\D/g,"")) || entry.country.toLowerCase().includes(q);
   });
+  const filteredDdds=dddSearch ? BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch)) : BRAZIL_DDDS;
   const dddInfo=BRAZIL_DDDS.find(([code])=>code===ddd);
   const complete=country==="BR"
     ? Boolean(ddd && BRAZIL_DDD_SET.has(ddd) && /^9\d{8}$/.test(subscriber))
@@ -195,7 +224,7 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
       <p className="phone-popover-copy">Escolha o DDD do número cadastrado no WhatsApp.</p>
       <div className="ddd-carousel-shell">
         <button type="button" className="popover-scroll-arrow horizontal" aria-label="DDDs anteriores" onClick={()=>scrollDdds(-1)}><ChevronLeft size={17}/></button>
-        <div className="ddd-rail" ref={dddRailRef}>{BRAZIL_DDDS.map(([code,state])=><button type="button" key={code} aria-label={`DDD ${code} ${state}`} className={code===ddd ? "selected" : ""} onClick={()=>chooseDdd(code)}><strong>{code}</strong><span>{state}</span></button>)}</div>
+        <div className="ddd-rail" ref={dddRailRef} aria-live="polite">{filteredDdds.map(([code,state])=><button type="button" key={code} aria-label={`DDD ${code} ${state}`} className={code===ddd ? "selected" : ""} onClick={()=>chooseDdd(code)}><strong>{code}</strong><span>{state}</span></button>)}</div>
         <button type="button" className="popover-scroll-arrow horizontal" aria-label="Próximos DDDs" onClick={()=>scrollDdds(1)}><ChevronRight size={17}/></button>
       </div>
     </div>}

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone } from "lucide-react";
+import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone, Youtube } from "lucide-react";
 import { ownerApi, type WhatsAppIntegrationState } from "./api";
 
 type HelpTopic = "mode" | "hybrid" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken";
@@ -124,7 +124,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
 
       <header className="integration-title astra-modal-title">
         <span><Bot size={25}/></span>
-        <div><p className="eyebrow dark">OWNER · AUTOMAÇÃO</p><h2>Configurar WhatsApp</h2><p className="muted">Os dados ficam salvos no servidor e permanecem disponíveis para os Owners mesmo após fechar o navegador.</p></div>
+        <div><p className="eyebrow dark">OWNER · AUTOMAÇÃO</p><h2>Configurar integração</h2><p className="muted">Os dados ficam salvos no servidor e permanecem disponíveis para os Owners mesmo após fechar o navegador.</p></div>
       </header>
 
       <div className="astra-status-grid">
@@ -145,7 +145,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
               <span className="mode-symbol meta">∞</span><span><strong>Meta Oficial</strong><small>Mensagens, respostas e webhooks pela plataforma oficial.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="HYBRID"} className={`mode-choice hybrid ${form.mode==="HYBRID" ? "selected":""}`} onClick={()=>setForm({...form,mode:"HYBRID"})}>
-              <span className="mode-symbol hybrid"><span>∞</span><span>▶</span></span><span><strong>Híbrido</strong><small>Meta oficial + complemento para conferir grupos tradicionais.</small></span>
+              <span className="mode-symbol hybrid" aria-hidden="true"><span className="meta-half">∞</span><span className="youtube-half"><Youtube size={17} fill="currentColor"/></span></span><span><strong>Híbrido</strong><small>Meta oficial + complemento para conferir grupos tradicionais.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="DISABLED"} className={`mode-choice disabled ${form.mode==="DISABLED" ? "selected":""}`} onClick={()=>setForm({...form,mode:"DISABLED"})}>
               <span className="mode-symbol off">—</span><span><strong>Desativado</strong><small>Pausa automações sem apagar a configuração salva.</small></span>

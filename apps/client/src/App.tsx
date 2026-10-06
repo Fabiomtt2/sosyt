@@ -10,6 +10,25 @@ import { PhoneField, isCompletePhoneField } from "./PhoneField";
 
 const COOLDOWN_KEY = "conexao_cooldown_until";
 const PENDING_REQUEST_KEY = "conexao_participation_request";
+const PENDING_REQUEST_SUPPRESS_KEY = "conexao_participation_request_suppressed";
+
+type PendingRequestMemory = { token: string; phone?: string };
+
+function readPendingRequestMemory(): PendingRequestMemory | undefined {
+  const raw = localStorage.getItem(PENDING_REQUEST_KEY);
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as PendingRequestMemory;
+    if (parsed?.token) return parsed;
+  } catch {
+    // Legacy versions stored only the opaque token string.
+  }
+  return { token: raw };
+}
+
+function writePendingRequestMemory(state: ParticipationStatus) {
+  localStorage.setItem(PENDING_REQUEST_KEY, JSON.stringify({ token: state.requestToken, phone: state.phone }));
+}
 
 function storedCooldownUntil() {
   const value = Date.parse(localStorage.getItem(COOLDOWN_KEY) ?? "");
@@ -37,6 +56,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [error, setError] = useState("");
   const [cooldownUntil, setCooldownUntil] = useState(storedCooldownUntil);
   const [nowMs, setNowMs] = useState(Date.now());
+  const suppressPendingResume = useRef(false);
 
   useEffect(() => {
     if (!cooldownUntil) return;
@@ -54,16 +74,21 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   },[cooldownUntil]);
 
   useEffect(() => {
-    const token = localStorage.getItem(PENDING_REQUEST_KEY);
-    if (!token) return;
+    if (sessionStorage.getItem(PENDING_REQUEST_SUPPRESS_KEY) === "1") {
+      suppressPendingResume.current = true;
+      return;
+    }
+    const memory = readPendingRequestMemory();
+    if (!memory?.token) return;
     let cancelled = false;
     const sync = async () => {
       try {
-        const state = await participationApi.status(token);
+        const state = await participationApi.status(memory.token);
         if (cancelled) return;
+        writePendingRequestMemory(state);
+        if (suppressPendingResume.current) return;
         setJoined(state);
         setJoinMode(true);
-        localStorage.setItem(PENDING_REQUEST_KEY,state.requestToken);
         setForm((current) => ({
           name: state.name ?? current.name,
           phone: state.phone ? `+${state.phone.replace(/\D/g,"")}` : current.phone,
@@ -100,7 +125,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   }
 
   function keepParticipation(state: ParticipationStatus) {
-    localStorage.setItem(PENDING_REQUEST_KEY,state.requestToken);
+    suppressPendingResume.current = false;
+    sessionStorage.removeItem(PENDING_REQUEST_SUPPRESS_KEY);
+    writePendingRequestMemory(state);
     setJoined(state);
     setJoinMode(true);
     setNowMs(Date.now());
@@ -121,7 +148,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   }
 
   async function refreshParticipation() {
-    const token = joined?.requestToken ?? localStorage.getItem(PENDING_REQUEST_KEY);
+    const token = joined?.requestToken ?? readPendingRequestMemory()?.token;
     if (!token) return;
     setBusy(true); setError("");
     try { keepParticipation(await participationApi.status(token)); }
@@ -131,9 +158,24 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
 
   function leaveParticipationStatus() {
     localStorage.removeItem(PENDING_REQUEST_KEY);
+    sessionStorage.removeItem(PENDING_REQUEST_SUPPRESS_KEY);
+    suppressPendingResume.current = true;
     setJoined(undefined);
     setJoinMode(false);
     setConsent(false);
+    returnToProfile();
+  }
+
+  function accessWithAnotherIdentity() {
+    suppressPendingResume.current = true;
+    sessionStorage.setItem(PENDING_REQUEST_SUPPRESS_KEY,"1");
+    setJoined(undefined);
+    setJoinMode(false);
+    setConsent(false);
+    localStorage.removeItem(COOLDOWN_KEY);
+    setCooldownUntil(0);
+    setNowMs(Date.now());
+    setForm({ name: "", phone: "", groupCode: "" });
     returnToProfile();
   }
 
@@ -163,6 +205,12 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         setAuthRole(role.role);
         setCredential("");
         if (role.role === "owner") {
+          suppressPendingResume.current = true;
+          sessionStorage.setItem(PENDING_REQUEST_SUPPRESS_KEY,"1");
+          setJoined(undefined);
+          setJoinMode(false);
+          setCooldownUntil(0);
+          localStorage.removeItem(COOLDOWN_KEY);
           setStep("credential");
         } else {
           if (!/^[1-9]\d{0,2}$/.test(form.groupCode)) throw new Error("Digite o número correspondente ao seu grupo SOS YOUTUBER, de 1 a 999.");
@@ -191,12 +239,17 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         onDone("owner");
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível concluir o acesso.");
+      if (authRole === "owner" && step === "credential" && cause instanceof ApiError && cause.status === 401) {
+        setError("Credencial incorreta. Confira e tente novamente.");
+      } else {
+        setError(cause instanceof Error ? cause.message : "Não foi possível concluir o acesso.");
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  const ownerCredentialMode = authRole === "owner" && step === "credential";
   const cooldownActive = cooldownUntil > nowMs;
   const cooldownRemaining = Math.max(0,cooldownUntil-nowMs);
   const requestBlockedUntil = joined?.blockedUntil ? Date.parse(joined.blockedUntil) : 0;
@@ -212,7 +265,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <h1>Uma playlist.<br />Dez vozes.</h1>
       <p className="lead">Organize a curadoria do seu grupo e leve a seleção para a sua própria conta do YouTube.<span className="lead-choice">Sempre por escolha sua.</span></p>
       <div className="participation-cluster">
-        <button className="primary intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>
+        <button className="primary intro-join" type="button" onClick={() => { suppressPendingResume.current=false; setJoinMode(true); returnToProfile(); }}>Quero participar</button>
         <div className="trust-note" aria-label="Compromissos de segurança">
           <div className="trust-copy"><span>Sem views automáticas.</span><span>Sem reprodução oculta.</span><strong>Você mantém o controle.</strong></div>
         </div>
@@ -221,16 +274,16 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     <section className="login-card">
       <div>
         <p className="eyebrow dark">ACESSO SOS YOUTUBER</p>
-        <h2>{cooldownActive ? "Intervalo entre filas" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
-        <p className={!cooldownActive && !joined && (step === "credential" || (step === "profile" && !joinMode)) ? "muted login-helper" : "muted"}>{cooldownActive ? "Sua última tarefa foi concluída. O próximo acesso será liberado automaticamente quando o relógio chegar a zero." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
+        <h2>{ownerCredentialMode ? "Credencial" : cooldownActive ? "Intervalo após concluir uma Fila" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
+        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{ownerCredentialMode ? "Digite sua credencial para abrir o painel administrativo. Se estiver incorreta, você permanece nesta etapa e pode tentar novamente." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
-      {cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Você poderá entrar novamente em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Seu cadastro, saldo, URLs, fila e progresso continuam salvos. Este intervalo evita que a mesma conta entre imediatamente em outra fila após concluir uma tarefa.</p></div> : joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
+      {!ownerCredentialMode && cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Seu acesso de participante será liberado em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Este intervalo de 30 minutos existe somente após concluir uma tarefa de Fila. Seu cadastro, saldo, URLs e progresso continuam salvos.</p><button className="secondary" type="button" onClick={accessWithAnotherIdentity}>Acessar outra conta</button></div> : !ownerCredentialMode && joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
         <div className="join-success-heading"><strong>{joined.message}</strong></div>
         {joined.status === "PENDING" && <>
           <p><strong>{joined.name ?? form.name.trim()}</strong>, seu pedido está protegido e continua aguardando os Owners.</p>
-          {requestBlockActive && <div className="request-block-clock"><Clock3 size={18} /><span>Nova solicitação liberada em</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div>}
-          <p className="muted">Pode fechar esta página. Para reencontrar este acompanhamento automaticamente neste aparelho, evite apagar os dados do site. Mesmo se os dados locais forem apagados, seu pedido não desaparece do servidor; uma tentativa repetida dentro do prazo será temporariamente bloqueada por segurança.</p>
-          <button className="secondary" disabled={busy} onClick={() => void refreshParticipation()}>{busy ? <LoaderCircle className="spin" /> : <RefreshCw size={17} />}Verificar situação</button>
+          {requestBlockActive && <><div className="request-block-clock"><Clock3 size={18} /><span>Proteção contra cadastro repetido</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div><p className="muted request-block-explanation">Este prazo de 120 minutos existe porque este WhatsApp já enviou uma solicitação. Ele evita duplicações e nunca é acionado por senha ou credencial incorreta.</p></>}
+          <p className="muted">Pode fechar esta página. Para reencontrar este acompanhamento automaticamente neste aparelho, evite apagar os dados do site. Mesmo se os dados locais forem apagados, seu pedido não desaparece do servidor.</p>
+          <div className="ready-actions"><button className="secondary" disabled={busy} onClick={() => void refreshParticipation()}>{busy ? <LoaderCircle className="spin" /> : <RefreshCw size={17} />}Verificar situação</button><button className="text-button" type="button" onClick={accessWithAnotherIdentity}>Acessar com outro número</button></div>
         </>}
         {joined.status === "APPROVED" && <>
           <p><strong>{joined.name ?? form.name.trim()}</strong>, seu acesso foi liberado{joined.approvedGroup ? ` no SOS YOUTUBER ${joined.approvedGroup}` : ""}.</p>
@@ -238,7 +291,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <button className="primary" onClick={leaveParticipationStatus}>Voltar ao acesso</button>
         </>}
         {joined.status === "DECLINED" && <>
-          {requestBlockActive && <div className="request-block-clock"><Clock3 size={18} /><span>Nova tentativa disponível em</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div>}
+          {requestBlockActive && <div className="request-block-clock"><Clock3 size={18} /><span>Proteção contra novo cadastro</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div>}
           <p className="muted">Se houver algum dado incorreto, aguarde o prazo indicado e tente novamente ou fale com um Owner. Nenhum saldo ou histórico prévio é apagado.</p>
           {!requestBlockActive && <button className="secondary" onClick={leaveParticipationStatus}><ArrowLeft size={18} />Voltar ao acesso</button>}
         </>}
