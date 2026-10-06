@@ -12,7 +12,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem Filas g
 - Cada usuário começa com 10 moedas internas. Salvar custa 1; a primeira contribuição de cada Fila usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas compradas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
 - Ao completar 10 links, a Fila fica pronta e uma nova Fila abre. Quem participou permanece na tarefa da Fila concluída até atingir 100% ou escolher `Concluir tarefa`; só depois do cooldown persistente de 30 minutos volta ao fluxo comum. Depois da criação da playlist, o acompanhamento consolida 1 moeda interna a cada 10% de progresso, até 10 por usuário/Fila, sem duplicar marcos já creditados.
 - Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária. Cada participante elegível vê um único botão `Criar playlist` por Fila, mesmo que tenha salvo mais de uma URL usando passes extras.
-- Painel Owner: registra decisão com data/Owner responsável, administra virtualmente grupos SOS YOUTUBER 1–999 em carrossel funcional, possui autorização manual excepcional usando o mesmo seletor internacional de telefone, popup administrativo de participante, saldos por origem, exportação CSV e configuração persistente do bot WhatsApp (**Meta Oficial / Meta + Grupos / Evolution Gateway / Desativado**). Meta + Grupos mantém Meta para mensagens e WPPConnect como complemento; Evolution tem URL, instância e API key próprias, com segredo cifrado server-side. O botão de integração segue o vermelho ASTRA; o modal tem scroll interno, ajuda contextual, estado coerente com a seleção atual e fecha por `Esc` em camadas.
+- Painel Owner é um **control plane real**, não ilustrativo: registra decisão com data/Owner responsável, administra virtualmente grupos SOS YOUTUBER 1–999, separa “habilitado no SOS” de “confirmado externamente”, salva link de entrada, possui autorização manual excepcional, popup administrativo de participante, saldos por origem, exportação CSV, configuração persistente do bot WhatsApp (**Meta Oficial / Meta + Grupos / Evolution Gateway / Desativado**) e configuração Pix (**Mercado Pago / Asaas / PagBank / Desativado**). Configurações salvas ficam server-side e passam a valer para novas operações; transações/histórico anteriores preservam sua origem.
 
 ## Executar no computador
 
@@ -39,7 +39,7 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação corrente de 06/10/2026: 65 testes de API, 9 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação corrente de 06/10/2026: **67 testes de API, 9 testes do cliente, lint/TypeScript, build API + React/PWA e 1 cenário Playwright ponta a ponta** passaram. A auditoria visual Owner foi feita com capturas novas do fluxo real; detalhes em `docs/AUDITORIA-VISUAL-OWNER-20261006.md` e evidências em `docs/evidencias/`.
 
 ## Publicação pública
 
@@ -49,11 +49,11 @@ O frontend continua publicável pelo workflow GitHub Pages em `https://fabiomtt2
 - Web: `https://sos-youtuber-web-production.up.railway.app`
 - Fastify em produção, healthcheck `/health` e SQLite em volume persistente.
 
-Os serviços Railway foram inicialmente fixados em `45ce984` e devem acompanhar o HEAD canônico após o merge desta rodada. GitHub Pages continua hospedando apenas HTML/PWA; `VITE_API_URL` nunca deve cair no `localhost` do visitante.
+Os serviços Railway já acompanharam o checkpoint `02f3e4b`; após o merge de `sol/owner-control-plane-20261006` devem ser repontados ao novo HEAD canônico. GitHub Pages continua hospedando apenas HTML/PWA; `VITE_API_URL` nunca deve cair no `localhost` do visitante.
 
 ## Integrações e limites atuais
 
-Google OAuth/YouTube Data API, Mercado Pago e WhatsApp Cloud API possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real pelo canal Meta.
+Google OAuth/YouTube Data API, WhatsApp e os provedores financeiros possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real das contas escolhidas. Pagamentos novos podem usar Mercado Pago, Asaas ou PagBank, selecionados pelo Owner; segredos ficam cifrados e não retornam ao navegador. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real pelo canal Meta.
 
 O Owner também oferece **Evolution Gateway** como configuração independente. URL, instância e API key persistem no servidor e a API key não retorna em texto puro. Nesta consolidação, a persistência/UI estão validadas; o adaptador de transporte/eventos Evolution ainda não deve ser apresentado como ativo até implementação e teste próprios. Configurações antigas com modo `HYBRID` são migradas para `META_GROUPS`.
 
@@ -63,8 +63,8 @@ O acompanhamento de reprodução após a playlist ser criada usa a IFrame Player
 
 ### Continuidade da rodada 06/10/2026
 
-O Git local canônico está em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. Esta recuperação partiu de `main @ 45ce984` limpo na branch `sol/whatsapp-modes-evolution-20261006-recovered`. O trabalho temporário anterior permanece recuperável no snapshot Vercel `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs`; os hashes Sandbox `6b29eb6`, `951bf7b` e `0dccc7d` nunca foram publicados e são supersedidos pelo checkpoint local/GitHub desta convergência.
+O Git local canônico está em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. O checkpoint anterior foi convergido em `main @ 02f3e4b`; a rodada atual trabalha em `sol/owner-control-plane-20261006`. O snapshot Vercel `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs` permanece apenas como recuperação histórica.
 
-O gate local passou com **65/65 API, 9/9 cliente, build API, React/PWA e E2E Playwright 1/1**. O E2E cobre busca textual `Brasil` no DDI e troca Meta + Grupos ↔ Evolution sem herdar contexto Meta. Não criar infraestrutura paga quando houver rota local/gratuita funcional.
+O gate atual passou com **67/67 API, 9/9 cliente, lint/TypeScript, build API + React/PWA e E2E Playwright 1/1**. O E2E cobre DDI/DDD persistente, modos WhatsApp, pagamentos Owner desktop/mobile, blur/body lock/scroll interno, mês PT-BR, grupos com prova externa separada e responsividade. Não criar infraestrutura paga quando houver rota local/gratuita funcional.
 
 Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, migração de eventuais telefones legados para a forma canônica internacional, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. **Comece sempre por `docs/ANCHOR-YOUTUBE-FINAL.md`**; depois consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.

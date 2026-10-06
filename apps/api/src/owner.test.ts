@@ -199,6 +199,49 @@ describe("Owner e acesso por grupo", () => {
     const overview = await app.inject({ method:"GET",url:"/admin/overview",headers:authorization(ownerToken) });
     expect(overview.json().whatsapp.configured).toBe(true);
   });
+  it("Owner salva e troca provedor Pix sem expor segredos", async () => {
+    const mp = await app.inject({
+      method:"POST",url:"/admin/integrations/payments",headers:authorization(ownerToken),
+      payload:{ provider:"MERCADO_PAGO",environment:"SANDBOX",mercadoPagoAccessToken:"mp-access-token-secret-12345",mercadoPagoWebhookSecret:"mp-webhook-secret-12345" }
+    });
+    expect(mp.statusCode).toBe(200);
+    expect(mp.json()).toMatchObject({provider:"MERCADO_PAGO",environment:"SANDBOX",ready:true,mercadoPagoAccessTokenConfigured:true,mercadoPagoWebhookSecretConfigured:true});
+    expect(JSON.stringify(mp.json())).not.toContain("mp-access-token-secret");
+    expect(JSON.stringify(mp.json())).not.toContain("mp-webhook-secret");
+
+    const pagbank = await app.inject({
+      method:"POST",url:"/admin/integrations/payments",headers:authorization(ownerToken),
+      payload:{ provider:"PAGBANK",environment:"PRODUCTION",pagBankToken:"pagbank-production-token-12345" }
+    });
+    expect(pagbank.statusCode).toBe(200);
+    expect(pagbank.json()).toMatchObject({provider:"PAGBANK",environment:"PRODUCTION",ready:true,pagBankTokenConfigured:true});
+    expect(JSON.stringify(pagbank.json())).not.toContain("pagbank-production-token");
+
+    const state = await app.inject({method:"GET",url:"/admin/integrations/payments",headers:authorization(ownerToken)});
+    expect(state.statusCode).toBe(200);
+    expect(state.json()).toMatchObject({provider:"PAGBANK",environment:"PRODUCTION",ready:true,mercadoPagoAccessTokenConfigured:true,pagBankTokenConfigured:true});
+    expect(state.json()).not.toHaveProperty("pagBankToken");
+    expect(state.json()).not.toHaveProperty("mercadoPagoAccessToken");
+  });
+
+  it("grupo separa habilitação interna, link salvo e prova externa", async () => {
+    const linkOnly = await app.inject({method:"POST",url:"/admin/groups",headers:authorization(ownerToken),payload:{code:"77",joinUrl:"https://chat.whatsapp.com/TestGroupInvite77"}});
+    expect(linkOnly.statusCode).toBe(200);
+    expect(linkOnly.json().group).toMatchObject({code:"77",enabled:0,joinUrl:"https://chat.whatsapp.com/TestGroupInvite77"});
+    db.prepare("INSERT INTO whatsapp_group_verifications (provider,group_code,external_group_id,subject,owner_admin_count,verified_at) VALUES ('WPPCONNECT','77','external-77','SOS YOUTUBER 77',1,?)").run(new Date().toISOString());
+    db.prepare("UPDATE groups SET whatsapp_group_id='external-77',membership_mode='WPPCONNECT',last_synced_at=? WHERE code='77'").run(new Date().toISOString());
+    const overview=(await app.inject({method:"GET",url:"/admin/overview",headers:authorization(ownerToken)})).json();
+    const group=overview.groups.find((item:{code:string})=>item.code==="77");
+    expect(group).toMatchObject({code:"77",enabled:0,joinUrl:"https://chat.whatsapp.com/TestGroupInvite77",whatsappGroupId:"external-77",verificationProvider:"WPPCONNECT",ownerAdminCount:1});
+    const publicGroups=(await app.inject({method:"GET",url:"/public/groups"})).json();
+    expect(publicGroups.groups).not.toContain("77");
+    expect(publicGroups.groupLinks).not.toHaveProperty("77");
+    const enabled=await app.inject({method:"POST",url:"/admin/groups",headers:authorization(ownerToken),payload:{code:"77",enabled:true}});
+    expect(enabled.json().group).toMatchObject({enabled:1,joinUrl:"https://chat.whatsapp.com/TestGroupInvite77"});
+    const publicEnabled=(await app.inject({method:"GET",url:"/public/groups"})).json();
+    expect(publicEnabled.groupLinks["77"]).toBe("https://chat.whatsapp.com/TestGroupInvite77");
+  });
+
   it("revogação e grupo desativado interrompem sessão existente", async () => {
     const token = await participant();
     expect((await app.inject({ method: "GET", url: "/dashboard", headers: authorization(token) })).statusCode).toBe(200);
@@ -226,9 +269,9 @@ describe("Owner e acesso por grupo", () => {
     const cycleId = view.openRound.id;
     db.prepare("UPDATE rounds SET status='READY',completed_at=? WHERE id=?").run(now,cycleId);
     db.prepare("INSERT INTO playlist_exports (id,round_id,user_id,status,youtube_playlist_id,created_at,updated_at) VALUES (?,?,?,'SUCCESS','test-playlist',?,?)").run(randomUUID(),cycleId,userId,now,now);
-    for (const provider of ["DEMO","MERCADO_PAGO"]) db.prepare("INSERT INTO payments (id,user_id,provider,status,amount_cents,credits_millis,extra_passes,created_at,approved_at) VALUES (?,?,?,'APPROVED',2000,20000,1,?,?)").run(randomUUID(),userId,provider,now,now);
+    for (const provider of ["DEMO","MERCADO_PAGO","ASAAS","PAGBANK"]) db.prepare("INSERT INTO payments (id,user_id,provider,status,amount_cents,credits_millis,extra_passes,created_at,approved_at) VALUES (?,?,?,'APPROVED',2000,20000,1,?,?)").run(randomUUID(),userId,provider,now,now);
     const stats = (await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(ownerToken) })).json().metrics;
-    expect(stats).toMatchObject({ registeredUsers: 1, activeUsers30d: 1, playlistsCreatedMonth: 1, completedCyclesMonth: 1, approvedPurchasesMonth: 1, demoPurchasesMonth: 1, revenueCentsMonth: 2000 });
+    expect(stats).toMatchObject({ registeredUsers: 1, activeUsers30d: 1, playlistsCreatedMonth: 1, completedCyclesMonth: 1, approvedPurchasesMonth: 3, demoPurchasesMonth: 1, revenueCentsMonth: 6000 });
   });
   it("exportação CSV é exclusiva do Owner", async () => {
     const token = await participant();

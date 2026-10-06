@@ -20,6 +20,11 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  useEffect(()=>{
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return ()=>{ document.body.style.overflow=previous; };
+  },[]);
 
   async function load(target=phone) {
     setBusy(true); setError("");

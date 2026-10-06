@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS groups (
   enabled INTEGER NOT NULL DEFAULT 1,
   whatsapp_group_id TEXT,
   membership_mode TEXT NOT NULL DEFAULT 'OWNER_VERIFIED',
-  last_synced_at TEXT
+  last_synced_at TEXT,
+  join_url TEXT
 );
 CREATE TABLE IF NOT EXISTS group_memberships (
   phone TEXT PRIMARY KEY,
@@ -138,6 +139,13 @@ CREATE TABLE IF NOT EXISTS submissions (
   UNIQUE(round_id, video_id)
 );
 
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+  provider TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  PRIMARY KEY(provider,event_id)
+);
+
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -201,6 +209,7 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("groups", "whatsapp_group_id", "TEXT");
   addColumn("groups", "membership_mode", "TEXT NOT NULL DEFAULT 'OWNER_VERIFIED'");
   addColumn("groups", "last_synced_at", "TEXT");
+  addColumn("groups", "join_url", "TEXT");
   addColumn("group_memberships", "source", "TEXT NOT NULL DEFAULT 'OWNER'");
   addColumn("group_memberships", "approved_by_owner_id", "TEXT");
   addColumn("group_memberships", "approved_by_owner_name", "TEXT");

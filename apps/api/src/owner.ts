@@ -6,7 +6,8 @@ import type { AppDatabase } from "./db.js";
 import { ownerAccounts, ownerNameMatches, ownerCredentialVersion } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
-import { generateAndSaveVerifyToken, gitVersionInfo, readWhatsAppIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
+import { effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
+import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
@@ -27,11 +28,16 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     } catch { return reply.code(401).send({ message: "Acesso exclusivo do Owner. Entre novamente." }); }
   }
   const participationToken = (id: string) => app.jwt.sign({ sub: `participation:${id}`, purpose: "participation-status", aud: "conexao-participation" }, { expiresIn: "30d" });
-  app.get("/public/groups", async () => ({
-    groups: (db.prepare("SELECT code FROM groups WHERE enabled = 1 ORDER BY length(code), code").all() as Array<{ code: string }>).map(({ code }) => code),
-    ownerContactAvailable: Boolean(publicWhatsAppNumber(config)),
-    membershipRequired: config.REQUIRE_GROUP_MEMBERSHIP, whatsappJoinUrl: whatsappJoinUrl(config)
-  }));
+  app.get("/public/groups", async () => {
+    const rows = db.prepare("SELECT code,join_url AS joinUrl FROM groups WHERE enabled = 1 ORDER BY length(code), code").all() as Array<{ code: string; joinUrl?: string }>;
+    return {
+      groups: rows.map(({ code }) => code),
+      groupLinks: Object.fromEntries(rows.filter((row)=>row.joinUrl).map((row)=>[row.code,row.joinUrl!])),
+      ownerContactAvailable: Boolean(publicWhatsAppNumber(config)),
+      membershipRequired: config.REQUIRE_GROUP_MEMBERSHIP,
+      whatsappJoinUrl: whatsappJoinUrl(config)
+    };
+  });
   app.post("/participation/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema, groupCode: groupSchema.optional(), consent: z.literal(true) }).parse(request.body);
     const member = db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(body.phone) as { groupCode: string } | undefined;
@@ -146,9 +152,9 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const [year, index] = month.split("-").map(Number);
     const start = new Date(Date.UTC(year, index - 1, 1, 3)).toISOString(), end = new Date(Date.UTC(year, index, 1, 3)).toISOString();
     const count = (sql: string, ...params: string[]) => (db.prepare(sql).get(...params) as { n: number }).n;
-    const revenue = db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS n FROM payments WHERE provider = 'MERCADO_PAGO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?").get(start, end) as { n: number };
+    const revenue = db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS n FROM payments WHERE provider <> 'DEMO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?").get(start, end) as { n: number };
     return {
-      month, timezone: "America/Bahia", owner: { name: request.user.displayName?.trim() || account.name, canonicalName: account.name, groupCode: "#" }, whatsapp: { ...whatsappStatus(db,config), integration: readWhatsAppIntegration(db,config) }, version: gitVersionInfo(),
+      month, timezone: "America/Bahia", owner: { name: request.user.displayName?.trim() || account.name, canonicalName: account.name, groupCode: "#" }, whatsapp: { ...whatsappStatus(db,config), integration: readWhatsAppIntegration(db,config) }, payments: readPaymentIntegration(db,config), version: gitVersionInfo(),
       metrics: {
         registeredUsers: count("SELECT COUNT(*) AS n FROM users"),
         activeUsers30d: count("SELECT COUNT(*) AS n FROM users WHERE last_seen_at >= ?", new Date(Date.now() - 30 * 86400_000).toISOString()),
@@ -158,11 +164,16 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
         requestsMonth: count("SELECT COUNT(*) AS n FROM participation_requests WHERE created_at >= ? AND created_at < ?", start, end),
         completedCyclesMonth: count("SELECT COUNT(*) AS n FROM rounds WHERE status = 'READY' AND completed_at >= ? AND completed_at < ?", start, end),
         playlistsCreatedMonth: count("SELECT COUNT(*) AS n FROM playlist_exports WHERE status = 'SUCCESS' AND updated_at >= ? AND updated_at < ?", start, end),
-        approvedPurchasesMonth: count("SELECT COUNT(*) AS n FROM payments WHERE provider = 'MERCADO_PAGO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?", start, end),
+        approvedPurchasesMonth: count("SELECT COUNT(*) AS n FROM payments WHERE provider <> 'DEMO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?", start, end),
         demoPurchasesMonth: count("SELECT COUNT(*) AS n FROM payments WHERE provider = 'DEMO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?", start, end),
         revenueCentsMonth: revenue.n
       },
-      groups: db.prepare("SELECT code, enabled, whatsapp_group_id AS whatsappGroupId, membership_mode AS membershipMode, last_synced_at AS lastSyncedAt FROM groups ORDER BY length(code), code").all(),
+      groups: db.prepare(`SELECT g.code,g.enabled,g.whatsapp_group_id AS whatsappGroupId,g.membership_mode AS membershipMode,
+        g.last_synced_at AS lastSyncedAt,g.join_url AS joinUrl,
+        (SELECT v.provider FROM whatsapp_group_verifications v WHERE v.group_code=g.code ORDER BY v.verified_at DESC LIMIT 1) AS verificationProvider,
+        (SELECT v.owner_admin_count FROM whatsapp_group_verifications v WHERE v.group_code=g.code ORDER BY v.verified_at DESC LIMIT 1) AS ownerAdminCount,
+        (SELECT v.verified_at FROM whatsapp_group_verifications v WHERE v.group_code=g.code ORDER BY v.verified_at DESC LIMIT 1) AS verifiedAt
+        FROM groups g ORDER BY length(g.code),g.code`).all(),
       requests: db.prepare(`SELECT id,name,phone,preferred_group AS preferredGroup,status,source,whatsapp_verified_at AS whatsappVerifiedAt,
         approved_at AS approvedAt,approved_by_owner_id AS approvedByOwnerId,approved_by_owner_name AS approvedByOwnerName,
         created_at AS createdAt,updated_at AS updatedAt
@@ -187,6 +198,17 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   app.get("/admin/version", { preHandler: ownerGuard }, async () => gitVersionInfo());
   app.get("/admin/integrations/whatsapp", { preHandler: ownerGuard }, async () => readWhatsAppIntegration(db,config));
   app.post("/admin/integrations/whatsapp", { preHandler: ownerGuard }, async (request) => saveWhatsAppIntegration(db,config,request.body));
+  app.get("/admin/integrations/payments", { preHandler: ownerGuard }, async () => readPaymentIntegration(db,config));
+  app.post("/admin/integrations/payments", { preHandler: ownerGuard }, async (request) => {
+    const state=savePaymentIntegration(db,config,request.body);
+    if (state.provider!=="ASAAS" || !state.ready) return state;
+    try {
+      const setup=await ensureAsaasWebhook(effectivePaymentConfig(db,config));
+      return {...state,providerSetup:{ok:true,message:setup.created ? "Webhook Asaas criado e ativado." : "Webhook Asaas atualizado e mantido ativo."}};
+    } catch (cause) {
+      return {...state,providerSetup:{ok:false,message:cause instanceof Error ? cause.message : "Configuração salva, mas o webhook Asaas precisa ser revisado."}};
+    }
+  });
   app.post("/admin/integrations/whatsapp/verify-token", { preHandler: ownerGuard }, async () => {
     const verifyToken = generateAndSaveVerifyToken(db,config);
     return { ok:true, verifyToken, state:readWhatsAppIntegration(db,config) };
@@ -339,9 +361,18 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     return reply.type("text/csv; charset=utf-8").header("content-disposition", 'attachment; filename="conexao-usuarios.csv"').send("\ufeff" + csv);
   });
   app.post("/admin/groups", { preHandler: ownerGuard }, async (request) => {
-    const body = z.object({ code: groupSchema, enabled: z.boolean().default(true) }).parse(request.body);
-    db.prepare("INSERT INTO groups (code, enabled) VALUES (?, ?) ON CONFLICT(code) DO UPDATE SET enabled = excluded.enabled").run(body.code, body.enabled ? 1 : 0);
-    return { ok: true };
+    const body = z.object({
+      code: groupSchema,
+      enabled: z.boolean().optional(),
+      joinUrl: z.union([z.string().url(),z.literal("")]).optional()
+    }).parse(request.body);
+    const requestedEnabled = body.enabled ?? (body.joinUrl===undefined ? true : undefined);
+    db.prepare("INSERT OR IGNORE INTO groups (code, enabled) VALUES (?, ?)").run(body.code,requestedEnabled ? 1 : 0);
+    if (requestedEnabled!==undefined) db.prepare("UPDATE groups SET enabled=? WHERE code=?").run(requestedEnabled ? 1 : 0,body.code);
+    if (body.joinUrl!==undefined) db.prepare("UPDATE groups SET join_url=? WHERE code=?").run(body.joinUrl || null,body.code);
+    const group = db.prepare(`SELECT code,enabled,whatsapp_group_id AS whatsappGroupId,membership_mode AS membershipMode,
+      last_synced_at AS lastSyncedAt,join_url AS joinUrl FROM groups WHERE code=?`).get(body.code);
+    return { ok:true,group };
   });
   app.post("/admin/members", { preHandler: ownerGuard }, async (request, reply) => {
     const body = z.object({ phone: phoneSchema, groupCode: groupSchema, name: z.string().trim().min(2).max(80).optional() }).parse(request.body);

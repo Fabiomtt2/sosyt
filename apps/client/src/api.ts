@@ -79,6 +79,18 @@ export type WhatsAppIntegrationState = {
   officialReady: boolean;
   webhookUrl: string;
 };
+export type PaymentIntegrationState = {
+  provider: "MERCADO_PAGO" | "ASAAS" | "PAGBANK" | "DISABLED";
+  environment: "SANDBOX" | "PRODUCTION";
+  ready: boolean;
+  mercadoPagoAccessTokenConfigured: boolean;
+  mercadoPagoWebhookSecretConfigured: boolean;
+  asaasApiKeyConfigured: boolean;
+  asaasWebhookTokenConfigured: boolean;
+  pagBankTokenConfigured: boolean;
+  webhookUrls: { mercadoPago: string; asaas: string; pagBank: string };
+  providerSetup?: { ok: boolean; message: string };
+};
 export type OwnerVersion = { appVersion: string; gitSha: string; dirty: boolean };
 export type GroupVerificationState = { required: boolean; accessReady: boolean; memberVerified: boolean; ownerAdminVerified: boolean; provider?: string };
 export type OwnerParticipant = {
@@ -98,11 +110,12 @@ export type ParticipantAdminDetail = {
   verification?: GroupVerificationState;
 };
 export type OwnerOverview = {
+  payments: PaymentIntegrationState;
   whatsapp: { configured: boolean; otpConfigured: boolean; ownerAlertsConfigured: boolean; decisionTemplateConfigured: boolean; groupsSyncEnabled: boolean; groupsLinked: number; automaticMemberships: number; queued: number; failed: number; sent: number; membershipMode: string; integration: WhatsAppIntegrationState };
   version: OwnerVersion;
   month: string; owner: { name: string; canonicalName?: string; groupCode: string };
   metrics: { registeredUsers: number; activeUsers30d: number; approvedMembers: number; requestsTotal: number; pendingRequests: number; requestsMonth: number; completedCyclesMonth: number; playlistsCreatedMonth: number; approvedPurchasesMonth: number; demoPurchasesMonth: number; revenueCentsMonth: number };
-  groups: Array<{ code: string; enabled: number; whatsappGroupId?: string; membershipMode?: string; lastSyncedAt?: string }>;
+  groups: Array<{ code: string; enabled: number; whatsappGroupId?: string; membershipMode?: string; lastSyncedAt?: string; joinUrl?: string; verificationProvider?: string; ownerAdminCount?: number; verifiedAt?: string }>;
   requests: Array<{ id: string; name: string; phone: string; preferredGroup?: string; status: string; source?: string; whatsappVerifiedAt?: string; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string; createdAt: string; updatedAt?: string }>;
   users: OwnerParticipant[];
   members: Array<{ phone: string; groupCode: string; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string; revokedAt?: string; source?: string }>;
@@ -115,10 +128,17 @@ export const ownerApi = {
   login: (body: { name: string; identifier: string; groupCode: "#"; secret: string }) => request<{ token: string; role: "owner" }>("/admin/login", { method: "POST", body: JSON.stringify(body) }),
   overview: (month: string) => ownerRequest<OwnerOverview>(`/admin/overview?month=${month}`),
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
+  groupSettings: (code: string, joinUrl: string) => ownerRequest<{ ok: true; group: OwnerOverview["groups"][number] }>("/admin/groups", { method: "POST", body: JSON.stringify({ code, joinUrl }) }),
   approveMember: (phone: string, groupCode: string, name?: string) => ownerRequest("/admin/members", { method: "POST", body: JSON.stringify({ phone, groupCode, name }) }),
   retryWhatsApp: () => ownerRequest("/admin/whatsapp/retry", { method: "POST" }),
   syncWhatsAppGroups: () => ownerRequest<{ discovered: number; linked: number; memberships: number }>("/admin/whatsapp/groups/sync", { method: "POST" }),
   whatsappIntegration: () => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp"),
+  paymentIntegration: () => ownerRequest<PaymentIntegrationState>("/admin/integrations/payments"),
+  savePaymentIntegration: (body: {
+    provider: PaymentIntegrationState["provider"]; environment: PaymentIntegrationState["environment"];
+    mercadoPagoAccessToken?: string; mercadoPagoWebhookSecret?: string;
+    asaasApiKey?: string; asaasWebhookToken?: string; pagBankToken?: string;
+  }) => ownerRequest<PaymentIntegrationState>("/admin/integrations/payments", { method:"POST", body:JSON.stringify(body) }),
   saveWhatsAppIntegration: (body: Partial<{
     mode: "OFFICIAL" | "META_GROUPS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
     accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string; evolutionUrl: string; evolutionInstance: string; evolutionApiKey: string;
@@ -145,7 +165,7 @@ export type ParticipationStatus = {
   status: "PENDING" | "APPROVED" | "DECLINED"; blockedUntil?: string; requestToken: string; message: string;
 };
 export const participationApi = {
-  groups: () => request<{ groups: string[]; ownerContactAvailable: boolean; membershipRequired: boolean; whatsappJoinUrl?: string }>("/public/groups"),
+  groups: () => request<{ groups: string[]; groupLinks: Record<string,string>; ownerContactAvailable: boolean; membershipRequired: boolean; whatsappJoinUrl?: string }>("/public/groups"),
   join: (body: { name: string; phone: string; groupCode?: string; consent: boolean }) => request<ParticipationStatus & { ok: true }>("/participation/request", { method: "POST", body: JSON.stringify(body) }),
   status: (token: string) => request<ParticipationStatus>("/participation/status", { method: "POST", body: JSON.stringify({ token }) })
 };

@@ -139,6 +139,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.keyboard.type("1");
   await expect(page.getByRole("button", { name: "DDD 71 BA" })).toBeVisible();
   await expect(page.getByRole("button", { name: "DDD 73 BA" })).toHaveCount(0);
+  await page.waitForTimeout(1600);
+  await expect(page.getByRole("button", { name: "DDD 71 BA" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "DDD 73 BA" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   await expect(page.getByRole("button", { name: "DDDs anteriores" })).toBeVisible();
@@ -233,9 +236,14 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(pendingBadgeStyle).toBe("rgb(231, 247, 237)");
   await page.screenshot({ path: resolve(evidence, "owner-solicitacoes-desktop.png"), fullPage: true });
   await expect(page.getByRole("button", { name: /Fábio/ })).toBeVisible();
-  await expect(page.getByText(/Sistema v0\.1\.0/)).toBeVisible();
+  await expect(page.getByText("Outubro de 2026", { exact:true })).toBeVisible();
+  await expect(page.getByText("Painel sincronizado com o servidor", { exact:false })).toBeVisible();
+  await page.getByRole("button", { name:"Explicar versão e sincronização do painel" }).click();
+  await expect(page.getByRole("dialog", { name:"Ajuda sobre versão e sincronização" })).toBeVisible();
+  await expect(page.getByText("não instala uma nova versão", { exact:false })).toBeVisible();
+  await page.getByRole("button", { name:"Fechar ajuda" }).click();
   const transportCard = page.locator(".transport-status-card");
-  await expect(transportCard.getByText("AINDA INATIVO", { exact: true })).toBeVisible();
+  await expect(transportCard.getByText("PARADO", { exact: true })).toBeVisible();
   const transportBackground = await transportCard.evaluate((el: HTMLElement) => getComputedStyle(el).backgroundColor);
   expect(transportBackground).toBe("rgb(109, 111, 118)");
 
@@ -248,6 +256,44 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({ path: resolve(evidence, "owner-participante-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: "Fechar participante" }).click();
 
+  await page.getByRole("button", { name: "Compras", exact: true }).click();
+  await page.setViewportSize({ width:1366, height:768 });
+  await page.getByRole("button", { name: "Configurar pagamentos" }).click();
+  const paymentDialog = page.getByRole("dialog", { name: "Configurar pagamentos" });
+  await expect(paymentDialog).toBeVisible();
+  const paymentGeometry = await paymentDialog.evaluate((el:HTMLElement)=>({
+    top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom,width:el.getBoundingClientRect().width,
+    clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,overflowY:getComputedStyle(el).overflowY,
+    bodyOverflow:getComputedStyle(document.body).overflow,
+    backdropFilter:getComputedStyle(el.parentElement!).backdropFilter
+  }));
+  expect(paymentGeometry.top).toBeGreaterThanOrEqual(0);
+  expect(paymentGeometry.bottom).toBeLessThanOrEqual(768);
+  expect(paymentGeometry.width).toBeGreaterThan(700);
+  expect(["auto","scroll"]).toContain(paymentGeometry.overflowY);
+  expect(paymentGeometry.bodyOverflow).toBe("hidden");
+  expect(paymentGeometry.backdropFilter).toContain("blur");
+  await expect(page.getByRole("button", { name: "Explicar Mercado Pago" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explicar Asaas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Explicar PagBank" })).toBeVisible();
+  await page.getByRole("button", { name: /Mercado Pago/ }).first().click();
+  await expect(page.getByText("Dados da sua aplicação Mercado Pago", { exact:true })).toBeVisible();
+  await page.getByRole("button", { name: "Explicar Mercado Pago" }).click();
+  await expect(page.getByRole("dialog", { name: "Quando escolher Mercado Pago?" })).toBeVisible();
+  await page.getByRole("button", { name: "Fechar explicação" }).click();
+  await page.screenshot({ path: resolve(evidence, "owner-pagamentos-after-audit-desktop.png"), fullPage:false });
+  const paymentScroll = await paymentDialog.evaluate((el:HTMLElement)=>({clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,scrollTop:el.scrollTop}));
+  expect(paymentScroll.scrollHeight).toBeGreaterThan(paymentScroll.clientHeight);
+  await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTo({top:el.scrollHeight,behavior:"instant" as ScrollBehavior}));
+  expect(await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTop)).toBeGreaterThan(paymentScroll.scrollTop);
+  await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTo({top:0,behavior:"instant" as ScrollBehavior}));
+  await page.setViewportSize({ width:390, height:844 });
+  await page.screenshot({ path: resolve(evidence, "owner-pagamentos-after-audit-mobile.png"), fullPage:false });
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
+  await page.setViewportSize({ width:1366, height:768 });
+  await page.getByRole("button", { name: "Fechar configuração de pagamentos" }).click();
+  expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).not.toBe("hidden");
+
   await page.getByRole("button", { name: "Grupos e acesso", exact: true }).click();
   await expect(page.getByRole("button", { name: "Explicar grupos e acesso" })).toBeVisible();
   await expect(page.getByText("Grupos 1–12 de 999", { exact: true })).toBeVisible();
@@ -259,8 +305,19 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Grupos 997–999 de 999", { exact: true })).toBeVisible();
   const group999 = page.locator(".group-admin-card").filter({ hasText: "SOS YOUTUBER 999" });
   await expect(group999).toBeVisible();
-  await group999.getByRole("button", { name: "Ativar grupo" }).click();
-  await expect(group999.getByText("Ativo", { exact: true })).toBeVisible();
+  await group999.getByRole("button", { name: "Habilitar" }).click();
+  await expect(group999.getByText("Habilitado no SOS", { exact: true })).toBeVisible();
+  await group999.getByRole("button", { name:"Gerenciar" }).click();
+  const groupDialog=page.getByRole("dialog",{name:"Gerenciar SOS YOUTUBER 999"});
+  await expect(groupDialog).toBeVisible();
+  await expect(groupDialog.getByText("Habilitado no SOS",{exact:true})).toBeVisible();
+  await expect(groupDialog.getByText("Vínculo externo",{exact:true})).toBeVisible();
+  await expect(groupDialog.getByText("NÃO CONFIRMADO",{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).toBe("hidden");
+  expect(await groupDialog.evaluate((el)=>getComputedStyle(el.parentElement!).backdropFilter)).toContain("blur");
+  await page.screenshot({path:resolve(evidence,"owner-grupo-gerenciar-desktop.png"),fullPage:false});
+  await page.getByRole("button",{name:"Fechar gerenciamento do grupo"}).click();
+  expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).not.toBe("hidden");
   await expect(page.locator(".manual-access-section").getByText("Código do país + DDD + Número do WhatsApp.", { exact: true })).toBeVisible();
   const manualFieldGeometry = await page.locator(".manual-access-section").evaluate((section) => {
     const nameInput = section.querySelector("input[placeholder='Nome do participante']")!;
@@ -370,6 +427,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(integrationDialog).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  const activeOwnerTab=page.locator(".owner-tabs button.active");
+  const activeOwnerTabBox=await activeOwnerTab.boundingBox();
+  expect(activeOwnerTabBox).not.toBeNull();
+  expect(activeOwnerTabBox!.x).toBeGreaterThanOrEqual(-1);
+  expect(activeOwnerTabBox!.x+activeOwnerTabBox!.width).toBeLessThanOrEqual(391);
   await page.screenshot({ path: resolve(evidence, "owner-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.setViewportSize({ width: 1440, height: 1000 });

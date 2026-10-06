@@ -71,7 +71,6 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   const root=useRef<HTMLDivElement>(null);
   const countryListRef=useRef<HTMLDivElement>(null);
   const dddRailRef=useRef<HTMLDivElement>(null);
-  const dddSearchTimer=useRef<number | undefined>(undefined);
 
   useEffect(()=>{
     if (!value) return;
@@ -104,19 +103,13 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   useEffect(()=>{
     if (!dddOpen) {
       setDddSearch("");
-      if (dddSearchTimer.current) window.clearTimeout(dddSearchTimer.current);
       return;
     }
     const incremental=(event:KeyboardEvent)=>{
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (/^\d$/.test(event.key)) {
         event.preventDefault();
-        setDddSearch((current)=>{
-          const next=(current+event.key).slice(-2);
-          if (dddSearchTimer.current) window.clearTimeout(dddSearchTimer.current);
-          dddSearchTimer.current=window.setTimeout(()=>setDddSearch(""),1200);
-          return next;
-        });
+        setDddSearch((current)=>(current+event.key).slice(-2));
       } else if (event.key==="Backspace" && dddSearch) {
         event.preventDefault();
         setDddSearch((current)=>current.slice(0,-1));

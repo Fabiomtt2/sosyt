@@ -125,6 +125,21 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Dashboard Owner deve mostrar total e origem.
 - Compra pode conceder passe extra conforme regra vigente; moedas promocionais/recompensas não geram passe.
 - Débitos e créditos são persistidos em ledger e devem ser idempotentes.
+- **Premissa fixa:** o sistema de moedas virtuais, compra de pacotes, passes, carteira e ledger permanece parte central do produto. Integrações financeiras não substituem nem recalculam esse motor; apenas processam o pagamento externo que pode gerar créditos/passes conforme a regra vigente.
+
+### 8.1 Pagamentos e provedores Pix
+
+- O Owner escolhe **um provedor ativo para novas compras**: Mercado Pago, Asaas, PagBank ou Desativado.
+- Trocar o provedor não altera transações antigas. Cada pagamento conserva `provider` e `provider_payment_id` originais e continua sendo conciliado pelo adaptador que o criou.
+- Credenciais são salvas server-side em `integration_settings` e cifradas com AES-256-GCM; o navegador recebe somente indicadores configurado/não configurado.
+- `Produção` × `Teste/Sandbox` refere-se **à conta/credenciais do provedor**, não ao estado do backend SOS YouTuber. O backend já pode estar online enquanto um provedor financeiro usa sandbox.
+- Mercado Pago: Pix por Checkout API + confirmação assinada.
+- Asaas: cobrança Pix + QR dinâmico; ao salvar credenciais completas o servidor tenta criar/atualizar o webhook de pagamentos automaticamente.
+- PagBank: pedido Pix + URL de notificação; webhook é validado por assinatura sobre o corpo original antes de conciliar.
+- Webhooks devem ser idempotentes; eventos Asaas/PagBank usam `payment_webhook_events` para evitar dupla aplicação.
+- Receita/Pacotes Pix mensais no Owner contam **qualquer provedor real** aprovado e excluem apenas `DEMO`.
+- Em produção sem provedor ativo/configurado, novas compras reais são recusadas; em desenvolvimento, `PAYMENTS_DEV_MODE` mantém o fluxo DEMO existente.
+- O popup Pix segue a mesma regra premium: blur no fundo, body travado, scroll interno, rodapé de ações preso ao modal e `?` contextual em termos técnicos. Não usar `header` global dentro desse modal.
 
 ## 9. UX Premium ASTRA
 
@@ -136,12 +151,16 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Uma CTA de participação; sem duplicação apelativa.
 - “Voltar para tela de login” usa seta e linguagem neutra.
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
+- **Owner pode ser extremamente leigo.** Texto principal deve responder “o que é / para que serve / está funcionando?”. Termos como token, webhook, API Key, Access Token, assinatura, Git e WIP ficam atrás de ajuda `?` com explicação simples e, quando útil, instrução de onde obter o dado.
+- Todo modal administrativo abre sobre fundo borrado e bloqueia o scroll da página; quem rola é o popup. Essa regra vale para Pix, WhatsApp, participante, ajuda administrativa e gerenciamento de grupo.
+- O seletor de mês no Owner exibe PT-BR (`Outubro de 2026`) mesmo que utilize o `input[type=month]` nativo por baixo. Abas mobile centralizam a aba ativa.
+- “Painel sincronizado com o servidor” significa apenas atualização dos dados exibidos a cada 10 s. “Conferir versão online” consulta a versão servida; não instala, reinicia, atualiza APIs nem faz deploy. Detalhes Git ficam na ajuda `?`.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
-- O seletor internacional de telefone nunca pode expandir/quebrar a página: países ficam em viewport interno com rolagem suave e setas ↑/↓; o DDD brasileiro usa trilho horizontal com ‹/›. O viewport DDD mostra exatamente **5 colunas × 3 linhas (15 DDDs completos)** por página visual, sem cards parcialmente cortados, e as setas avançam aproximadamente uma página inteira. Com o seletor DDD aberto, a digitação numérica funciona como busca incremental invisível (`7` → DDDs 7x; `71` → DDD 71), sem campo de busca extra. Ambos fecham com `Esc`; o E2E deve falhar se DDI/DDD criarem overflow horizontal no documento.
+- O seletor internacional de telefone nunca pode expandir/quebrar a página: países ficam em viewport interno com rolagem suave e setas ↑/↓; o DDD brasileiro usa trilho horizontal com ‹/›. O viewport DDD mostra exatamente **5 colunas × 3 linhas (15 DDDs completos)** por página visual, sem cards parcialmente cortados, e as setas avançam aproximadamente uma página inteira. Com o seletor DDD aberto, a digitação numérica funciona como busca incremental invisível (`7` → DDDs 7x; `71` → DDD 71), sem campo de busca extra. **A busca digitada permanece aplicada enquanto o popover estiver aberto**; não existe mais timer que apaga `71` após 1,2 s. O E2E espera 1,6 s e exige que DDD 71 continue filtrado. Ambos fecham com `Esc`; o E2E deve falhar se DDI/DDD criarem overflow horizontal no documento.
 - O modal `Configurar integração` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. O título do modal não pode usar a tag global `header` nem herdar a barra navy do app; `.astra-modal-title` deve permanecer transparente e com altura natural. O E2E valida o modal também em 1366×768 para impedir sobreposição/overflow. O botão que abre a integração permanece **vermelho ASTRA**, independentemente do modo. Meta Oficial usa azul; Meta + Grupos usa gradiente vaporwave azul/roxo/magenta e mostra Meta + YouTube em metades geométricas 50/50 sem recorte; Evolution Gateway usa navy/índigo próprio; Desativado usa cinza. A composição principal usa superfícies brancas/creme e separadores suaves; os cards-resumo de estado também permanecem brancos, com acento lateral vermelho ASTRA, nunca blocos vermelhos agressivos. `apps/client/src/integration.css`, carregado após `styles.css`, é a skin canônica desta integração e deve impedir que CSS legado volte a dominar o modal. Termos técnicos, campos Meta + Grupos e campos Evolution devem ter ajuda `?` em linguagem leiga.
-- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
+- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. A área do bot separa **Modo escolhido**, **Chave de acesso** e **Envio automático**. O envio mostra `FUNCIONANDO` somente quando `whatsapp.configured` estiver verdadeiro; caso contrário mostra `PARADO`. Não usar “token/API” como texto principal para Owner leigo; o termo técnico fica na ajuda `?`.
 - Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
-- `Grupos e acesso` cobre virtualmente todos os grupos `1–999` em páginas de carrossel, sem renderizar 999 cards ao mesmo tempo. Grupo ainda não persistido aparece como `Disponível` e o próprio card pode ativá-lo no servidor. Há navegação anterior/próxima e salto direto para um número. `Autorização manual excepcional` reutiliza o mesmo seletor internacional de WhatsApp do login e um seletor visual de grupo 1–999; ao autorizar, ativa o grupo escolhido se necessário e grava data/Owner responsável. Os controles `Nome` e `WhatsApp` devem compartilhar o mesmo topo e altura visual de 50 px no desktop; isso é protegido por E2E.
+- `Grupos e acesso` cobre virtualmente todos os grupos `1–999` em páginas de carrossel, sem renderizar 999 cards ao mesmo tempo. O painel **não pode chamar um grupo de “ativo” como sinônimo de existir no WhatsApp**. Cada grupo separa: `Habilitado no SOS` (acesso interno), vínculo externo confirmado, provedor de verificação, última prova/sincronização e link de entrada opcional. `whatsapp_group_id` é somente leitura e só vem de integração/prova externa. O Owner pode salvar/remover `join_url`; salvar apenas um link em grupo ainda inexistente não o habilita automaticamente. Há navegação anterior/próxima e salto direto para um número. `Autorização manual excepcional` reutiliza o mesmo seletor internacional de WhatsApp do login e um seletor visual de grupo 1–999; ao autorizar, habilita o grupo escolhido se necessário e grava data/Owner responsável. Os controles `Nome` e `WhatsApp` devem compartilhar o mesmo topo e altura visual de 50 px no desktop; isso é protegido por E2E.
 
 ## 10. Gate obrigatório
 
@@ -170,7 +189,7 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Cooldown de 30 minutos aplicado no servidor.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
-- Gate mais recente da recuperação local em 06/10/2026: 65/65 API, 9/9 cliente, TypeScript/API + React/PWA verdes e E2E Playwright 1/1 no próprio Inspiron. O E2E prova também que buscar `Brasil` no seletor DDI retorna somente Brasil e que alternar Meta + Grupos ↔ Evolution atualiza contexto/status imediatamente sem resíduos Meta.
+- Gate mais recente da branch `sol/owner-control-plane-20261006`: **67/67 API, 9/9 cliente, lint/TypeScript verdes, build API + React/PWA verde e Playwright E2E 1/1** no próprio Inspiron. O E2E cobre DDI por nome, DDD `71` persistindo por >1,2 s, Meta + Grupos ↔ Evolution sem resíduos, popup Pix desktop/mobile com blur/body-lock/scroll interno/`?`, mês PT-BR, aba Owner mobile visível e modal de grupo separando habilitação de prova externa.
 - O launcher Xubuntu canônico é `scripts/launch-xubuntu.sh`: inicia os serviços quando necessário, abre URL com cache-bust e prefere Firefox explicitamente, usando `xdg-open` somente como fallback. O atalho local deve ser apenas um wrapper para esse script versionado.
 
 ## 12. Pendências conscientes
@@ -182,15 +201,15 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Preview frontend público deve usar o repositório `Fabiomtt2/sosyt` e GitHub Pages em `https://fabiomtt2.github.io/sosyt/`; `VITE_PUBLIC_BASE=/sosyt/` é obrigatório no build Pages.
 - A build pública nunca pode cair no `localhost:3333` do visitante. O backend Railway já existe; qualquer build (incluindo Pages) que não receba `VITE_API_URL` público deve apenas informar que **essa publicação** ainda não está conectada ao servidor, sem tentar localhost.
 - Backend HTTPS já foi publicado no Railway em `https://sos-youtuber-api-production.up.railway.app`, com volume persistente para SQLite e healthcheck `/health`. O frontend full-stack alternativo está em `https://sos-youtuber-web-production.up.railway.app`. Ambos ainda devem acompanhar o novo HEAD canônico após o merge desta rodada. GitHub Pages continua sendo apenas frontend estático/PWA.
-- Validar Google/YouTube e Mercado Pago reais antes de produção.
+- Validar Google/YouTube e **cada provedor financeiro escolhido com credenciais reais** antes de declarar produção financeira: Mercado Pago, Asaas ou PagBank. Adaptadores/server-side e testes controlados existem; não afirmar movimentação real sem teste da conta correspondente.
 - Políticas de privacidade, termos, retenção/exclusão, backup/restore e observabilidade.
 
 ## 13. Infraestrutura e recuperação — 06/10/2026
 
-- Git local canônico no Inspiron: `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. A recuperação desta rodada parte de `main @ 45ce984` limpo e usa branch isolada `sol/whatsapp-modes-evolution-20261006-recovered`.
+- Git local canônico no Inspiron: `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. O checkpoint anterior foi convergido em `main @ 02f3e4b`. A rodada atual usa branch isolada `sol/owner-control-plane-20261006` e só deve chegar a `main` após gate + revisão visual.
 - GitHub canônico: `Fabiomtt2/sosyt`. O GitHub App do ChatGPT pode continuar somente-leitura/403; no Xubuntu, `gh` está autenticado como `Fabiomtt2` com escopos `repo` e `workflow`, portanto push/checks/merge devem preferir essa rota quando necessário.
 - Desktop Commander secundário está operacional no Inspiron e deve ser a rota local preferida enquanto estiver online; não depender da conta antiga sem cota.
-- Railway: projeto `SOS YouTuber`, API `sos-youtuber-api-production.up.railway.app`, frontend `sos-youtuber-web-production.up.railway.app`, SQLite persistente em volume. Os serviços foram inicialmente presos a `45ce984` e precisam ser repontados ao novo HEAD após o merge.
+- Railway: projeto `SOS YouTuber`, API `sos-youtuber-api-production.up.railway.app`, frontend `sos-youtuber-web-production.up.railway.app`, SQLite persistente em volume. Os serviços já foram repontados ao checkpoint anterior `02f3e4b`; após merge desta rodada devem ser repontados novamente ao novo HEAD canônico.
 - Recuperação Vercel independente: sandbox persistente `sosyt-sol-20261006`, snapshot `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs`. O checkpoint Sandbox mais completo era `6b29eb6`; `951bf7b`/`0dccc7d` foram intermediários. Nenhum desses hashes foi publicado no GitHub; a recuperação local atual os supersede e deve ser a fonte para o novo commit canônico.
 - Não criar infraestrutura paga para contornar conectores quando houver rota local/gratuita disponível.
 

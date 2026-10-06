@@ -1,4 +1,5 @@
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -7,11 +8,11 @@ import helmet from "@fastify/helmet";
 import { z } from "zod";
 import { registerOwnerRoutes, hasMembership } from "./owner.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured } from "./whatsapp.js";
-import { effectiveWhatsAppConfig } from "./integrations.js";
+import { effectivePaymentConfig, effectiveWhatsAppConfig } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
-import { createPixPayment, fetchMercadoPagoPayment, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
+import { createPixPayment, fetchPagBankWebhookPublicKey, fetchProviderPayment, verifyAsaasWebhookToken, verifyPagBankWebhookSignature, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
 import {
   createPrivatePlaylist,
   decryptToken,
@@ -21,6 +22,9 @@ import {
   verifyYouTubeVideo
 } from "./youtube.js";
 
+declare module "fastify" {
+  interface FastifyRequest { paymentRawBody?: Buffer }
+}
 declare module "@fastify/jwt" {
   interface FastifyJWT {
     payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string };
@@ -453,15 +457,20 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const user = getUser(db, request.user.sub)!;
     const paymentId = randomUUID();
     const now = new Date().toISOString();
+    const paymentConfig = effectivePaymentConfig(db,config);
+    const provider = paymentConfig.provider === "DISABLED" && config.PAYMENTS_DEV_MODE && config.NODE_ENV !== "production" ? "DEMO" : paymentConfig.provider;
+    if (provider === "DISABLED") return reply.code(409).send({ message:"O Owner ainda não configurou um provedor Pix ativo." });
     db.prepare(`INSERT INTO payments (id, user_id, provider, status, amount_cents, credits_millis, extra_passes, created_at)
       VALUES (?, ?, ?, 'PENDING', 2000, 20000, 1, ?)`)
-      .run(paymentId, request.user.sub, config.MERCADO_PAGO_ACCESS_TOKEN ? "MERCADO_PAGO" : "DEMO", now);
+      .run(paymentId, request.user.sub, provider, now);
     try {
-      const pix = await createPixPayment(config, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name) });
+      const pix = provider === "DEMO"
+        ? { providerPaymentId:`demo_${paymentId}`, status:"PENDING" as const }
+        : await createPixPayment(paymentConfig, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name) });
       db.prepare(`UPDATE payments SET provider_payment_id = ?, status = ?, qr_code = ?, qr_code_base64 = ?, ticket_url = ? WHERE id = ?`)
         .run(pix.providerPaymentId, pix.status === "APPROVED" ? "PENDING" : pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
       if (pix.status === "APPROVED") settlePayment(db, paymentId);
-      return reply.code(201).send({ id: paymentId, ...pix });
+      return reply.code(201).send({ id: paymentId, ...pix, provider });
     } catch (error) {
       db.prepare("UPDATE payments SET status = 'REJECTED' WHERE id = ?").run(paymentId);
       throw error;
@@ -477,8 +486,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return { ok: true };
   });
 
-  function applyPaymentConfirmation(result: PaymentConfirmation) {
-    const local = db.prepare("SELECT id, user_id, amount_cents, status, approved_at FROM payments WHERE provider = 'MERCADO_PAGO' AND provider_payment_id = ?").get(result.providerPaymentId) as {
+  function applyPaymentConfirmation(provider: string, result: PaymentConfirmation) {
+    const local = db.prepare("SELECT id, user_id, amount_cents, status, approved_at FROM payments WHERE provider = ? AND provider_payment_id = ?").get(provider,result.providerPaymentId) as {
       id: string; user_id: string; amount_cents: number; status: string; approved_at?: string;
     } | undefined;
     if (!local) return;
@@ -488,7 +497,6 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (result.status === "APPROVED") {
       settlePayment(db, local.id);
     } else if (result.status === "CANCELLED" && local.approved_at) {
-      // Spent credits require manual reconciliation; freeze further spending instead of silently creating debt.
       db.transaction(() => {
         db.prepare("UPDATE payments SET status = 'CANCELLED' WHERE id = ?").run(local.id);
         db.prepare("UPDATE wallets SET payment_hold = 1 WHERE user_id = ?").run(local.user_id);
@@ -503,31 +511,84 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const id = z.string().uuid().parse((request.params as { id: string }).id);
     const payment = db.prepare("SELECT provider, provider_payment_id, status FROM payments WHERE id = ? AND user_id = ?").get(id, request.user.sub) as { provider: string; provider_payment_id: string; status: string } | undefined;
     if (!payment) return reply.code(404).send({ message: "Pagamento não encontrado." });
-    if (payment.provider === "MERCADO_PAGO" && payment.provider_payment_id && payment.status === "PENDING") {
-      const confirmation = await fetchMercadoPagoPayment(config, payment.provider_payment_id);
+    if (payment.provider !== "DEMO" && payment.provider_payment_id && payment.status === "PENDING") {
+      const confirmation = await fetchProviderPayment(effectivePaymentConfig(db,config),payment.provider,payment.provider_payment_id);
       if (confirmation.providerPaymentId !== payment.provider_payment_id) return reply.code(409).send({ message: "Identificador do pagamento divergente." });
-      applyPaymentConfirmation(confirmation);
+      applyPaymentConfirmation(payment.provider,confirmation);
     }
     const updated = db.prepare("SELECT status FROM payments WHERE id = ?").get(id) as { status: string };
     return { id, status: updated.status };
   });
 
   app.post("/payments/webhooks/mercado-pago", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
-    if (!config.MERCADO_PAGO_ACCESS_TOKEN || !config.MERCADO_PAGO_WEBHOOK_SECRET) return reply.code(503).send({ message: "Webhook de pagamento não configurado." });
+    const paymentConfig=effectivePaymentConfig(db,config);
+    if (!paymentConfig.mercadoPagoAccessToken || !paymentConfig.mercadoPagoWebhookSecret) return reply.code(503).send({ message: "Webhook Mercado Pago não configurado." });
     const query = z.object({ "data.id": z.string().regex(/^\d{1,30}$/) }).safeParse(request.query);
     if (!query.success) return reply.code(400).send({ message: "Notificação sem identificador assinado." });
     const providerId = query.data["data.id"];
     const bodyId = (request.body as { data?: { id?: string | number } } | undefined)?.data?.id;
     if (bodyId !== undefined && String(bodyId) !== providerId) return reply.code(400).send({ message: "Identificador da notificação divergente." });
-    if (!verifyWebhookSignature(config.MERCADO_PAGO_WEBHOOK_SECRET, providerId, request.headers["x-request-id"] as string | undefined, request.headers["x-signature"] as string | undefined)) {
+    if (!verifyWebhookSignature(paymentConfig.mercadoPagoWebhookSecret, providerId, request.headers["x-request-id"] as string | undefined, request.headers["x-signature"] as string | undefined)) {
       return reply.code(401).send({ message: "Assinatura de notificação inválida." });
     }
     const known = db.prepare("SELECT 1 FROM payments WHERE provider = 'MERCADO_PAGO' AND provider_payment_id = ?").get(providerId);
     if (!known) return { ok: true };
-    const confirmation = await fetchMercadoPagoPayment(config, providerId);
+    const confirmation = await fetchProviderPayment(paymentConfig,"MERCADO_PAGO",providerId);
     if (confirmation.providerPaymentId !== providerId) return reply.code(409).send({ message: "Identificador do pagamento divergente." });
-    applyPaymentConfirmation(confirmation);
+    applyPaymentConfirmation("MERCADO_PAGO",confirmation);
     return { ok: true };
+  });
+
+  app.post("/payments/webhooks/asaas", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const paymentConfig=effectivePaymentConfig(db,config);
+    if (!paymentConfig.asaasApiKey || !paymentConfig.asaasWebhookToken) return reply.code(503).send({ message:"Webhook Asaas não configurado." });
+    const token=request.headers["asaas-access-token"] as string | undefined;
+    if (!verifyAsaasWebhookToken(paymentConfig.asaasWebhookToken,token)) return reply.code(401).send({ message:"Token de webhook Asaas inválido." });
+    const payload=request.body as { id?:string; event?:string; payment?:{ id?:string } };
+    if (!payload?.id || !payload.payment?.id) return reply.code(400).send({ message:"Notificação Asaas incompleta." });
+    const recorded=db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('ASAAS',?,?)").run(payload.id,new Date().toISOString());
+    if (!recorded.changes) return { ok:true,duplicate:true };
+    const providerId=payload.payment.id;
+    const known=db.prepare("SELECT 1 FROM payments WHERE provider='ASAAS' AND provider_payment_id=?").get(providerId);
+    if (!known) return { ok:true };
+    const confirmation=await fetchProviderPayment(paymentConfig,"ASAAS",providerId);
+    if (confirmation.providerPaymentId!==providerId) return reply.code(409).send({ message:"Identificador do pagamento divergente." });
+    applyPaymentConfirmation("ASAAS",confirmation);
+    return { ok:true };
+  });
+
+  app.post("/payments/webhooks/pagbank", {
+    bodyLimit:65536,
+    config:{ rateLimit:{ max:120,timeWindow:"1 minute" } },
+    preParsing:async (request,_reply,payload)=>{
+      const chunks:Buffer[]=[]; let length=0;
+      for await (const chunk of payload) {
+        const buffer=Buffer.from(chunk); length+=buffer.length;
+        if (length>65536) throw Object.assign(new Error("Payload too large"),{statusCode:413});
+        chunks.push(buffer);
+      }
+      request.paymentRawBody=Buffer.concat(chunks);
+      return Readable.from([request.paymentRawBody]);
+    }
+  }, async (request,reply)=>{
+    const paymentConfig=effectivePaymentConfig(db,config);
+    if (!paymentConfig.pagBankToken) return reply.code(503).send({ message:"Webhook PagBank não configurado." });
+    const raw=request.paymentRawBody;
+    if (!raw?.length) return reply.code(400).send({ message:"Notificação PagBank sem corpo original." });
+    const publicKey=await fetchPagBankWebhookPublicKey(paymentConfig);
+    const signature=request.headers["x-payload-signature"] as string | string[] | undefined;
+    if (!verifyPagBankWebhookSignature(raw,signature,publicKey)) return reply.code(401).send({ message:"Assinatura PagBank inválida." });
+    const eventId=createHash("sha256").update(raw).digest("hex");
+    const recorded=db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('PAGBANK',?,?)").run(eventId,new Date().toISOString());
+    if (!recorded.changes) return { ok:true,duplicate:true };
+    const payload=request.body as { id?:string };
+    if (!payload?.id) return reply.code(400).send({ message:"Notificação PagBank sem identificador do pedido." });
+    const known=db.prepare("SELECT 1 FROM payments WHERE provider='PAGBANK' AND provider_payment_id=?").get(payload.id);
+    if (!known) return { ok:true };
+    const confirmation=await fetchProviderPayment(paymentConfig,"PAGBANK",payload.id);
+    if (confirmation.providerPaymentId!==payload.id) return reply.code(409).send({ message:"Identificador do pagamento divergente." });
+    applyPaymentConfirmation("PAGBANK",confirmation);
+    return { ok:true };
   });
 
   app.get("/youtube/connect", { preHandler: authGuard }, async (request) => {

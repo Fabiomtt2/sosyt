@@ -170,6 +170,104 @@ export function effectiveWhatsAppConfig(db: AppDatabase, config: Config): Config
   };
 }
 
+export const paymentProviderSchema = z.enum(["MERCADO_PAGO","ASAAS","PAGBANK","DISABLED"]);
+export const paymentEnvironmentSchema = z.enum(["SANDBOX","PRODUCTION"]);
+export type PaymentProvider = z.infer<typeof paymentProviderSchema>;
+export type PaymentEnvironment = z.infer<typeof paymentEnvironmentSchema>;
+
+const paymentSettingsSchema = z.object({
+  provider: paymentProviderSchema,
+  environment: paymentEnvironmentSchema,
+  mercadoPagoAccessToken: z.string().trim().min(8).max(4096).optional(),
+  mercadoPagoWebhookSecret: z.string().trim().min(8).max(4096).optional(),
+  asaasApiKey: z.string().trim().min(8).max(4096).optional(),
+  asaasWebhookToken: z.string().trim().min(32).max(255).optional(),
+  pagBankToken: z.string().trim().min(8).max(4096).optional()
+});
+
+const paymentKeys = {
+  provider:"payments.provider",
+  environment:"payments.environment",
+  mercadoPagoAccessToken:"payments.mercado_pago.access_token",
+  mercadoPagoWebhookSecret:"payments.mercado_pago.webhook_secret",
+  asaasApiKey:"payments.asaas.api_key",
+  asaasWebhookToken:"payments.asaas.webhook_token",
+  pagBankToken:"payments.pagbank.token"
+} as const;
+
+export type PaymentRuntimeConfig = {
+  provider: PaymentProvider;
+  environment: PaymentEnvironment;
+  mercadoPagoAccessToken?: string;
+  mercadoPagoWebhookSecret?: string;
+  asaasApiKey?: string;
+  asaasWebhookToken?: string;
+  pagBankToken?: string;
+  apiBaseUrl: string;
+  apiPublicUrl: string;
+};
+
+export function readPaymentIntegration(db: AppDatabase, config: Config) {
+  const fallbackProvider: PaymentProvider = config.MERCADO_PAGO_ACCESS_TOKEN ? "MERCADO_PAGO" : "DISABLED";
+  const provider=paymentProviderSchema.catch(fallbackProvider).parse(get(db,paymentKeys.provider) ?? fallbackProvider);
+  const environment=paymentEnvironmentSchema.catch(config.NODE_ENV==="production" ? "PRODUCTION" : "SANDBOX")
+    .parse(get(db,paymentKeys.environment) ?? (config.NODE_ENV==="production" ? "PRODUCTION" : "SANDBOX"));
+  const mercadoPagoAccessTokenConfigured=configuredSecret(db,config,paymentKeys.mercadoPagoAccessToken,config.MERCADO_PAGO_ACCESS_TOKEN);
+  const mercadoPagoWebhookSecretConfigured=configuredSecret(db,config,paymentKeys.mercadoPagoWebhookSecret,config.MERCADO_PAGO_WEBHOOK_SECRET);
+  const asaasApiKeyConfigured=configuredSecret(db,config,paymentKeys.asaasApiKey,config.ASAAS_API_KEY);
+  const asaasWebhookTokenConfigured=configuredSecret(db,config,paymentKeys.asaasWebhookToken,config.ASAAS_WEBHOOK_TOKEN);
+  const pagBankTokenConfigured=configuredSecret(db,config,paymentKeys.pagBankToken,config.PAGBANK_TOKEN);
+  const ready = provider==="MERCADO_PAGO"
+    ? mercadoPagoAccessTokenConfigured && mercadoPagoWebhookSecretConfigured
+    : provider==="ASAAS"
+      ? asaasApiKeyConfigured && asaasWebhookTokenConfigured
+      : provider==="PAGBANK"
+        ? pagBankTokenConfigured
+        : false;
+  return {
+    provider,environment,ready,
+    mercadoPagoAccessTokenConfigured,mercadoPagoWebhookSecretConfigured,
+    asaasApiKeyConfigured,asaasWebhookTokenConfigured,pagBankTokenConfigured,
+    webhookUrls:{
+      mercadoPago:new URL("/payments/webhooks/mercado-pago",config.API_PUBLIC_URL).toString(),
+      asaas:new URL("/payments/webhooks/asaas",config.API_PUBLIC_URL).toString(),
+      pagBank:new URL("/payments/webhooks/pagbank",config.API_PUBLIC_URL).toString()
+    }
+  };
+}
+
+export function savePaymentIntegration(db: AppDatabase, config: Config, raw: unknown) {
+  const body=paymentSettingsSchema.parse(raw);
+  set(db,paymentKeys.provider,body.provider);
+  set(db,paymentKeys.environment,body.environment);
+  if (body.mercadoPagoAccessToken) set(db,paymentKeys.mercadoPagoAccessToken,seal(config,body.mercadoPagoAccessToken));
+  if (body.mercadoPagoWebhookSecret) set(db,paymentKeys.mercadoPagoWebhookSecret,seal(config,body.mercadoPagoWebhookSecret));
+  if (body.asaasApiKey) set(db,paymentKeys.asaasApiKey,seal(config,body.asaasApiKey));
+  if (body.asaasWebhookToken) set(db,paymentKeys.asaasWebhookToken,seal(config,body.asaasWebhookToken));
+  if (body.pagBankToken) set(db,paymentKeys.pagBankToken,seal(config,body.pagBankToken));
+  return readPaymentIntegration(db,config);
+}
+
+export function effectivePaymentConfig(db: AppDatabase, config: Config): PaymentRuntimeConfig {
+  const state=readPaymentIntegration(db,config);
+  const apiBaseUrl=state.provider==="ASAAS"
+    ? (state.environment==="PRODUCTION" ? "https://api.asaas.com/v3" : "https://api-sandbox.asaas.com/v3")
+    : state.provider==="PAGBANK"
+      ? (state.environment==="PRODUCTION" ? "https://api.pagseguro.com" : "https://sandbox.api.pagseguro.com")
+      : "https://api.mercadopago.com";
+  return {
+    provider:state.provider,
+    environment:state.environment,
+    apiBaseUrl,
+    apiPublicUrl:config.API_PUBLIC_URL,
+    mercadoPagoAccessToken:effectiveSecret(db,config,paymentKeys.mercadoPagoAccessToken,config.MERCADO_PAGO_ACCESS_TOKEN),
+    mercadoPagoWebhookSecret:effectiveSecret(db,config,paymentKeys.mercadoPagoWebhookSecret,config.MERCADO_PAGO_WEBHOOK_SECRET),
+    asaasApiKey:effectiveSecret(db,config,paymentKeys.asaasApiKey,config.ASAAS_API_KEY),
+    asaasWebhookToken:effectiveSecret(db,config,paymentKeys.asaasWebhookToken,config.ASAAS_WEBHOOK_TOKEN),
+    pagBankToken:effectiveSecret(db,config,paymentKeys.pagBankToken,config.PAGBANK_TOKEN)
+  };
+}
+
 export function gitVersionInfo() {
   let sha="unknown", dirty=false;
   try {
