@@ -21,7 +21,7 @@ describe("Owner e acesso por grupo", () => {
   });
   afterEach(async () => { await app.close(); db.close(); });
   const requestCode = (phone = "5571999999001", groupCode = "1") => app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Pessoa", phone, groupCode } });
-  const approve = (phone = "5571999999001", groupCode = "1") => app.inject({ method: "POST", url: "/admin/members", headers: authorization(ownerToken), payload: { phone, groupCode } });
+  const approve = (phone = "5571999999001", groupCode = "1", name = "Pessoa") => app.inject({ method: "POST", url: "/admin/members", headers: authorization(ownerToken), payload: { phone, groupCode, name } });
   async function participant() {
     await approve();
     const login = await app.inject({ method: "POST", url: "/auth/login", payload: { name: "Pessoa", phone: "5571999999001", groupCode: "1" } });
@@ -82,16 +82,109 @@ describe("Owner e acesso por grupo", () => {
     expect((await direct()).statusCode).toBe(200);
     expect((await requestCode()).statusCode).toBe(200);
   });
-  it("solicitação registra pessoa uma vez, gera contato e aprovação libera login", async () => {
+  it("solicitação persiste, bloqueia reenvio por 120 min e aprovação libera o mesmo acompanhamento", async () => {
     const body = { name: "Pessoa Solicitante", phone: "5571999999001", groupCode: "2", consent: true };
     const result = await app.inject({ method: "POST", url: "/participation/request", payload: body });
-    expect(result.statusCode).toBe(200); expect(result.json().whatsappUrl).toContain("https://wa.me/5571999999000");
-    await app.inject({ method: "POST", url: "/participation/request", payload: body });
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toMatchObject({ status:"PENDING", message:"Sua solicitação de cadastro foi registrada e será validada em breve." });
+    expect(result.json().requestToken).toBeTypeOf("string");
+    expect(Date.parse(result.json().blockedUntil)-Date.now()).toBeGreaterThan(119*60_000);
+
+    const duplicate = await app.inject({ method: "POST", url: "/participation/request", payload: body });
+    expect(duplicate.statusCode).toBe(423);
+    expect(duplicate.json()).toMatchObject({ code:"REQUEST_RETRY_BLOCKED", status:"PENDING" });
+    expect(duplicate.json().requestToken).toBeTypeOf("string");
+
     const overview = (await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(ownerToken) })).json();
-    expect(overview.metrics.requestsTotal).toBe(1); expect(overview.metrics.pendingRequests).toBe(1);
+    expect(overview.metrics.requestsTotal).toBe(1);
+    expect(overview.metrics.pendingRequests).toBe(1);
+    expect((db.prepare("SELECT duplicate_attempts AS n FROM participation_requests WHERE phone=?").get("5571999999001") as {n:number}).n).toBe(1);
+
+    const before = await app.inject({ method:"POST", url:"/participation/status", payload:{ token:result.json().requestToken } });
+    expect(before.statusCode).toBe(200);
+    expect(before.json()).toMatchObject({ status:"PENDING", phone:"5571999999001", preferredGroup:"2" });
+
     const decision = await app.inject({ method: "POST", url: `/admin/requests/${overview.requests[0].id}/decision`, headers: authorization(ownerToken), payload: { status: "APPROVED", groupCode: "2" } });
     expect(decision.statusCode).toBe(200);
+    const after = await app.inject({ method:"POST", url:"/participation/status", payload:{ token:result.json().requestToken } });
+    expect(after.statusCode).toBe(200);
+    expect(after.json()).toMatchObject({ status:"APPROVED", approvedGroup:"2" });
     expect((await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Solicitante", phone:"5571999999001", groupCode:"2" } })).statusCode).toBe(200);
+  });
+
+  it("grupo verificado exige aprovação Owner, presença do membro e Owner admin antes de liberar acesso", async () => {
+    const body={ name:"Pessoa Verificada",phone:"5571999999022",groupCode:"1",consent:true };
+    const requestResult=await app.inject({method:"POST",url:"/participation/request",payload:body});
+    expect(requestResult.statusCode).toBe(200);
+    const requestRow=db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(body.phone) as {id:string};
+    const stamp=new Date().toISOString();
+    db.prepare("INSERT INTO whatsapp_group_verifications (provider,group_code,external_group_id,subject,owner_admin_count,verified_at) VALUES ('WPPCONNECT','1','g1','SOS YOUTUBER 1',0,?)").run(stamp);
+    db.prepare("INSERT INTO whatsapp_member_verifications (provider,group_code,phone,external_group_id,verified_at,revoked_at) VALUES ('WPPCONNECT','1',?,'g1',?,NULL)").run(body.phone,stamp);
+
+    const firstDecision=await app.inject({method:"POST",url:`/admin/requests/${requestRow.id}/decision`,headers:authorization(ownerToken),payload:{status:"APPROVED",groupCode:"1"}});
+    expect(firstDecision.statusCode).toBe(200);
+    expect(firstDecision.json()).toMatchObject({accessGranted:false,verification:{required:true,memberVerified:true,ownerAdminVerified:false,accessReady:false}});
+    expect((await app.inject({method:"POST",url:"/auth/login",payload:{name:body.name,phone:body.phone,groupCode:"1"}})).statusCode).toBe(403);
+    const pendingStatus=await app.inject({method:"POST",url:"/participation/status",payload:{token:requestResult.json().requestToken}});
+    expect(pendingStatus.json()).toMatchObject({status:"PENDING",ownerApproved:true,verificationPending:true});
+
+    db.prepare("UPDATE whatsapp_group_verifications SET owner_admin_count=1,verified_at=? WHERE provider='WPPCONNECT' AND group_code='1'").run(new Date().toISOString());
+    const secondDecision=await app.inject({method:"POST",url:`/admin/requests/${requestRow.id}/decision`,headers:authorization(ownerToken),payload:{status:"APPROVED",groupCode:"1"}});
+    expect(secondDecision.json()).toMatchObject({accessGranted:true,verification:{required:true,memberVerified:true,ownerAdminVerified:true,accessReady:true}});
+    expect((await app.inject({method:"POST",url:"/auth/login",payload:{name:body.name,phone:body.phone,groupCode:"1"}})).statusCode).toBe(200);
+  });
+
+  it("número já autorizado não abre nova solicitação de cadastro", async () => {
+    await approve("5571999999001","1","Pessoa");
+    const before=(db.prepare("SELECT COUNT(*) AS n FROM participation_requests").get() as {n:number}).n;
+    const result = await app.inject({ method:"POST", url:"/participation/request", payload:{ name:"Pessoa",phone:"5571999999001",groupCode:"1",consent:true } });
+    expect(result.statusCode).toBe(409);
+    expect(result.json()).toMatchObject({ code:"ALREADY_REGISTERED", alreadyApproved:true, groupCode:"1" });
+    expect(result.json().message).toContain("Esse número já foi registrado");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM participation_requests").get() as {n:number}).n).toBe(before);
+  });
+
+  it("autorização manual excepcional exige nome e registra autoria Owner", async () => {
+    const missing=await app.inject({method:"POST",url:"/admin/members",headers:authorization(ownerToken),payload:{phone:"5571999999011",groupCode:"1"}});
+    expect(missing.statusCode).toBe(400);
+    const approved=await approve("5571999999011","1","Pessoa Manual");
+    expect(approved.statusCode).toBe(200);
+    const row=db.prepare("SELECT status,source,approved_by_owner_name AS ownerName,approved_at AS approvedAt FROM participation_requests WHERE phone=?").get("5571999999011") as {status:string;source:string;ownerName:string;approvedAt:string};
+    expect(row).toMatchObject({status:"APPROVED",source:"OWNER_MANUAL",ownerName:"Fabio0"});
+    expect(Date.parse(row.approvedAt)).toBeGreaterThan(0);
+  });
+
+  it("Owner configura integração sem expor segredos e o token Meta continua explicitamente validável", async () => {
+    const missing = await app.inject({ method:"POST",url:"/admin/integrations/whatsapp/validate",headers:authorization(ownerToken) });
+    expect(missing.statusCode).toBe(409);
+    expect(missing.json().message).toContain("System User Access Token");
+
+    const saved = await app.inject({
+      method:"POST",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken),
+      payload:{ mode:"HYBRID",businessAccountId:"123456789012345",phoneNumberId:"987654321098765",businessPhone:"+5571999990001",graphVersion:"v23.0",accessToken:"test-system-user-access-token-123456789",appSecret:"meta-app-secret-test",wppUrl:"http://127.0.0.1:21465",wppSession:"sos-youtube" }
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ mode:"HYBRID",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:false,wppSession:"sos-youtube" });
+    expect(JSON.stringify(saved.json())).not.toContain("test-system-user-access-token");
+    expect(JSON.stringify(saved.json())).not.toContain("meta-app-secret-test");
+
+    const generated = await app.inject({ method:"POST",url:"/admin/integrations/whatsapp/verify-token",headers:authorization(ownerToken) });
+    expect(generated.statusCode).toBe(200);
+    expect(generated.json().verifyToken).toBeTypeOf("string");
+    expect(generated.json().verifyToken.length).toBeGreaterThan(20);
+
+    const state = await app.inject({ method:"GET",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken) });
+    expect(state.statusCode).toBe(200);
+    expect(state.json()).toMatchObject({ mode:"HYBRID",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:true,officialReady:true });
+    expect(state.json()).not.toHaveProperty("accessToken");
+    expect(state.json()).not.toHaveProperty("appSecret");
+    expect(state.json()).not.toHaveProperty("verifyToken");
+
+    const webhook = await app.inject({ method:"GET",url:`/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(generated.json().verifyToken)}&hub.challenge=12345` });
+    expect(webhook.statusCode).toBe(200);
+    expect(webhook.body).toBe("12345");
+    const overview = await app.inject({ method:"GET",url:"/admin/overview",headers:authorization(ownerToken) });
+    expect(overview.json().whatsapp.configured).toBe(true);
   });
   it("revogação e grupo desativado interrompem sessão existente", async () => {
     const token = await participant();

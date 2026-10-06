@@ -41,6 +41,9 @@ const schema = z.object({
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().default("pt_BR"),
   WHATSAPP_GROUPS_SYNC_ENABLED: booleanString.default(true),
   WHATSAPP_GROUPS_SYNC_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
+  WPP_CONNECT_URL: z.string().url().default("http://127.0.0.1:21465"),
+  WPP_CONNECT_SESSION: z.string().trim().regex(/^[A-Za-z0-9_-]{2,64}$/).default("sos-youtube"),
+  WPP_CONNECT_TOKEN: z.string().optional(),
 
   WEB_APP_URL: z.string().url().default("http://localhost:5173"),
   ANDROID_APP_ORIGIN: z.string().url().default("https://localhost"),
@@ -58,7 +61,7 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {}): Config {
   const values: Record<string, unknown> = { ...process.env, ...overrides };
-  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE"]) {
+  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE", "WPP_CONNECT_TOKEN"]) {
     if (values[key] === "") delete values[key];
   }
   const parsed = schema.parse(values);

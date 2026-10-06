@@ -55,14 +55,50 @@ export type Dashboard = {
 export type Pix = { id: string; providerPaymentId: string; status: string; qrCode?: string; qrCodeBase64?: string; ticketUrl?: string };
 
 
+export type WhatsAppIntegrationState = {
+  mode: "OFFICIAL" | "HYBRID" | "DISABLED";
+  businessAccountId: string;
+  phoneNumberId: string;
+  businessPhone: string;
+  graphVersion: string;
+  accessTokenConfigured: boolean;
+  appSecretConfigured: boolean;
+  verifyTokenConfigured: boolean;
+  tokenValidatedAt?: string;
+  validatedDisplayPhone?: string;
+  wppUrl: string;
+  wppSession: string;
+  wppTokenConfigured: boolean;
+  officialReady: boolean;
+  webhookUrl: string;
+};
+export type OwnerVersion = { appVersion: string; gitSha: string; dirty: boolean };
+export type GroupVerificationState = { required: boolean; accessReady: boolean; memberVerified: boolean; ownerAdminVerified: boolean; provider?: string };
+export type OwnerParticipant = {
+  id: string; userId?: string; name: string; phone: string; groupCode: string; createdAt?: string; lastSeenAt?: string;
+  cooldownUntil?: string; cooldownReason?: string; balanceMillis: number; promoMillis: number; purchasedMillis: number; rewardMillis: number;
+  extraPasses: number; paymentHold: number; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string;
+  revokedAt?: string; source?: string; requestStatus?: string; requestSource?: string;
+};
+export type ParticipantAdminDetail = {
+  profile: { name: string; phone: string; groupCode?: string; userId?: string; createdAt?: string; lastSeenAt?: string; cooldownUntil?: string; cooldownReason?: string };
+  membership?: { phone: string; groupCode: string; approvedAt?: string; revokedAt?: string; source?: string; approvedByOwnerId?: string; approvedByOwnerName?: string };
+  request?: { id: string; name: string; phone: string; preferredGroup?: string; status: string; source?: string; whatsappVerifiedAt?: string; retryBlockUntil?: string; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string; createdAt?: string; updatedAt?: string };
+  wallet?: { promoMillis: number; purchasedMillis: number; rewardMillis: number; extraPasses: number; paymentHold: number; updatedAt?: string };
+  purchases: Array<{ id: string; provider: string; status: string; amountCents: number; creditsMillis: number; extraPasses: number; createdAt: string; approvedAt?: string; providerPaymentId?: string }>;
+  ledger: Array<{ id: string; kind: string; amountMillis: number; referenceId?: string; note?: string; actorOwnerName?: string; createdAt: string }>;
+  activity: { submissions: number; playlists: number };
+  verification?: GroupVerificationState;
+};
 export type OwnerOverview = {
-  whatsapp: { configured: boolean; otpConfigured: boolean; ownerAlertsConfigured: boolean; decisionTemplateConfigured: boolean; groupsSyncEnabled: boolean; groupsLinked: number; automaticMemberships: number; queued: number; failed: number; sent: number; membershipMode: string };
+  whatsapp: { configured: boolean; otpConfigured: boolean; ownerAlertsConfigured: boolean; decisionTemplateConfigured: boolean; groupsSyncEnabled: boolean; groupsLinked: number; automaticMemberships: number; queued: number; failed: number; sent: number; membershipMode: string; integration: WhatsAppIntegrationState };
+  version: OwnerVersion;
   month: string; owner: { name: string; canonicalName?: string; groupCode: string };
   metrics: { registeredUsers: number; activeUsers30d: number; approvedMembers: number; requestsTotal: number; pendingRequests: number; requestsMonth: number; completedCyclesMonth: number; playlistsCreatedMonth: number; approvedPurchasesMonth: number; demoPurchasesMonth: number; revenueCentsMonth: number };
   groups: Array<{ code: string; enabled: number; whatsappGroupId?: string; membershipMode?: string; lastSyncedAt?: string }>;
-  requests: Array<{ id: string; name: string; phone: string; preferredGroup?: string; status: string; source?: string; whatsappVerifiedAt?: string; createdAt: string }>;
-  users: Array<{ id: string; name: string; phone: string; groupCode: string; lastSeenAt?: string; balanceMillis: number; promoMillis: number; purchasedMillis: number; rewardMillis: number; extraPasses: number; paymentHold: number }>;
-  members: Array<{ phone: string; groupCode: string; revokedAt?: string; source?: string }>;
+  requests: Array<{ id: string; name: string; phone: string; preferredGroup?: string; status: string; source?: string; whatsappVerifiedAt?: string; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string; createdAt: string; updatedAt?: string }>;
+  users: OwnerParticipant[];
+  members: Array<{ phone: string; groupCode: string; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string; revokedAt?: string; source?: string }>;
   purchases: Array<{ id: string; name: string; phone: string; provider: string; status: string; amountCents: number; createdAt: string }>;
 };
 function ownerRequest<T>(path: string, options: RequestInit = {}) {
@@ -72,9 +108,21 @@ export const ownerApi = {
   login: (body: { name: string; identifier: string; groupCode: "#"; secret: string }) => request<{ token: string; role: "owner" }>("/admin/login", { method: "POST", body: JSON.stringify(body) }),
   overview: (month: string) => ownerRequest<OwnerOverview>(`/admin/overview?month=${month}`),
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
-  approveMember: (phone: string, groupCode: string) => ownerRequest("/admin/members", { method: "POST", body: JSON.stringify({ phone, groupCode }) }),
+  approveMember: (phone: string, groupCode: string, name?: string) => ownerRequest("/admin/members", { method: "POST", body: JSON.stringify({ phone, groupCode, name }) }),
   retryWhatsApp: () => ownerRequest("/admin/whatsapp/retry", { method: "POST" }),
   syncWhatsAppGroups: () => ownerRequest<{ discovered: number; linked: number; memberships: number }>("/admin/whatsapp/groups/sync", { method: "POST" }),
+  whatsappIntegration: () => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp"),
+  saveWhatsAppIntegration: (body: Partial<{
+    mode: "OFFICIAL" | "HYBRID" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
+    accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string;
+  }>) => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp", { method: "POST", body: JSON.stringify(body) }),
+  generateWhatsAppVerifyToken: () => ownerRequest<{ ok: true; verifyToken: string; state: WhatsAppIntegrationState }>("/admin/integrations/whatsapp/verify-token", { method: "POST" }),
+  validateWhatsApp: () => ownerRequest<{ ok: true; validatedAt: string; phone: { id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string } }>("/admin/integrations/whatsapp/validate", { method: "POST" }),
+  version: () => ownerRequest<OwnerVersion>("/admin/version"),
+  participant: (phone: string) => ownerRequest<ParticipantAdminDetail>(`/admin/participants/${phone}`),
+  updateParticipant: (currentPhone: string, body: { name: string; phone: string; groupCode: string }) => ownerRequest<{ ok: true; phone: string }>(`/admin/participants/${currentPhone}`, { method: "PATCH", body: JSON.stringify(body) }),
+  participantAction: (phone: string, action: "REVOKE" | "RESTORE" | "CLEAR_COOLDOWN" | "REVIEW_ON" | "REVIEW_OFF") => ownerRequest(`/admin/participants/${phone}/action`, { method: "POST", body: JSON.stringify({ action }) }),
+  walletAdjustment: (phone: string, amountCoins: number, reason: string) => ownerRequest(`/admin/participants/${phone}/wallet-adjustment`, { method: "POST", body: JSON.stringify({ amountCoins, reason }) }),
   revoke: (phone: string) => ownerRequest(`/admin/members/${phone}`, { method: "DELETE" }),
   decide: (id: string, status: "APPROVED" | "DECLINED", groupCode?: string) => ownerRequest(`/admin/requests/${id}/decision`, { method: "POST", body: JSON.stringify({ status, groupCode }) }),
   exportUsers: async () => {
@@ -85,7 +133,12 @@ export const ownerApi = {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 };
+export type ParticipationStatus = {
+  id?: string; name?: string; phone?: string; preferredGroup?: string; approvedGroup?: string;
+  status: "PENDING" | "APPROVED" | "DECLINED"; blockedUntil?: string; requestToken: string; message: string;
+};
 export const participationApi = {
   groups: () => request<{ groups: string[]; ownerContactAvailable: boolean; membershipRequired: boolean; whatsappJoinUrl?: string }>("/public/groups"),
-  join: (body: { name: string; phone: string; groupCode?: string; consent: boolean }) => request<{ message: string; whatsappUrl?: string; alreadyApproved?: boolean }>("/participation/request", { method: "POST", body: JSON.stringify(body) })
+  join: (body: { name: string; phone: string; groupCode?: string; consent: boolean }) => request<ParticipationStatus & { ok: true }>("/participation/request", { method: "POST", body: JSON.stringify(body) }),
+  status: (token: string) => request<ParticipationStatus>("/participation/status", { method: "POST", body: JSON.stringify({ token }) })
 };

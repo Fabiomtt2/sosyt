@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { ownerAccounts } from "./owners.js";
+import { effectiveWhatsAppConfig } from "./integrations.js";
+import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
 
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
 type Payload = Record<string, unknown>;
@@ -93,26 +95,8 @@ async function graphJson<T>(config: Config, path: string): Promise<T> {
   return await response.json() as T;
 }
 
-function upsertMetaMembership(db: AppDatabase, config: Config, phone: string, groupCode: string, stamp = now()) {
-  if (!phoneValid(phone)) return;
-  const pending = db.prepare("SELECT id FROM participation_requests WHERE phone=? AND status='PENDING'").get(phone) as { id: string } | undefined;
-  db.prepare(`INSERT INTO group_memberships (phone,group_code,approved_at,revoked_at,source)
-    VALUES (?,?,?,NULL,'META_GROUPS_API')
-    ON CONFLICT(phone) DO UPDATE SET
-      group_code=excluded.group_code,
-      approved_at=excluded.approved_at,
-      revoked_at=NULL,
-      source='META_GROUPS_API'`).run(phone,groupCode,stamp);
-  db.prepare("UPDATE participation_requests SET status='APPROVED',updated_at=? WHERE phone=?").run(stamp,phone);
-  if (pending) queueParticipationDecision(db,config,pending.id,"APPROVED",groupCode);
-}
-
-function revokeMetaMembership(db: AppDatabase, phone: string, groupCode: string, stamp = now()) {
-  db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=? AND group_code=? AND source='META_GROUPS_API' AND revoked_at IS NULL")
-    .run(stamp,phone,groupCode);
-}
-
 export async function syncOfficialWhatsAppGroups(db: AppDatabase, config: Config) {
+  config = effectiveWhatsAppConfig(db,config);
   if (!config.WHATSAPP_GROUPS_SYNC_ENABLED || !config.WHATSAPP_PHONE_NUMBER_ID || !config.WHATSAPP_ACCESS_TOKEN) {
     return { discovered: 0, linked: 0, memberships: 0 };
   }
@@ -133,10 +117,17 @@ export async function syncOfficialWhatsAppGroups(db: AppDatabase, config: Config
           whatsapp_group_id=excluded.whatsapp_group_id,
           membership_mode='META_GROUPS_API',
           last_synced_at=excluded.last_synced_at`).run(code,group.id,stamp);
-      for (const phone of phones) upsertMetaMembership(db,config,phone,code,stamp);
-      const existing = db.prepare("SELECT phone FROM group_memberships WHERE group_code=? AND source='META_GROUPS_API' AND revoked_at IS NULL")
+      recordGroupVerification(db,"META_GROUPS_API",code,group.id,group.subject,0,stamp);
+      for (const phone of phones) {
+        recordMemberVerification(db,"META_GROUPS_API",code,phone,group.id,true,stamp);
+        materializeApprovedMembership(db,phone,code,stamp);
+      }
+      const existing = db.prepare("SELECT phone FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND group_code=? AND revoked_at IS NULL")
         .all(code) as Array<{ phone: string }>;
-      for (const member of existing) if (!phones.has(member.phone)) revokeMetaMembership(db,member.phone,code,stamp);
+      for (const member of existing) if (!phones.has(member.phone)) {
+        recordMemberVerification(db,"META_GROUPS_API",code,member.phone,group.id,false,stamp);
+        db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=? AND group_code=? AND revoked_at IS NULL").run(stamp,member.phone,code);
+      }
     })();
     linked += 1;
     memberships += phones.size;
@@ -159,10 +150,16 @@ function applyGroupParticipantWebhook(db: AppDatabase, config: Config, entryId: 
   const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_group_events (event_key,received_at) VALUES (?,?)").run(eventKey,now());
   if (!fresh.changes) return;
   if (group.type === "group_participants_add") {
-    for (const item of group.added_participants ?? []) if (item.wa_id && phoneValid(item.wa_id)) upsertMetaMembership(db,config,item.wa_id,mapping.code);
+    for (const item of group.added_participants ?? []) if (item.wa_id && phoneValid(item.wa_id)) {
+      recordMemberVerification(db,"META_GROUPS_API",mapping.code,item.wa_id,group.group_id,true);
+      materializeApprovedMembership(db,item.wa_id,mapping.code);
+    }
   }
   if (group.type === "group_participants_remove") {
-    for (const item of group.removed_participants ?? []) if (item.wa_id && phoneValid(item.wa_id)) revokeMetaMembership(db,item.wa_id,mapping.code);
+    for (const item of group.removed_participants ?? []) if (item.wa_id && phoneValid(item.wa_id)) {
+      recordMemberVerification(db,"META_GROUPS_API",mapping.code,item.wa_id,group.group_id,false);
+      db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=? AND group_code=? AND revoked_at IS NULL").run(now(),item.wa_id,mapping.code);
+    }
   }
 }
 
@@ -193,6 +190,7 @@ export function queueWhatsAppOtp(db: AppDatabase, config: Config, phone: string,
   return true;
 }
 export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit = 10) {
+  config = effectiveWhatsAppConfig(db,config);
   if (!whatsappConfigured(config)) return;
   for (let index = 0; index < limit; index++) {
     const job = db.transaction(() => {
@@ -215,9 +213,10 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
   }
 }
 export function whatsappStatus(db: AppDatabase, config: Config) {
+  config = effectiveWhatsAppConfig(db,config);
   const count = (status: string) => (db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE status=?").get(status) as { n: number }).n;
   const groupsLinked = (db.prepare("SELECT COUNT(*) AS n FROM groups WHERE whatsapp_group_id IS NOT NULL AND membership_mode='META_GROUPS_API'").get() as { n: number }).n;
-  const automaticMemberships = (db.prepare("SELECT COUNT(*) AS n FROM group_memberships WHERE source='META_GROUPS_API' AND revoked_at IS NULL").get() as { n: number }).n;
+  const automaticMemberships = (db.prepare("SELECT COUNT(*) AS n FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND revoked_at IS NULL").get() as { n: number }).n;
   return {
     configured: whatsappConfigured(config),
     otpConfigured: Boolean(config.WHATSAPP_OTP_TEMPLATE),
@@ -234,9 +233,10 @@ export function whatsappStatus(db: AppDatabase, config: Config) {
 }
 export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDatabase, config: Config, ownerGuard: (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>) {
   app.get("/webhooks/whatsapp", async (request,reply) => {
+    const runtimeConfig = effectiveWhatsAppConfig(db,config);
     const query = request.query as Record<string,string>;
-    if (!config.WHATSAPP_VERIFY_TOKEN) return reply.code(503).send({ message: "WhatsApp ainda não configurado." });
-    if (query["hub.mode"] !== "subscribe" || !equal(query["hub.verify_token"] ?? "",config.WHATSAPP_VERIFY_TOKEN) || !/^\d{1,128}$/.test(query["hub.challenge"] ?? "")) return reply.code(403).send({ message: "Verificação inválida." });
+    if (!runtimeConfig.WHATSAPP_VERIFY_TOKEN) return reply.code(503).send({ message: "WhatsApp ainda não configurado." });
+    if (query["hub.mode"] !== "subscribe" || !equal(query["hub.verify_token"] ?? "",runtimeConfig.WHATSAPP_VERIFY_TOKEN) || !/^\d{1,128}$/.test(query["hub.challenge"] ?? "")) return reply.code(403).send({ message: "Verificação inválida." });
     return reply.type("text/plain").send(query["hub.challenge"]);
   });
   app.post("/webhooks/whatsapp", { bodyLimit: 65536, preParsing: async (request,_reply,payload) => {
@@ -244,9 +244,10 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     for await (const chunk of payload) { const buffer = Buffer.from(chunk); length += buffer.length; if (length>65536) throw Object.assign(new Error("Payload too large"),{statusCode:413}); chunks.push(buffer); }
     request.whatsappRawBody = Buffer.concat(chunks); return Readable.from([request.whatsappRawBody]);
   } }, async (request,reply) => {
-    if (!whatsappConfigured(config)) return reply.code(503).send({ message: "WhatsApp ainda não configurado." });
+    const runtimeConfig = effectiveWhatsAppConfig(db,config);
+    if (!whatsappConfigured(runtimeConfig)) return reply.code(503).send({ message: "WhatsApp ainda não configurado." });
     const signature = request.headers["x-hub-signature-256"];
-    const expected = createHmac("sha256",config.WHATSAPP_APP_SECRET!).update(request.whatsappRawBody!).digest("hex");
+    const expected = createHmac("sha256",runtimeConfig.WHATSAPP_APP_SECRET!).update(request.whatsappRawBody!).digest("hex");
     if (typeof signature !== "string" || !/^sha256=[a-f0-9]{64}$/.test(signature) || !timingSafeEqual(Buffer.from(signature.slice(7),"hex"),Buffer.from(expected,"hex"))) return reply.code(401).send({ message: "Assinatura inválida." });
     const body = z.object({ object: z.literal("whatsapp_business_account"), entry: z.array(z.object({ id: z.string().optional(), changes: z.array(z.object({ field: z.string().optional(), value: z.object({
       metadata: z.object({phone_number_id:z.string().optional()}).optional(),
@@ -261,11 +262,11 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     }).optional() })).optional() })) }).parse(request.body);
     db.transaction(() => {
       for (const entry of body.entry!) {
-        if (config.WHATSAPP_BUSINESS_ACCOUNT_ID && entry.id !== config.WHATSAPP_BUSINESS_ACCOUNT_ID) continue;
+        if (runtimeConfig.WHATSAPP_BUSINESS_ACCOUNT_ID && entry.id !== runtimeConfig.WHATSAPP_BUSINESS_ACCOUNT_ID) continue;
         for (const change of entry.changes ?? []) {
-          if (!change.value || change.value.metadata?.phone_number_id !== config.WHATSAPP_PHONE_NUMBER_ID) continue;
+          if (!change.value || change.value.metadata?.phone_number_id !== runtimeConfig.WHATSAPP_PHONE_NUMBER_ID) continue;
           if (change.field === "group_participants_update") {
-            for (const group of change.value.groups ?? []) applyGroupParticipantWebhook(db,config,entry.id,group);
+            for (const group of change.value.groups ?? []) applyGroupParticipantWebhook(db,runtimeConfig,entry.id,group);
             continue;
           }
           if (change.field !== "messages") continue;
@@ -282,14 +283,38 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
               queue(db,msg.from,{type:"text",text:{body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e depende da validação do número no grupo informado.`}},`${msg.id}:welcome`,expires);
               queue(db,msg.from,{type:"text",text:{body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires);
             } else if (conversation?.stage === "WAITING_NAME" && text.length>=2 && text.length<=80 && !/[\r\n]/.test(text) && !/https?:\/\//i.test(text)) {
-              if (!db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from)) {
-                db.prepare("INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,created_at,updated_at) VALUES (?,?,?,'PENDING','WHATSAPP',?,?,?) ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='PENDING',source='WHATSAPP',whatsapp_verified_at=excluded.whatsapp_verified_at,updated_at=excluded.updated_at").run(randomUUID(),msg.from,text,now(),now(),now());
-                const row = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(msg.from) as { id: string };
-                queueOwnerAlerts(db,config,row.id,msg.from,text,msg.id);
+              const hasActiveMembership = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
+              let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
+              if (!hasActiveMembership) {
+                const existing = db.prepare("SELECT id,status,retry_block_until AS retryBlockUntil FROM participation_requests WHERE phone=?").get(msg.from) as
+                  | { id: string; status: "PENDING" | "APPROVED" | "DECLINED"; retryBlockUntil?: string }
+                  | undefined;
+                const stamp = now(), blockActive = Boolean(existing?.retryBlockUntil && Date.parse(existing.retryBlockUntil) > Date.now());
+                if (existing?.status === "PENDING") {
+                  db.prepare("UPDATE participation_requests SET name=?,source='WHATSAPP',whatsapp_verified_at=?,updated_at=? WHERE id=?")
+                    .run(text,stamp,stamp,existing.id);
+                  responseBody = `Olá, ${text}! Seu pedido já está registrado e continua aguardando análise. Não é necessário enviar outro cadastro. 📨`;
+                } else if ((existing?.status === "DECLINED" || existing?.status === "APPROVED") && blockActive) {
+                  db.prepare("UPDATE participation_requests SET source='WHATSAPP',whatsapp_verified_at=?,updated_at=? WHERE id=?")
+                    .run(stamp,stamp,existing.id);
+                  responseBody = `Olá, ${text}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
+                } else {
+                  const blockedUntil = new Date(Date.now()+120*60_000).toISOString();
+                  const id = existing?.id ?? randomUUID();
+                  db.prepare(`INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,retry_block_until,duplicate_attempts,created_at,updated_at)
+                    VALUES (?,?,?,'PENDING','WHATSAPP',?,?,0,?,?)
+                    ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='PENDING',source='WHATSAPP',
+                      whatsapp_verified_at=excluded.whatsapp_verified_at,retry_block_until=excluded.retry_block_until,
+                      duplicate_attempts=0,updated_at=excluded.updated_at`)
+                    .run(id,msg.from,text,stamp,blockedUntil,stamp,stamp);
+                  queueOwnerAlerts(db,runtimeConfig,id,msg.from,text,msg.id);
+                }
+              } else {
+                responseBody = `Olá, ${text}! Este número já está registrado em um grupo SOS YOUTUBER. Use o acesso normal do aplicativo com o grupo autorizado.`;
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
-              queue(db,msg.from,{type:"text",text:{body:`Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`}},`${msg.id}:received`,expires);
-              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em ciclos de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome, WhatsApp e grupo SOS YOUTUBER. Não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
+              queue(db,msg.from,{type:"text",text:{body:responseBody}},`${msg.id}:received`,expires);
+              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome, WhatsApp e grupo SOS YOUTUBER. Não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
             }
           }
         }
@@ -321,7 +346,7 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     },5_000);
     timer.unref();
 
-    if (config.WHATSAPP_GROUPS_SYNC_ENABLED && config.WHATSAPP_ACCESS_TOKEN && config.WHATSAPP_PHONE_NUMBER_ID) {
+    if (config.WHATSAPP_GROUPS_SYNC_ENABLED) {
       const sync = () => {
         if (groupsBusy) return;
         groupsBusy=true;

@@ -1,6 +1,6 @@
 # Estado verificável — YouTube Final
 
-Data de consolidação: 05/10/2026.
+Data de consolidação: 06/10/2026.
 
 ## Linhagem e auditoria
 
@@ -37,26 +37,26 @@ A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/cont
 
 ## WhatsApp
 
-Fluxo desejado/implementado no motor: `Quero participar` → tela de dados → pendência no dashboard → continuidade pelo WhatsApp → bot pergunta “Como gostaria de ser chamado?” → decisão Owner/sincronização de grupo → participante entra diretamente quando telefone + grupo constam em `group_memberships`. OTP não é requisito do login principal.
+Fluxo atual: `Quero participar` → tela de dados → solicitação persistente → dashboard Owner/bot → decisão Owner → a mesma página acompanha o estado → quando todas as verificações exigidas estiverem concluídas mostra `Cadastro aprovado` → usuário volta ao acesso normal. Reenvio do mesmo WhatsApp fica bloqueado por 120 minutos sem apagar o pedido. OTP não é requisito do login principal.
 
 A decisão do Owner responde por mensagem livre quando a janela de serviço está ativa; fora dela usa `WHATSAPP_DECISION_TEMPLATE` quando configurado. Fila persistente, HMAC, deduplicação, lease, retry/backoff e OTP por template permanecem.
 
 Automação de grupos:
-- worker descobre grupos oficiais cujo subject é `SOS YOUTUBER N`;
-- grava `whatsapp_group_id` e modo `META_GROUPS_API`;
-- sincroniza participantes para `group_memberships`;
-- webhook `group_participants_update` concede/revoga acesso em entrada/saída;
-- eventos são deduplicados;
-- painel permite sincronização imediata;
-- grupos que a Meta não expõe/para os quais a conta não é elegível permanecem em fallback `OWNER_VERIFIED`.
+- worker pode descobrir grupos oficiais cujo subject é `SOS YOUTUBER N` e registrar sua evidência externa;
+- presença do participante é gravada separadamente da decisão Owner;
+- **presença no grupo não aprova cadastro por si só**;
+- quando a validação externa estiver ativa, o acesso só é materializado com aprovação Owner + presença do membro + prova de que ao menos um Owner é admin pelo mesmo provedor;
+- saída do grupo revoga a prova externa/acesso aplicável sem apagar dados históricos;
+- eventos são deduplicados e o painel permite sincronização imediata;
+- sem provedor real pareado, o fallback de validação manual Owner continua disponível.
 
 Isso não simula acesso a grupos comuns não expostos pela API oficial. A validação real depende da conta Meta, OBA/eligibilidade e IDs retornados pelo provedor.
 
 ## Continuidade e UI Premium — 05/10/2026
 
 - `docs/ANCHOR-YOUTUBE-FINAL.md` é a âncora canônica obrigatória; `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md` define o protocolo operacional.
-- Intro preserva a identidade ASTRA com lockup horizontal da marca, uma única CTA `Quero participar` e segurança integrada por escudo verde ilustrado em SVG, ancorado à base do bloco de texto.
-- A CTA `Quero participar` abre a tela intermediária já validada; o envio registra os dados no painel e a etapa de sucesso informa que a equipe continuará pelo WhatsApp. Não existe segunda CTA obrigatória para o candidato.
+- Intro preserva a identidade ASTRA com lockup horizontal da marca e uma única CTA `Quero participar`. O botão voltou ao vermelho simples anterior; o bloco de segurança é textual, **sem escudo/ícone verde**.
+- A CTA `Quero participar` abre a tela intermediária; o envio cria uma página persistente `Solicitação em análise`, com acompanhamento automático/manual. Após aprovação, a mesma página muda para `Cadastro aprovado`; o usuário escolhe quando voltar ao acesso.
 - Login continua universal: `WhatsApp` internacional e grupo SOS YOUTUBER 1–99; sem +55 automático, sem rótulos Owner e sem `#` visível. `Credencial administrativa` só aparece para Owner.
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
@@ -77,7 +77,7 @@ A intro também fixa por teste: botão `Quero participar` isolado e com a mesma 
 
 Gate completo executado após recuperação por Git e refinamento visual:
 - `git diff --check`: aprovado;
-- backend: 60/60 testes;
+- backend: 65/65 testes;
 - cliente: 6/6 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
@@ -91,7 +91,7 @@ Gate completo executado após recuperação por Git e refinamento visual:
 - Owner identificado por nome/alias + WhatsApp recebe apenas o campo `Credencial`; em `AUTH_DEV_MODE=true`, `sosyout` é aceito para teste local.
 - Banco local, no diagnóstico desta rodada, tinha `0` memberships ativos e `0` usuários cadastrados; por isso nenhum participante real conseguia entrar antes de aprovação.
 - Grupos públicos atuais: `1`, `2`, `10`.
-- O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. Os números Owner/alerta já estão configurados neste Xubuntu; o que falta para o transporte oficial são as credenciais da Meta Cloud API. O complemento escolhido para grupos tradicionais é WPPConnect, ainda não pareado/ativado.
+- O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. O dashboard Owner já permite salvar no servidor e validar a configuração oficial Meta; sem credencial real, a conexão permanece explicitamente pendente. O complemento escolhido para grupos tradicionais é WPPConnect, ainda não pareado/ativado.
 - O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto.
 
 ## Pendências externas/produção

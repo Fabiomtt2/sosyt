@@ -5,10 +5,11 @@ import { Browser } from "@capacitor/browser";
 import { ArrowLeft, Check, CircleDollarSign, Clock3, ExternalLink, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
 import { OwnerDashboard } from "./OwnerDashboard";
 import { WatchProgress, readSavedWatchPercent } from "./WatchProgress";
-import { api, ownerApi, participationApi, ApiError, type Dashboard, type Pix, type Round } from "./api";
+import { api, ownerApi, participationApi, ApiError, type Dashboard, type ParticipationStatus, type Pix, type Round } from "./api";
 import { INTERNATIONAL_PHONE_PATTERN, formatInternationalPhoneInput, isCompleteInternationalPhone } from "./phone";
 
 const COOLDOWN_KEY = "conexao_cooldown_until";
+const PENDING_REQUEST_KEY = "conexao_participation_request";
 
 function storedCooldownUntil() {
   const value = Date.parse(localStorage.getItem(COOLDOWN_KEY) ?? "");
@@ -28,7 +29,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [joinMode, setJoinMode] = useState(false);
   const [credential, setCredential] = useState("");
   const [consent, setConsent] = useState(false);
-  const [joined, setJoined] = useState<{ message: string; whatsappUrl?: string }>();
+  const [joined, setJoined] = useState<ParticipationStatus>();
   const [form, setForm] = useState({ name: "", phone: "", groupCode: "" });
 
   const [busy, setBusy] = useState(false);
@@ -51,6 +52,42 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     return () => window.clearInterval(timer);
   },[cooldownUntil]);
 
+  useEffect(() => {
+    const token = localStorage.getItem(PENDING_REQUEST_KEY);
+    if (!token) return;
+    let cancelled = false;
+    const sync = async () => {
+      try {
+        const state = await participationApi.status(token);
+        if (cancelled) return;
+        setJoined(state);
+        setJoinMode(true);
+        localStorage.setItem(PENDING_REQUEST_KEY,state.requestToken);
+        setForm((current) => ({
+          name: state.name ?? current.name,
+          phone: state.phone ? formatInternationalPhoneInput(state.phone) : current.phone,
+          groupCode: state.approvedGroup ?? state.preferredGroup ?? current.groupCode
+        }));
+      } catch (cause) {
+        if (!cancelled && cause instanceof ApiError && [401,404].includes(cause.status)) {
+          localStorage.removeItem(PENDING_REQUEST_KEY);
+          setJoined(undefined);
+        }
+      }
+    };
+    void sync();
+    const timer = window.setInterval(() => void sync(),20_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  },[]);
+
+  useEffect(() => {
+    if (!joined?.blockedUntil) return;
+    const until = Date.parse(joined.blockedUntil);
+    if (!Number.isFinite(until) || until <= Date.now()) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()),1000);
+    return () => window.clearInterval(timer);
+  },[joined?.blockedUntil]);
+
   function activateCooldown(value: unknown) {
     if (typeof value !== "string") return false;
     const parsed = Date.parse(value);
@@ -59,6 +96,44 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     setCooldownUntil(parsed);
     setNowMs(Date.now());
     return true;
+  }
+
+  function keepParticipation(state: ParticipationStatus) {
+    localStorage.setItem(PENDING_REQUEST_KEY,state.requestToken);
+    setJoined(state);
+    setJoinMode(true);
+    setNowMs(Date.now());
+  }
+
+  function adoptParticipationError(cause: unknown) {
+    if (!(cause instanceof ApiError)) return false;
+    const requestToken = typeof cause.data.requestToken === "string" ? cause.data.requestToken : "";
+    const status = cause.data.status;
+    if (!requestToken || (status !== "PENDING" && status !== "DECLINED" && status !== "APPROVED")) return false;
+    keepParticipation({
+      status,
+      requestToken,
+      message: cause.message,
+      blockedUntil: typeof cause.data.blockedUntil === "string" ? cause.data.blockedUntil : undefined
+    });
+    return true;
+  }
+
+  async function refreshParticipation() {
+    const token = joined?.requestToken ?? localStorage.getItem(PENDING_REQUEST_KEY);
+    if (!token) return;
+    setBusy(true); setError("");
+    try { keepParticipation(await participationApi.status(token)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível verificar a solicitação agora."); }
+    finally { setBusy(false); }
+  }
+
+  function leaveParticipationStatus() {
+    localStorage.removeItem(PENDING_REQUEST_KEY);
+    setJoined(undefined);
+    setJoinMode(false);
+    setConsent(false);
+    returnToProfile();
   }
 
   function returnToProfile() {
@@ -75,8 +150,13 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       if (joinMode) {
         if (!/^(?:[1-9]|[1-9][0-9])$/.test(form.groupCode)) throw new Error("Digite o número do seu grupo SOS YOUTUBER, de 1 a 99.");
         if (!consent) throw new Error("Autorize o uso do nome e número para enviar a solicitação.");
-        const result = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
-        setJoined(result);
+        try {
+          const result = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
+          keepParticipation(result);
+        } catch (cause) {
+          if (adoptParticipationError(cause)) return;
+          throw cause;
+        }
       } else if (step === "profile") {
         const role = await api.resolveRole({ name, phone: form.phone });
         setAuthRole(role.role);
@@ -93,9 +173,13 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           } catch (cause) {
             if (cause instanceof ApiError && cause.status === 423 && activateCooldown(cause.data.cooldownUntil)) return;
             if (!(cause instanceof ApiError) || cause.status !== 403) throw cause;
-            const pending = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
-            setJoinMode(true);
-            setJoined(pending);
+            try {
+              const pending = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
+              keepParticipation(pending);
+            } catch (registrationCause) {
+              if (adoptParticipationError(registrationCause)) return;
+              throw registrationCause;
+            }
           }
         }
       } else if (authRole === "owner") {
@@ -114,6 +198,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
 
   const cooldownActive = cooldownUntil > nowMs;
   const cooldownRemaining = Math.max(0,cooldownUntil-nowMs);
+  const requestBlockedUntil = joined?.blockedUntil ? Date.parse(joined.blockedUntil) : 0;
+  const requestBlockActive = Number.isFinite(requestBlockedUntil) && requestBlockedUntil > nowMs;
+  const requestBlockRemaining = Math.max(0,requestBlockedUntil-nowMs);
 
   return <main className="login-shell">
     <section className="brand-panel">
@@ -126,7 +213,6 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <div className="participation-cluster">
         <button className="primary intro-join" type="button" onClick={() => { setJoinMode(true); returnToProfile(); }}>Quero participar</button>
         <div className="trust-note" aria-label="Compromissos de segurança">
-          <span className="security-emblem" aria-hidden="true"><svg viewBox="0 0 48 54" role="presentation"><path className="shield-shadow" d="M24 2 43 9v15c0 13-7.9 23.5-19 28C12.9 47.5 5 37 5 24V9L24 2Z"/><path className="shield-face" d="M24 6.5 39 12v12c0 10.6-6 19.3-15 23.4C15 43.3 9 34.6 9 24V12l15-5.5Z"/><path className="shield-highlight" d="M24 9 36 13.4v3.3L24 12.3 12 16.7v-3.3L24 9Z"/><path className="shield-check" d="m17.2 26.4 4.5 4.5 9.4-10"/></svg></span>
           <div className="trust-copy"><span>Sem views automáticas.</span><span>Sem reprodução oculta.</span><strong>Você mantém o controle.</strong></div>
         </div>
       </div>
@@ -134,14 +220,28 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     <section className="login-card">
       <div>
         <p className="eyebrow dark">ACESSO SOS YOUTUBER</p>
-        <h2>{cooldownActive ? "Intervalo entre filas" : joined ? "Solicitação registrada" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
-        <p className={!cooldownActive && !joined && (step === "credential" || (step === "profile" && !joinMode)) ? "muted login-helper" : "muted"}>{cooldownActive ? "Sua última tarefa foi concluída. O próximo acesso será liberado automaticamente quando o relógio chegar a zero." : joined ? "Seu cadastro entrou na fila de validação da equipe." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
+        <h2>{cooldownActive ? "Intervalo entre filas" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
+        <p className={!cooldownActive && !joined && (step === "credential" || (step === "profile" && !joinMode)) ? "muted login-helper" : "muted"}>{cooldownActive ? "Sua última tarefa foi concluída. O próximo acesso será liberado automaticamente quando o relógio chegar a zero." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
-      {cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Você poderá entrar novamente em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Seu cadastro, saldo, URLs, fila e progresso continuam salvos. Este intervalo evita que a mesma conta entre imediatamente em outra fila após concluir uma tarefa.</p></div> : joined ? <div className="join-success" role="status">
-        <div className="join-success-heading"><ShieldCheck size={30} /><strong>{joined.message}</strong></div>
-        <p><strong>{form.name.trim()}</strong>, agora só falta uma etapa para você participar do nosso sistema!</p>
-        <p className="muted">Nós entraremos em contato com seu número WhatsApp informado em breve para seguirmos com o registro.</p>
-        <button className="secondary back-to-login" onClick={() => { setJoined(undefined); setJoinMode(false); returnToProfile(); }}><ArrowLeft size={18} />Voltar para tela de login</button>
+      {cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Você poderá entrar novamente em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Seu cadastro, saldo, URLs, fila e progresso continuam salvos. Este intervalo evita que a mesma conta entre imediatamente em outra fila após concluir uma tarefa.</p></div> : joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
+        <div className="join-success-heading"><strong>{joined.message}</strong></div>
+        {joined.status === "PENDING" && <>
+          <p><strong>{joined.name ?? form.name.trim()}</strong>, seu pedido está protegido e continua aguardando os Owners.</p>
+          {requestBlockActive && <div className="request-block-clock"><Clock3 size={18} /><span>Nova solicitação liberada em</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div>}
+          <p className="muted">Pode fechar esta página. Para reencontrar este acompanhamento automaticamente neste aparelho, evite apagar os dados do site. Mesmo se os dados locais forem apagados, seu pedido não desaparece do servidor; uma tentativa repetida dentro do prazo será temporariamente bloqueada por segurança.</p>
+          <button className="secondary" disabled={busy} onClick={() => void refreshParticipation()}>{busy ? <LoaderCircle className="spin" /> : <RefreshCw size={17} />}Verificar situação</button>
+        </>}
+        {joined.status === "APPROVED" && <>
+          <p><strong>{joined.name ?? form.name.trim()}</strong>, seu acesso foi liberado{joined.approvedGroup ? ` no SOS YOUTUBER ${joined.approvedGroup}` : ""}.</p>
+          <p className="muted">Seu cadastro, histórico e aprovação continuam salvos. Ao voltar, entre com o mesmo WhatsApp e grupo autorizado.</p>
+          <button className="primary" onClick={leaveParticipationStatus}>Voltar ao acesso</button>
+        </>}
+        {joined.status === "DECLINED" && <>
+          {requestBlockActive && <div className="request-block-clock"><Clock3 size={18} /><span>Nova tentativa disponível em</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div>}
+          <p className="muted">Se houver algum dado incorreto, aguarde o prazo indicado e tente novamente ou fale com um Owner. Nenhum saldo ou histórico prévio é apagado.</p>
+          {!requestBlockActive && <button className="secondary" onClick={leaveParticipationStatus}><ArrowLeft size={18} />Voltar ao acesso</button>}
+        </>}
+        {error && <p className="error">{error}</p>}
       </div> : <form className="access-form" noValidate onSubmit={submit}>
         <div className="access-fields">
           {step === "profile" ? <>
@@ -291,6 +391,7 @@ function DashboardPage({ onLogout, onCooldown }: { onLogout: () => void; onCoold
           <aside className="wallet"><div><CircleDollarSign /><span>Seu saldo</span></div><strong>{data.wallet.total.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</strong><small>moedas · {data.wallet.extraPasses} passe{data.wallet.extraPasses === 1 ? "" : "s"}</small><button onClick={() => setShowPix(true)}>Comprar moedas</button></aside>
         </section>
         <section className="progress-card"><div className="progress-copy"><strong>{filled} de 10 vídeos</strong><span>{10 - filled} espaços restantes</span></div><div className="progress-track"><i style={{ width: `${filled * 10}%` }} /></div></section>
+        {data.openRound.sequence > 1 && <div className="queue-context" role="status"><div className="queue-pill">FILA {data.openRound.sequence}</div><div><strong>A Fila {data.openRound.sequence - 1} já foi concluída.</strong><span>Você está agora na Fila {data.openRound.sequence}. Contribua com sua URL quando o próximo espaço estiver disponível ou aguarde os demais participantes completarem esta seleção para liberar sua playlist customizável e novas recompensas.</span></div></div>}
         {!eligible && !data.wallet.paymentHold && <div className="notice"><LockKeyhole size={19} /><span>Você já participou desta fila. Aguarde os demais ou use um passe comprado para contribuir novamente.</span></div>}
         {data.wallet.paymentHold && <div className="notice" role="status"><ShieldCheck size={19} /><span>Carteira em revisão por atualização de um pagamento. Novas contribuições ficam suspensas até a conciliação.</span></div>}
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
@@ -298,9 +399,10 @@ function DashboardPage({ onLogout, onCooldown }: { onLogout: () => void; onCoold
         <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} />)}</section>
       </> : <>
         <section className="hero-row task-hero">
-          <div><p className="eyebrow dark">SUA TAREFA · FILA {data.readyRounds[0]?.sequence}</p><h1>Finalize esta fila antes da próxima.</h1><p className="muted">Como você contribuiu para esta seleção, ela permanece aqui até atingir 100% ou até você escolher concluir. Fechar o acompanhamento apenas pausa o processo.</p></div>
+          <div><p className="eyebrow dark">SUA TAREFA · FILA {data.readyRounds[0]?.sequence}</p><h1>Esta fila já foi preenchida.</h1><p className="muted">Como você participou da Fila {data.readyRounds[0]?.sequence}, mantenha o acompanhamento até 100% ou escolha concluir no percentual atual. Seu progresso e suas moedas ficam salvos; ao finalizar, começa o intervalo de 30 minutos antes de uma nova entrada.</p></div>
           <aside className="wallet"><div><CircleDollarSign /><span>Seu saldo</span></div><strong>{data.wallet.total.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</strong><small>{data.wallet.reward.toLocaleString("pt-BR")} bônus por tarefas · {data.wallet.purchased.toLocaleString("pt-BR")} compradas</small></aside>
         </section>
+        <div className="queue-context task-context" role="status"><div className="queue-pill">FILA {data.readyRounds[0]?.sequence}</div><div><strong>A próxima fila já pode estar sendo montada por outros participantes.</strong><span>Você não perde sua posição nem seu progresso: termine esta tarefa, registre sua porcentagem e receba as moedas correspondentes antes de voltar ao fluxo comum.</span></div></div>
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
         {error && <p className="error banner">{error}</p>}
       </>}

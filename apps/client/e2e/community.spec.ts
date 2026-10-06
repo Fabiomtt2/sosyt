@@ -37,7 +37,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
       paddingTop: style.paddingTop,
       paddingBottom: style.paddingBottom,
       borderRadius: style.borderRadius,
-      fontWeight: style.fontWeight
+      fontWeight: style.fontWeight,
+      backgroundImage: style.backgroundImage,
+      boxShadow: style.boxShadow,
+      borderTopColor: style.borderTopColor
     };
   })));
   expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
@@ -48,6 +51,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
   expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
   expect(joinMetrics.fontWeight).toBe(continueMetrics.fontWeight);
+  expect(joinMetrics.backgroundImage).toBe(continueMetrics.backgroundImage);
+  expect(joinMetrics.backgroundImage).toBe("none");
+  expect(joinMetrics.boxShadow).toBe(continueMetrics.boxShadow);
+  expect(joinMetrics.borderTopColor).toBe(continueMetrics.borderTopColor);
 
   const clusterIsIsolated = await page.locator(".participation-cluster").evaluate((element) => {
     const style = getComputedStyle(element);
@@ -62,12 +69,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(securityWeights[0]).toBeLessThan(700);
   expect(securityWeights[1]).toBeLessThan(700);
   expect(securityWeights[2]).toBeGreaterThanOrEqual(700);
-  const securityAligned = await page.locator(".trust-note").evaluate((element) => {
-    const icon = element.querySelector(".security-emblem")!.getBoundingClientRect();
-    const copy = element.querySelector(".trust-copy")!.getBoundingClientRect();
-    return Math.abs((icon.top + icon.height / 2) - (copy.top + copy.height / 2)) <= 2;
-  });
-  expect(securityAligned).toBe(true);
+  await expect(page.locator(".security-emblem")).toHaveCount(0);
 
   await page.screenshot({ path: resolve(evidence, "login-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -85,20 +87,35 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await joinPhone.fill("5571900000001");
   await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1");
   await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Enviar dados e continuar" }).click();
+  await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
   await expect(page.getByText("Sua solicitação de cadastro foi registrada e será validada em breve.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pessoa E2E, agora só falta uma etapa para você participar do nosso sistema!", { exact: true })).toBeVisible();
-  await expect(page.getByText("Nós entraremos em contato com seu número WhatsApp informado em breve para seguirmos com o registro.", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Continuar no WhatsApp" })).toHaveCount(0);
+  await expect(page.getByText("Nova solicitação liberada em", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verificar situação" })).toBeVisible();
+  await expect(page.getByText("Pode fechar esta página.", { exact: false })).toBeVisible();
   await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "Voltar para tela de login" }).click();
 
-  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa Direta");
-  await page.getByLabel("WhatsApp").fill("5571900000002");
-  await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1");
-  await page.getByRole("button", { name: "Continuar", exact: true }).click();
-  await expect(page.getByText("Sua solicitação de cadastro foi registrada e será validada em breve.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pessoa Direta, agora só falta uma etapa para você participar do nosso sistema!", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Voltar para tela de login" }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
+  await expect(page.getByText("Sua solicitação continua aguardando análise dos Owners.", { exact: true })).toBeVisible();
+
+  const ownerApproval = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "sosyout" } });
+  expect(ownerApproval.ok()).toBeTruthy();
+  const approvalToken = (await ownerApproval.json()).token;
+  const requestsOverview = await request.get("http://127.0.0.1:17333/admin/overview", { headers: { authorization: `Bearer ${approvalToken}` } });
+  const requestData = (await requestsOverview.json()).requests.find((item: { name: string }) => item.name === "Pessoa E2E");
+  expect(requestData).toBeTruthy();
+  const approved = await request.post(`http://127.0.0.1:17333/admin/requests/${requestData.id}/decision`, { headers: { authorization: `Bearer ${approvalToken}` }, data: { status: "APPROVED", groupCode: "1" } });
+  expect(approved.ok()).toBeTruthy();
+  const pendingSeed = await request.post("http://127.0.0.1:17333/participation/request", {
+    data: { name: "Pessoa Pendente", phone: "5571900000099", groupCode: "2", consent: true }
+  });
+  expect(pendingSeed.ok()).toBeTruthy();
+
+  await page.getByRole("button", { name: "Verificar situação" }).click();
+  await expect(page.getByRole("heading", { name: "Cadastro aprovado" })).toBeVisible();
+  await expect(page.getByText("seu acesso foi liberado no SOS YOUTUBER 1", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Voltar ao acesso" }).click();
+
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Fábio");
   await page.getByLabel("WhatsApp").fill("+55 71 99999-0001");
@@ -113,17 +130,60 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByLabel("Credencial", { exact: true }).fill("sosyout");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
+  await expect(page.getByText("🟢 Usuário aprovado!", { exact: true })).toBeVisible();
   await expect(page.getByText("Pessoa E2E", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Aprovado em .* por Fabio0/)).toBeVisible();
+  await expect(page.getByText("Novo Usuário!", { exact: true })).toBeVisible();
+  await expect(page.getByText("🔴 Registro pendente", { exact: true })).toBeVisible();
+  await expect(page.getByText("Pessoa Pendente", { exact: true })).toBeVisible();
+  const pendingBadgeStyle = await page.locator(".new-user-badge").evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(pendingBadgeStyle).toBe("rgb(231, 247, 237)");
+  await page.screenshot({ path: resolve(evidence, "owner-solicitacoes-desktop.png"), fullPage: true });
   await expect(page.getByRole("button", { name: /Fábio/ })).toBeVisible();
+  await expect(page.getByText(/Sistema v0\.1\.0/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Participantes", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pessoa E2E", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Pessoa E2E", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Administrar participante" })).toBeVisible();
+  await expect(page.getByText("ÁREA RESTRITA · OWNER", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Administrar participante" }).getByText(/por Fabio0/)).toBeVisible();
+  await page.screenshot({ path: resolve(evidence, "owner-participante-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: "Fechar participante" }).click();
+
+  await page.getByRole("button", { name: "Grupos e acesso", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Explicar grupos e acesso" })).toBeVisible();
+  expect(await page.locator(".group-admin-card").count()).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Explicar grupos e acesso" }).click();
+  await expect(page.getByRole("dialog", { name: "Ajuda sobre grupos e acesso" })).toBeVisible();
+  await expect(page.getByText("Eles não são filas de vídeos:", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Fechar ajuda" }).click();
+  await page.getByRole("button", { name: "Explicar autorização manual" }).click();
+  await expect(page.getByRole("dialog", { name: "Ajuda sobre autorização manual" })).toBeVisible();
+  await expect(page.getByText("rota administrativa excepcional", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Fechar ajuda" }).click();
+
+  await page.getByRole("button", { name: "Configurar integração" }).click();
+  await expect(page.getByRole("dialog", { name: "Configurar integração WhatsApp" })).toBeVisible();
+  await expect(page.getByText("PENDENTE", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Credencial de acesso da Meta", { exact: true })).toBeVisible();
+  await expect(page.getByText("Para ativar mensagens reais pela Meta", { exact: false })).toBeVisible();
+  const astraStatus = await page.locator(".astra-status-grid article").first().evaluate((element) => {
+    const style=getComputedStyle(element);
+    return { color:style.color, backgroundImage:style.backgroundImage };
+  });
+  expect(astraStatus.color).toBe("rgb(255, 255, 255)");
+  expect(astraStatus.backgroundImage).toContain("linear-gradient");
+  await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: "Fechar configuração" }).click();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(evidence, "owner-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  const pessoaRequest = page.locator(".request-card").filter({ hasText: "Pessoa E2E" });
-  await pessoaRequest.getByRole("button", { name: "Aprovar", exact: true }).click();
-  await expect(page.getByText("Solicitação aprovada.", { exact: false })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: resolve(evidence, "owner-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: /Fábio/ }).click();
+
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await page.getByLabel("WhatsApp").fill("5571900000001");
   await page.getByLabel("SOS YOUTUBER — Digite a qual grupo você pertence").fill("1"); await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByLabel("Credencial", { exact: true })).toHaveCount(0);
@@ -145,7 +205,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(owner.ok()).toBeTruthy(); const ownerToken = (await owner.json()).token;
   for (let n = 3; n <= 10; n++) {
     const phone = `55719000000${String(n).padStart(2, "0")}`;
-    const member = await request.post("http://127.0.0.1:17333/admin/members", { headers: { authorization: `Bearer ${ownerToken}` }, data: { phone, groupCode: n % 2 ? "1" : "2" } }); expect(member.ok()).toBeTruthy();
+    const member = await request.post("http://127.0.0.1:17333/admin/members", { headers: { authorization: `Bearer ${ownerToken}` }, data: { name: `Participante ${n}`, phone, groupCode: n % 2 ? "1" : "2" } }); expect(member.ok()).toBeTruthy();
     const login = await request.post("http://127.0.0.1:17333/auth/login", { data: { name: `Participante ${n}`, phone, groupCode: n % 2 ? "1" : "2" } }); expect(login.ok()).toBeTruthy();
     const token = (await login.json()).token;
     const shared = await request.get("http://127.0.0.1:17333/dashboard", { headers: { authorization: `Bearer ${token}` } });
@@ -157,7 +217,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.locator(".cycle-details .slot.filled")).toHaveCount(10);
   await expect(page.locator(".cycle-details").getByRole("button", { name: "Criar playlist" })).toHaveCount(2);
   await expect(page.getByText("0 de 10 vídeos", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Finalize esta fila antes da próxima." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Esta fila já foi preenchida." })).toBeVisible();
+  await expect(page.getByText("A próxima fila já pode estar sendo montada por outros participantes.", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({ path: resolve(evidence, "ciclo-completo-mobile.png"), fullPage: true });
   await page.locator(".ready-card > button").click();

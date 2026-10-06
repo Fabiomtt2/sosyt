@@ -6,6 +6,8 @@ import type { AppDatabase } from "./db.js";
 import { ownerAccounts, ownerNameMatches, ownerCredentialVersion } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
+import { generateAndSaveVerifyToken, gitVersionInfo, readWhatsAppIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
+import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^(?:[1-9]|[1-9]\d)$/);
@@ -24,6 +26,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
       if (request.user.purpose !== "owner" || request.user.aud !== "conexao-owner" || !account?.secret || request.user.jti !== ownerCredentialVersion(account.secret)) throw new Error("Wrong role");
     } catch { return reply.code(401).send({ message: "Acesso exclusivo do Owner. Entre novamente." }); }
   }
+  const participationToken = (id: string) => app.jwt.sign({ sub: `participation:${id}`, purpose: "participation-status", aud: "conexao-participation" }, { expiresIn: "30d" });
   app.get("/public/groups", async () => ({
     groups: (db.prepare("SELECT code FROM groups WHERE enabled = 1 ORDER BY length(code), code").all() as Array<{ code: string }>).map(({ code }) => code),
     ownerContactAvailable: Boolean(publicWhatsAppNumber(config)),
@@ -31,17 +34,92 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   }));
   app.post("/participation/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema, groupCode: groupSchema.optional(), consent: z.literal(true) }).parse(request.body);
-    if (hasMembership(db, body.phone)) return { ok: true, alreadyApproved: true, message: "Seu número já foi aprovado. Entre com o grupo autorizado pelo Owner." };
+    const member = db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(body.phone) as { groupCode: string } | undefined;
+    if (member) return reply.code(409).send({ code: "ALREADY_REGISTERED", alreadyApproved: true, groupCode: member.groupCode, message: "Esse número já foi registrado. Entre pelo acesso normal com o grupo autorizado ou fale com um Owner se precisar atualizar seu cadastro." });
     if (body.groupCode && !db.prepare("SELECT 1 FROM groups WHERE code = ? AND enabled = 1").get(body.groupCode)) return reply.code(400).send({ message: "Selecione um grupo disponível." });
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO participation_requests (id, name, phone, preferred_group, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(phone) DO UPDATE SET name = excluded.name, preferred_group = excluded.preferred_group, status = 'PENDING', updated_at = excluded.updated_at`)
-      .run(randomUUID(), body.name, body.phone, body.groupCode ?? null, now, now);
+
+    const existing = db.prepare("SELECT id,status,retry_block_until AS retryBlockUntil FROM participation_requests WHERE phone=?").get(body.phone) as
+      | { id: string; status: "PENDING" | "APPROVED" | "DECLINED"; retryBlockUntil?: string }
+      | undefined;
+    const now = new Date();
+    if (existing?.status === "APPROVED") return reply.code(409).send({ code: "ALREADY_REGISTERED", alreadyApproved: true, message: "Esse número já foi registrado. Use o acesso normal ou fale com um Owner se precisar atualizar seus dados." });
+    if (existing?.status === "PENDING") {
+      const currentBlock = existing.retryBlockUntil ? Date.parse(existing.retryBlockUntil) : 0;
+      const blockedUntil = currentBlock > now.getTime() ? existing.retryBlockUntil! : new Date(now.getTime() + 120 * 60_000).toISOString();
+      db.prepare("UPDATE participation_requests SET duplicate_attempts=duplicate_attempts+1,retry_block_until=?,updated_at=? WHERE id=?")
+        .run(blockedUntil,now.toISOString(),existing.id);
+      return reply.code(423).send({
+        code: "REQUEST_RETRY_BLOCKED",
+        status: "PENDING",
+        blockedUntil,
+        requestToken: participationToken(existing.id),
+        message: "Sua solicitação já está registrada e continua aguardando análise. Para proteger seu cadastro, uma nova solicitação fica bloqueada temporariamente."
+      });
+    }
+    if (existing?.status === "DECLINED" && existing.retryBlockUntil && Date.parse(existing.retryBlockUntil) > now.getTime()) {
+      return reply.code(423).send({
+        code: "REQUEST_RETRY_BLOCKED",
+        status: "DECLINED",
+        blockedUntil: existing.retryBlockUntil,
+        requestToken: participationToken(existing.id),
+        message: "Este cadastro foi analisado recentemente. Aguarde o prazo exibido antes de enviar uma nova solicitação."
+      });
+    }
+
+    const stamp = now.toISOString();
+    const blockedUntil = new Date(now.getTime() + 120 * 60_000).toISOString();
+    const id = existing?.id ?? randomUUID();
+    db.prepare(`INSERT INTO participation_requests (id,name,phone,preferred_group,status,retry_block_until,duplicate_attempts,created_at,updated_at)
+      VALUES (?,?,?,?,'PENDING',?,0,?,?)
+      ON CONFLICT(phone) DO UPDATE SET name=excluded.name,preferred_group=excluded.preferred_group,status='PENDING',
+        retry_block_until=excluded.retry_block_until,duplicate_attempts=0,updated_at=excluded.updated_at`)
+      .run(id,body.name,body.phone,body.groupCode ?? null,blockedUntil,stamp,stamp);
     const row = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(body.phone) as { id: string };
     queueOwnerAlerts(db,config,row.id,body.phone,body.name,`web:${randomUUID()}`);
-    const contact = publicWhatsAppNumber(config);
-    const text = `Olá! Quero participar do projeto SOS YouTube. Meu nome é ${body.name}, WhatsApp ${body.phone}. ${body.groupCode ? "Gostaria de entrar no SOS YOUTUBER " + body.groupCode + "." : "Gostaria de entrar em um grupo SOS YOUTUBER."} Minha solicitação já está no painel.`;
-    return { ok: true, message: "Sua solicitação de cadastro foi registrada e será validada em breve.", whatsappUrl: contact ? `https://wa.me/${contact}?text=${encodeURIComponent(text)}` : undefined };
+    return {
+      ok: true,
+      status: "PENDING",
+      requestToken: participationToken(row.id),
+      blockedUntil,
+      message: "Sua solicitação de cadastro foi registrada e será validada em breve."
+    };
+  });
+
+  app.post("/participation/status", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const { token } = z.object({ token: z.string().min(20).max(4096) }).parse(request.body);
+    let payload: { sub?: string; purpose?: string; aud?: string };
+    try { payload = app.jwt.verify(token) as { sub?: string; purpose?: string; aud?: string }; }
+    catch { return reply.code(401).send({ message: "Acompanhamento desta solicitação expirou neste aparelho." }); }
+    if (payload.purpose !== "participation-status" || payload.aud !== "conexao-participation" || !payload.sub?.startsWith("participation:")) {
+      return reply.code(401).send({ message: "Acompanhamento desta solicitação inválido." });
+    }
+    const id = payload.sub.slice("participation:".length);
+    const row = db.prepare(`SELECT pr.id,pr.name,pr.phone,pr.preferred_group AS preferredGroup,pr.status,pr.retry_block_until AS blockedUntil,
+      gm.group_code AS approvedGroup
+      FROM participation_requests pr LEFT JOIN group_memberships gm ON gm.phone=pr.phone AND gm.revoked_at IS NULL
+      WHERE pr.id=?`).get(id) as
+      | { id: string; name: string; phone: string; preferredGroup?: string; status: string; blockedUntil?: string; approvedGroup?: string }
+      | undefined;
+    if (!row) return reply.code(404).send({ message: "Solicitação não encontrada." });
+    const ownerApproved = row.status === "APPROVED";
+    const verificationPending = ownerApproved && !row.approvedGroup;
+    const verification = row.preferredGroup ? groupVerificationState(db,row.phone,row.preferredGroup) : undefined;
+    const publicStatus = verificationPending ? "PENDING" : row.status;
+    return {
+      ...row,
+      status: publicStatus,
+      ownerApproved,
+      verificationPending,
+      verification,
+      requestToken: participationToken(row.id),
+      message: row.status === "APPROVED" && row.approvedGroup
+        ? "Seu cadastro foi aprovado e todas as verificações necessárias foram concluídas. Você já pode voltar ao login."
+        : verificationPending
+          ? "A aprovação do Owner foi registrada. Agora aguardamos a confirmação do grupo antes de liberar o acesso."
+          : row.status === "DECLINED"
+            ? "Sua solicitação foi analisada e não foi aprovada neste momento."
+            : "Sua solicitação continua aguardando análise dos Owners."
+    };
   });
   app.post("/auth/role", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema }).parse(request.body);
@@ -70,7 +148,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const count = (sql: string, ...params: string[]) => (db.prepare(sql).get(...params) as { n: number }).n;
     const revenue = db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS n FROM payments WHERE provider = 'MERCADO_PAGO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?").get(start, end) as { n: number };
     return {
-      month, timezone: "America/Bahia", owner: { name: request.user.displayName?.trim() || account.name, canonicalName: account.name, groupCode: "#" }, whatsapp: whatsappStatus(db,config),
+      month, timezone: "America/Bahia", owner: { name: request.user.displayName?.trim() || account.name, canonicalName: account.name, groupCode: "#" }, whatsapp: { ...whatsappStatus(db,config), integration: readWhatsAppIntegration(db,config) }, version: gitVersionInfo(),
       metrics: {
         registeredUsers: count("SELECT COUNT(*) AS n FROM users"),
         activeUsers30d: count("SELECT COUNT(*) AS n FROM users WHERE last_seen_at >= ?", new Date(Date.now() - 30 * 86400_000).toISOString()),
@@ -85,16 +163,170 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
         revenueCentsMonth: revenue.n
       },
       groups: db.prepare("SELECT code, enabled, whatsapp_group_id AS whatsappGroupId, membership_mode AS membershipMode, last_synced_at AS lastSyncedAt FROM groups ORDER BY length(code), code").all(),
-      requests: db.prepare("SELECT id, name, phone, preferred_group AS preferredGroup, status, source, whatsapp_verified_at AS whatsappVerifiedAt, created_at AS createdAt FROM participation_requests ORDER BY CASE status WHEN 'PENDING' THEN 0 ELSE 1 END, updated_at DESC LIMIT 200").all(),
-      users: db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode,u.created_at AS createdAt,u.last_seen_at AS lastSeenAt,
-        w.promo_millis + w.reward_millis + w.purchased_millis AS balanceMillis,
-        w.promo_millis AS promoMillis,w.purchased_millis AS purchasedMillis,w.reward_millis AS rewardMillis,
-        w.extra_slot_passes AS extraPasses,w.payment_hold AS paymentHold
-        FROM users u JOIN wallets w ON w.user_id = u.id ORDER BY u.created_at DESC LIMIT 200`).all(),
-      members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, revoked_at AS revokedAt, source FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
+      requests: db.prepare(`SELECT id,name,phone,preferred_group AS preferredGroup,status,source,whatsapp_verified_at AS whatsappVerifiedAt,
+        approved_at AS approvedAt,approved_by_owner_id AS approvedByOwnerId,approved_by_owner_name AS approvedByOwnerName,
+        created_at AS createdAt,updated_at AS updatedAt
+        FROM participation_requests ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,updated_at DESC LIMIT 200`).all(),
+      users: db.prepare(`SELECT COALESCE(u.id,pr.id,gm.phone) AS id,u.id AS userId,COALESCE(u.name,pr.name,'Participante') AS name,gm.phone,
+        gm.group_code AS groupCode,COALESCE(u.created_at,pr.created_at,gm.approved_at) AS createdAt,u.last_seen_at AS lastSeenAt,
+        u.cooldown_until AS cooldownUntil,u.cooldown_reason AS cooldownReason,
+        COALESCE(w.promo_millis,0)+COALESCE(w.reward_millis,0)+COALESCE(w.purchased_millis,0) AS balanceMillis,
+        COALESCE(w.promo_millis,0) AS promoMillis,COALESCE(w.purchased_millis,0) AS purchasedMillis,COALESCE(w.reward_millis,0) AS rewardMillis,
+        COALESCE(w.extra_slot_passes,0) AS extraPasses,COALESCE(w.payment_hold,0) AS paymentHold,
+        gm.approved_at AS approvedAt,gm.approved_by_owner_id AS approvedByOwnerId,gm.approved_by_owner_name AS approvedByOwnerName,
+        gm.revoked_at AS revokedAt,gm.source,pr.status AS requestStatus,pr.source AS requestSource
+        FROM group_memberships gm
+        LEFT JOIN users u ON u.phone=gm.phone
+        LEFT JOIN wallets w ON w.user_id=u.id
+        LEFT JOIN participation_requests pr ON pr.phone=gm.phone
+        ORDER BY gm.approved_at DESC LIMIT 200`).all(),
+      members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, approved_by_owner_id AS approvedByOwnerId, approved_by_owner_name AS approvedByOwnerName, revoked_at AS revokedAt, source FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
       purchases: db.prepare("SELECT p.id,u.name,u.phone,p.provider,p.status,p.amount_cents AS amountCents,p.created_at AS createdAt,p.approved_at AS approvedAt FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC LIMIT 200").all()
     };
   });
+  app.get("/admin/version", { preHandler: ownerGuard }, async () => gitVersionInfo());
+  app.get("/admin/integrations/whatsapp", { preHandler: ownerGuard }, async () => readWhatsAppIntegration(db,config));
+  app.post("/admin/integrations/whatsapp", { preHandler: ownerGuard }, async (request) => saveWhatsAppIntegration(db,config,request.body));
+  app.post("/admin/integrations/whatsapp/verify-token", { preHandler: ownerGuard }, async () => {
+    const verifyToken = generateAndSaveVerifyToken(db,config);
+    return { ok:true, verifyToken, state:readWhatsAppIntegration(db,config) };
+  });
+  app.post("/admin/integrations/whatsapp/validate", { preHandler: ownerGuard }, async () => validateMetaWhatsApp(db,config));
+
+  app.get("/admin/participants/:phone", { preHandler: ownerGuard }, async (request, reply) => {
+    const phone = phoneSchema.parse((request.params as { phone: string }).phone);
+    const membership = db.prepare(`SELECT phone,group_code AS groupCode,approved_at AS approvedAt,revoked_at AS revokedAt,source,
+      approved_by_owner_id AS approvedByOwnerId,approved_by_owner_name AS approvedByOwnerName
+      FROM group_memberships WHERE phone=?`).get(phone) as Record<string, unknown> | undefined;
+    const participantRequest = db.prepare(`SELECT id,name,phone,preferred_group AS preferredGroup,status,source,whatsapp_verified_at AS whatsappVerifiedAt,
+      retry_block_until AS retryBlockUntil,approved_at AS approvedAt,approved_by_owner_id AS approvedByOwnerId,
+      approved_by_owner_name AS approvedByOwnerName,created_at AS createdAt,updated_at AS updatedAt
+      FROM participation_requests WHERE phone=?`).get(phone) as Record<string, unknown> | undefined;
+    const user = db.prepare(`SELECT id,name,phone,group_code AS groupCode,created_at AS createdAt,updated_at AS updatedAt,last_seen_at AS lastSeenAt,
+      cooldown_until AS cooldownUntil,cooldown_reason AS cooldownReason FROM users WHERE phone=?`).get(phone) as
+      | { id:string; name:string; phone:string; groupCode:string; createdAt:string; updatedAt:string; lastSeenAt?:string; cooldownUntil?:string; cooldownReason?:string }
+      | undefined;
+    if (!membership && !participantRequest && !user) return reply.code(404).send({ message: "Participante não encontrado." });
+    const wallet = user ? db.prepare(`SELECT promo_millis AS promoMillis,purchased_millis AS purchasedMillis,reward_millis AS rewardMillis,
+      extra_slot_passes AS extraPasses,payment_hold AS paymentHold,updated_at AS updatedAt FROM wallets WHERE user_id=?`).get(user.id) : undefined;
+    const purchases = user ? db.prepare(`SELECT id,provider,status,amount_cents AS amountCents,credits_millis AS creditsMillis,
+      extra_passes AS extraPasses,created_at AS createdAt,approved_at AS approvedAt,provider_payment_id AS providerPaymentId
+      FROM payments WHERE user_id=? ORDER BY created_at DESC LIMIT 50`).all(user.id) : [];
+    const ledger = user ? db.prepare(`SELECT id,kind,amount_millis AS amountMillis,reference_id AS referenceId,note,
+      actor_owner_name AS actorOwnerName,created_at AS createdAt FROM wallet_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 80`).all(user.id) : [];
+    const activity = user ? {
+      submissions: (db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE user_id=?").get(user.id) as {n:number}).n,
+      playlists: (db.prepare("SELECT COUNT(*) AS n FROM playlist_exports WHERE user_id=? AND status='SUCCESS'").get(user.id) as {n:number}).n
+    } : { submissions:0,playlists:0 };
+    const effectiveGroup = (membership as { groupCode?:string } | undefined)?.groupCode ?? user?.groupCode ?? (participantRequest as { preferredGroup?:string } | undefined)?.preferredGroup;
+    return {
+      profile: {
+        name: user?.name ?? (participantRequest as { name?:string } | undefined)?.name ?? "Participante",
+        phone,
+        groupCode: effectiveGroup,
+        userId: user?.id,
+        createdAt: user?.createdAt ?? (participantRequest as { createdAt?:string } | undefined)?.createdAt,
+        lastSeenAt: user?.lastSeenAt,
+        cooldownUntil: user?.cooldownUntil,
+        cooldownReason: user?.cooldownReason
+      },
+      membership,
+      request: participantRequest,
+      wallet,
+      purchases,
+      ledger,
+      activity,
+      verification: effectiveGroup ? groupVerificationState(db,phone,effectiveGroup) : undefined
+    };
+  });
+
+  app.patch("/admin/participants/:phone", { preHandler: ownerGuard }, async (request, reply) => {
+    const currentPhone = phoneSchema.parse((request.params as { phone: string }).phone);
+    const body = z.object({
+      name: z.string().trim().min(2).max(80),
+      phone: phoneSchema,
+      groupCode: groupSchema
+    }).parse(request.body);
+    if (!db.prepare("SELECT 1 FROM groups WHERE code=? AND enabled=1").get(body.groupCode)) return reply.code(400).send({ message:"Grupo inexistente ou desativado." });
+    if (body.phone !== currentPhone) {
+      const collision = db.prepare(`SELECT 1 FROM users WHERE phone=? UNION SELECT 1 FROM participation_requests WHERE phone=? UNION SELECT 1 FROM group_memberships WHERE phone=? LIMIT 1`)
+        .get(body.phone,body.phone,body.phone);
+      if (collision) return reply.code(409).send({ message:"O novo WhatsApp já pertence a outro cadastro." });
+    }
+    const membership = db.prepare("SELECT 1 FROM group_memberships WHERE phone=?").get(currentPhone);
+    const participantRequest = db.prepare("SELECT 1 FROM participation_requests WHERE phone=?").get(currentPhone);
+    const user = db.prepare("SELECT id FROM users WHERE phone=?").get(currentPhone) as {id:string}|undefined;
+    if (!membership && !participantRequest && !user) return reply.code(404).send({ message:"Participante não encontrado." });
+    const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
+    const ownerName = request.user.displayName?.trim() || account.name;
+    const stamp = new Date().toISOString();
+    db.transaction(() => {
+      if (body.phone !== currentPhone) {
+        db.prepare("UPDATE users SET phone=?,updated_at=? WHERE phone=?").run(body.phone,stamp,currentPhone);
+        db.prepare("UPDATE participation_requests SET phone=?,updated_at=? WHERE phone=?").run(body.phone,stamp,currentPhone);
+        db.prepare("UPDATE group_memberships SET phone=? WHERE phone=?").run(body.phone,currentPhone);
+        db.prepare("UPDATE login_codes SET phone=? WHERE phone=?").run(body.phone,currentPhone);
+        db.prepare("UPDATE whatsapp_member_verifications SET phone=? WHERE phone=?").run(body.phone,currentPhone);
+        const conversation = db.prepare("SELECT 1 FROM whatsapp_conversations WHERE phone=?").get(currentPhone);
+        if (conversation && !db.prepare("SELECT 1 FROM whatsapp_conversations WHERE phone=?").get(body.phone)) {
+          db.prepare("UPDATE whatsapp_conversations SET phone=? WHERE phone=?").run(body.phone,currentPhone);
+        }
+      }
+      db.prepare("UPDATE users SET name=?,group_code=?,updated_at=? WHERE phone=?").run(body.name,body.groupCode,stamp,body.phone);
+      db.prepare(`UPDATE participation_requests SET name=?,preferred_group=?,approved_at=COALESCE(approved_at,?),approved_by_owner_id=COALESCE(approved_by_owner_id,?),
+        approved_by_owner_name=COALESCE(approved_by_owner_name,?),updated_at=? WHERE phone=?`)
+        .run(body.name,body.groupCode,stamp,account.id,ownerName,stamp,body.phone);
+      db.prepare(`UPDATE group_memberships SET group_code=?,approved_by_owner_id=COALESCE(approved_by_owner_id,?),
+        approved_by_owner_name=COALESCE(approved_by_owner_name,?) WHERE phone=?`).run(body.groupCode,account.id,ownerName,body.phone);
+    })();
+    return { ok:true,phone:body.phone };
+  });
+
+  app.post("/admin/participants/:phone/action", { preHandler: ownerGuard }, async (request, reply) => {
+    const phone = phoneSchema.parse((request.params as { phone: string }).phone);
+    const { action } = z.object({ action:z.enum(["REVOKE","RESTORE","CLEAR_COOLDOWN","REVIEW_ON","REVIEW_OFF"]) }).parse(request.body);
+    const membership = db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=?").get(phone) as {groupCode:string}|undefined;
+    const user = db.prepare("SELECT id FROM users WHERE phone=?").get(phone) as {id:string}|undefined;
+    if (!membership && !user) return reply.code(404).send({ message:"Participante não encontrado." });
+    const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
+    const approvedBy = { id:account.id,name:request.user.displayName?.trim() || account.name };
+    const stamp = new Date().toISOString();
+    if (action === "REVOKE") db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(stamp,phone);
+    if (action === "RESTORE") {
+      if (!membership) return reply.code(409).send({ message:"Não existe grupo associado para restaurar." });
+      const result=materializeApprovedMembership(db,phone,membership.groupCode,stamp,approvedBy);
+      if (!result.accessGranted) return reply.code(409).send({ message:"A aprovação Owner está registrada, mas a verificação externa exigida pelo grupo ainda não foi concluída.",verification:result.state });
+    }
+    if (action === "CLEAR_COOLDOWN") {
+      if (!user) return reply.code(409).send({ message:"Este participante ainda não criou uma conta de uso." });
+      db.prepare("UPDATE users SET cooldown_until=NULL,cooldown_reason=NULL,updated_at=? WHERE id=?").run(stamp,user.id);
+    }
+    if (action === "REVIEW_ON" || action === "REVIEW_OFF") {
+      if (!user) return reply.code(409).send({ message:"Este participante ainda não possui carteira." });
+      db.prepare("UPDATE wallets SET payment_hold=?,updated_at=? WHERE user_id=?").run(action==="REVIEW_ON" ? 1 : 0,stamp,user.id);
+    }
+    return { ok:true };
+  });
+
+  app.post("/admin/participants/:phone/wallet-adjustment", { preHandler: ownerGuard }, async (request, reply) => {
+    const phone = phoneSchema.parse((request.params as { phone: string }).phone);
+    const body = z.object({ amountCoins:z.number().min(-1000).max(1000).refine((value)=>value!==0), reason:z.string().trim().min(5).max(240) }).parse(request.body);
+    const user = db.prepare("SELECT id FROM users WHERE phone=?").get(phone) as {id:string}|undefined;
+    if (!user) return reply.code(409).send({ message:"Este participante ainda não possui carteira." });
+    const wallet = db.prepare("SELECT reward_millis AS rewardMillis FROM wallets WHERE user_id=?").get(user.id) as {rewardMillis:number};
+    const amountMillis=Math.round(body.amountCoins*1000);
+    if (wallet.rewardMillis+amountMillis<0) return reply.code(409).send({ message:"O ajuste negativo ultrapassa o saldo de bônus/recompensas disponível." });
+    const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
+    const ownerName=request.user.displayName?.trim() || account.name;
+    const stamp=new Date().toISOString(), reference=randomUUID();
+    db.transaction(() => {
+      db.prepare("UPDATE wallets SET reward_millis=reward_millis+?,updated_at=? WHERE user_id=?").run(amountMillis,stamp,user.id);
+      db.prepare(`INSERT INTO wallet_ledger (id,user_id,kind,amount_millis,reference_id,created_at,note,actor_owner_id,actor_owner_name)
+        VALUES (?,?,'ADMIN_ADJUSTMENT',?,?,?,?,?,?)`).run(randomUUID(),user.id,amountMillis,reference,stamp,body.reason,account.id,ownerName);
+    })();
+    return { ok:true,amountMillis };
+  });
+
   app.get("/admin/users.csv", { preHandler: ownerGuard }, async (_request, reply) => {
     const rows = db.prepare("SELECT u.name,u.phone,u.group_code,u.created_at,u.last_seen_at,w.promo_millis+w.reward_millis+w.purchased_millis AS balance_millis,w.extra_slot_passes FROM users u JOIN wallets w ON w.user_id=u.id ORDER BY u.created_at DESC").all() as Array<Record<string, unknown>>;
     const columns = ["name","phone","group_code","created_at","last_seen_at","balance_millis","extra_slot_passes"];
@@ -112,16 +344,35 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     return { ok: true };
   });
   app.post("/admin/members", { preHandler: ownerGuard }, async (request, reply) => {
-    const body = z.object({ phone: phoneSchema, groupCode: groupSchema }).parse(request.body);
+    const body = z.object({ phone: phoneSchema, groupCode: groupSchema, name: z.string().trim().min(2).max(80).optional() }).parse(request.body);
     if (!db.prepare("SELECT 1 FROM groups WHERE code = ? AND enabled = 1").get(body.groupCode)) return reply.code(400).send({ message: "Grupo inexistente ou desativado." });
-    const pending = db.prepare("SELECT id,name,phone,source FROM participation_requests WHERE phone=?").get(body.phone) as { id: string; name: string; phone: string; source: string } | undefined;
+    let pending = db.prepare("SELECT id,name,phone,source FROM participation_requests WHERE phone=?").get(body.phone) as { id: string; name: string; phone: string; source: string } | undefined;
+    const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
+    const approvedBy = { id: account.id, name: request.user.displayName?.trim() || account.name };
     const stamp = new Date().toISOString();
-    db.transaction(() => {
-      db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?,?,?,'OWNER') ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='OWNER'").run(body.phone,body.groupCode,stamp);
-      db.prepare("UPDATE participation_requests SET status='APPROVED',updated_at=? WHERE phone=?").run(stamp,body.phone);
-    })();
-    if (pending) queueParticipationDecision(db,config,pending.id,"APPROVED",body.groupCode);
-    return { ok: true };
+    if (!pending && body.name) {
+      const id=randomUUID();
+      db.prepare(`INSERT INTO participation_requests
+        (id,phone,name,preferred_group,status,source,approved_at,approved_by_owner_id,approved_by_owner_name,created_at,updated_at)
+        VALUES (?,?,?,?,'APPROVED','OWNER_MANUAL',?,?,?,?,?)`)
+        .run(id,body.phone,body.name,body.groupCode,stamp,approvedBy.id,approvedBy.name,stamp,stamp);
+      pending={ id,name:body.name,phone:body.phone,source:"OWNER_MANUAL" };
+    } else if (pending) {
+      db.prepare("UPDATE participation_requests SET status='APPROVED',preferred_group=?,approved_at=?,approved_by_owner_id=?,approved_by_owner_name=?,updated_at=? WHERE phone=?")
+        .run(body.groupCode,stamp,approvedBy.id,approvedBy.name,stamp,body.phone);
+    } else {
+      return reply.code(400).send({ message: "Informe o nome para uma autorização manual sem solicitação anterior." });
+    }
+    const result = materializeApprovedMembership(db,body.phone,body.groupCode,stamp,approvedBy);
+    if (pending && result.accessGranted) queueParticipationDecision(db,config,pending.id,"APPROVED",body.groupCode);
+    return {
+      ok: true,
+      accessGranted: result.accessGranted,
+      verification: result.state,
+      message: result.accessGranted
+        ? "Aprovação registrada e acesso liberado."
+        : "Aprovação registrada. O acesso será liberado após a verificação necessária do grupo."
+    };
   });
   app.delete("/admin/members/:phone", { preHandler: ownerGuard }, async (request) => {
     const phone = phoneSchema.parse((request.params as { phone: string }).phone);
@@ -135,14 +386,26 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     if (!row) return reply.code(404).send({ message: "Solicitação não encontrada." });
     const group = body.groupCode ?? row.preferred_group;
     if (body.status === "APPROVED" && (!group || !db.prepare("SELECT 1 FROM groups WHERE code=? AND enabled=1").get(group))) return reply.code(400).send({ message: "Escolha um grupo ativo para aprovar." });
-    db.transaction(() => {
-      const now = new Date().toISOString();
-      if (body.status === "APPROVED") db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?,?,?,'OWNER') ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='OWNER'").run(row.phone,group!,now);
-      else db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(now,row.phone);
-      db.prepare("UPDATE participation_requests SET status=?,updated_at=? WHERE id=?").run(body.status,now,id);
-    })();
-    queueParticipationDecision(db,config,id,body.status,group);
-    return { ok: true };
+    const account = ownerAccounts(config).find((o) => `owner:${o.id}` === request.user.sub)!;
+    const approvedBy = { id: account.id, name: request.user.displayName?.trim() || account.name };
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE participation_requests SET status=?,approved_at=?,approved_by_owner_id=?,approved_by_owner_name=?,updated_at=? WHERE id=?`)
+      .run(body.status,body.status==="APPROVED" ? now : null,body.status==="APPROVED" ? approvedBy.id : null,body.status==="APPROVED" ? approvedBy.name : null,now,id);
+    if (body.status === "DECLINED") {
+      db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(now,row.phone);
+      queueParticipationDecision(db,config,id,"DECLINED",group);
+      return { ok:true,accessGranted:false };
+    }
+    const result = materializeApprovedMembership(db,row.phone,group!,now,approvedBy);
+    if (result.accessGranted) queueParticipationDecision(db,config,id,"APPROVED",group);
+    return {
+      ok:true,
+      accessGranted:result.accessGranted,
+      verification:result.state,
+      message: result.accessGranted
+        ? "Aprovação registrada e acesso liberado."
+        : "Aprovação do Owner registrada. Aguardando verificação do grupo antes de liberar o acesso."
+    };
   });
   return { ownerGuard };
 }

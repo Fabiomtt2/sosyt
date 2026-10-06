@@ -7,6 +7,7 @@ import helmet from "@fastify/helmet";
 import { z } from "zod";
 import { registerOwnerRoutes, hasMembership } from "./owner.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured } from "./whatsapp.js";
+import { effectiveWhatsAppConfig } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
@@ -240,7 +241,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   });
 
   app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    if (!config.AUTH_DEV_MODE && (!whatsappConfigured(config) || !config.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({ message: "A entrega WhatsApp ainda precisa ser configurada pelos Owners." });
+    const runtimeWhatsApp = effectiveWhatsAppConfig(db,config);
+    if (!config.AUTH_DEV_MODE && (!whatsappConfigured(runtimeWhatsApp) || !runtimeWhatsApp.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({ message: "A entrega WhatsApp ainda precisa ser configurada pelos Owners." });
     const body = requestCodeSchema.parse(request.body);
     if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, body.groupCode)) return reply.code(403).send({ message: "Número e grupo ainda não aprovados. Use Quero participar! para solicitar acesso ao Owner." });
     const recent = db.prepare("SELECT created_at FROM login_codes WHERE phone = ? ORDER BY created_at DESC LIMIT 1").get(body.phone) as { created_at: string } | undefined;
@@ -253,7 +255,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(randomUUID(), body.phone, body.name, body.groupCode, codeHash(config, body.phone, code), new Date(now.getTime() + 10 * 60_000).toISOString(), now.toISOString());
     if (!config.AUTH_DEV_MODE) {
-      try { await sendWhatsAppOtp(config,body.phone,code); }
+      try { await sendWhatsAppOtp(runtimeWhatsApp,body.phone,code); }
       catch { db.prepare("UPDATE login_codes SET used_at=? WHERE phone=? AND used_at IS NULL").run(new Date().toISOString(),body.phone); return reply.code(503).send({ message: "Não foi possível entregar o código pelo WhatsApp. Tente novamente mais tarde." }); }
     }
     return reply.send({ ok: true, expiresInSeconds: 600, ...(config.AUTH_DEV_MODE ? { devCode: code } : {}) });

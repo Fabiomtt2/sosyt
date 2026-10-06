@@ -1,6 +1,6 @@
 # ÂNCORA CANÔNICA — YOUTUBE FINAL
 
-Data-base: 05/10/2026.
+Data-base: 06/10/2026.
 
 > LEITURA OBRIGATÓRIA. Este arquivo é a fonte de verdade de produto e continuidade do repositório YouTube Final.
 > Toda instância/agente deve lê-lo antes de editar. Mudança de regra validada pelo usuário deve atualizar esta âncora no mesmo checkpoint.
@@ -30,22 +30,27 @@ Data-base: 05/10/2026.
 ## 3. Cadastro de participante
 
 - Existe uma única CTA principal `Quero participar`.
-- Fluxo: dados → solicitação pendente → dashboard Owner + bot → aprovação → login direto.
-- Participante comum nunca recebe campo de Credencial/OTP no fluxo principal.
+- Fluxo: dados → solicitação pendente persistente → dashboard Owner + bot → aprovação → mesma tela muda para `Cadastro aprovado` → usuário escolhe `Voltar ao acesso` → login direto.
+- Participante comum nunca recebe campo de Credencial/OTP no fluxo principal. Owner identificado continua obrigado a informar `Credencial`.
 - Tentativa de login ainda não aprovada vira cadastro pendente amigável; não apresentar 403 cru ao usuário.
-- Mensagem de sucesso canônica:
-  - “Sua solicitação de cadastro foi registrada e será validada em breve.”
-  - “<nome>, agora só falta uma etapa para você participar do nosso sistema!”
-  - “Nós entraremos em contato com seu número WhatsApp informado em breve para seguirmos com o registro.”
-- Aprovação preserva nome, WhatsApp, grupo, saldos e histórico.
+- A solicitação recebe token opaco de acompanhamento, persistido no navegador por até 30 dias e validado no servidor. A página consulta o status periodicamente e também possui `Verificar situação`.
+- O usuário pode fechar a página. Manter os dados do site permite reencontrar automaticamente a tela pendente/aprovada. Apagar cache/storage não apaga o pedido do servidor.
+- Todo novo pedido grava `retry_block_until` de 120 minutos. Reenvio do mesmo WhatsApp enquanto o pedido está pendente responde `423 REQUEST_RETRY_BLOCKED`, não cria outra solicitação e não gera novo alerta aos Owners.
+- A regra dos 120 minutos também vale quando o mesmo número tenta reiniciar o cadastro pelo bot WhatsApp; VPN/IP/navegador novo não zeram o registro porque a chave canônica é o WhatsApp normalizado.
+- Número já ativo em `group_memberships` não abre nova solicitação: responde `409 ALREADY_REGISTERED` com mensagem amigável “Esse número já foi registrado...”.
+- Aprovação preserva nome, WhatsApp, grupo, saldos e histórico. A tela de acompanhamento passa a exibir a aprovação sem redirecionar automaticamente.
 - Login aprovado exige grupo compatível com o cadastro.
-- A meta do modo verificado é dupla checagem: aprovação Owner + presença real no grupo informado + confirmação de que pelo menos um Owner configurado é administrador do grupo.
+- A meta do modo verificado é dupla checagem: aprovação Owner + presença real no grupo informado + confirmação de que pelo menos um Owner configurado é administrador do grupo. Presença/admin nunca devem conceder aprovação sozinhos.
 
 ## 4. WhatsApp — arquitetura
 
 ### Estado oficial
 
 - O código possui adaptador Meta Cloud API, webhook assinado, outbox persistente, retry/backoff, alertas Owner e sincronização oficial de grupos.
+- O dashboard Owner possui a seção `CONFIGURAR BOT SOS YOUTUBE` e um modal persistente com modos Oficial/Híbrido/Desativado. Na UI os rótulos são em português (`ID da conta do WhatsApp Business`, `ID do número do WhatsApp`, `Credencial de acesso da Meta`, `Chave secreta do aplicativo`, `Token de verificação`) e termos técnicos aparecem apenas nas explicações abertas por `?`.
+- Segredos informados no modal são criptografados localmente com AES-256-GCM e nunca retornam em texto puro pela API; a UI recebe apenas indicadores configurado/não configurado. Verify Token gerado pelo app é mostrado uma única vez.
+- Configuração salva pelo Owner é aplicada ao runtime do webhook/outbox/sincronização sem exigir reinício; valores do `.env` permanecem como fallback.
+- O painel deve deixar explícito, em linguagem amigável, quando a conexão oficial está pendente ou quando a credencial da Meta ainda é necessária; após uma chamada real à Graph API, grava a data da validação e passa a mostrar o estado validado.
 - Números Owner podem estar configurados mesmo quando o transporte Meta ainda não está conectado.
 - `OWNER_WHATSAPP` dedicado é opcional; na ausência, Rafael é o contato público de fallback.
 - Aprovação de participante não gera OTP; após aprovação, nome + WhatsApp + grupo bastam.
@@ -59,9 +64,11 @@ Três modos de operação devem ser suportados pelo dashboard:
 3. **Desativado** — nenhuma automação externa; dashboard/manual permanece disponível.
 
 - O modo complementar deve trazer aviso amigável: usa WhatsApp Web, pode exigir QR, pode quebrar após mudanças do WhatsApp e pode causar restrições na conta; nunca ativar silenciosamente.
+- Fábio e Rafael são contas Owner autorizadas para homologar o modo complementar quando houver pareamento explícito; seus números reais continuam somente no ambiente local.
 - Não deixar Meta e WPPConnect enviarem a mesma mensagem sem deduplicação/roteamento explícito.
 - WPPConnect deve preferencialmente atuar como prova complementar de grupo/admin; Meta continua sendo o transporte oficial sempre que disponível.
 - A prova de presença em grupo não deve ser confundida com aprovação Owner.
+- O modal e armazenamento de configuração WPPConnect já existem; sessão/QR e verificação real de grupos tradicionais ainda são pendência consciente e não devem ser apresentados como ativos antes do pareamento.
 
 ## 5. Credenciais Meta necessárias
 
@@ -76,7 +83,7 @@ Nunca versionar valores. Variáveis previstas:
 - `WHATSAPP_GRAPH_VERSION`
 - URLs públicas HTTPS para webhook/API.
 
-Ações manuais do responsável Meta: login/consentimento, eventual verificação do negócio, verificação do telefone por SMS/voz e aprovação de templates. O restante pode ser configurado pelo agente via DC quando autorizado.
+Ações manuais do responsável Meta: login/consentimento, eventual verificação do negócio, verificação do telefone por SMS/voz, obtenção do System User Access Token e aprovação de templates. O restante pode ser preenchido no modal Owner ou configurado via DC quando autorizado. Enquanto o token não existir, o painel deve dizer explicitamente que ele ainda é necessário; depois de salvo, `Validar token/API` consulta a Graph API e grava a data da validação.
 ## 6. Filas, URLs e persistência
 
 - Internamente o banco usa `rounds`; para o usuário o termo preferido é **Fila**.
@@ -121,12 +128,15 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Preservar navy/vermelho/creme, Manrope + DM Sans, cards arredondados, profundidade sutil e boa hierarquia.
 - Premium = refinamento e consistência; não trocar identidade sem aprovação.
 - Lockup `SOS YOUTUBER` horizontal.
-- `Quero participar` e ação principal do login têm mesma altura e alinhamento no desktop.
-- Segurança: escudo verde ilustrado centralizado verticalmente ao lado das três frases; apenas “Você mantém o controle.” em negrito.
+- `Quero participar` usa novamente o botão vermelho simples da identidade original ASTRA. Ele e a ação principal do login mantêm a mesma altura, eixo vertical, raio e tipografia; não adicionar gradiente/neon especial sem nova aprovação.
+- O bloco “Sem views automáticas / Sem reprodução oculta / Você mantém o controle” é somente textual. Não usar escudo ou outro ícone verde nesse bloco nem no cartão de solicitação. Apenas “Você mantém o controle.” fica em negrito.
 - Uma CTA de participação; sem duplicação apelativa.
 - “Voltar para tela de login” usa seta e linguagem neutra.
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
+- Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro.
+- Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
+- `Grupos e acesso` usa carrossel dos grupos configurados com estado, quantidade de acessos, modo de validação e ajuda `?`. `Autorização manual excepcional` exige nome + WhatsApp + grupo, cria registro administrativo quando necessário e grava data/Owner responsável.
 
 ## 10. Gate obrigatório
 
@@ -141,12 +151,12 @@ npm run test:e2e -w @conexao/client
 
 Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 
-## 11. Estado validado em 05/10/2026
+## 11. Estado validado em 06/10/2026
 
 - Owner alias preservado no JWT/dashboard.
-- Cadastro pendente amigável e aprovação Owner → login direto.
+- Cadastro pendente persistente → decisão Owner → mesma tela acompanha o resultado; após todas as verificações necessárias, muda para `Cadastro aprovado` e o usuário escolhe `Voltar ao acesso`.
 - Botões Login/Owner alinhados por teste visual.
-- Meta: adaptador existe; credenciais externas ainda precisam ser conectadas no ambiente real.
+- Meta: adaptador existe; o Owner possui modal de configuração e validação com dados persistidos no servidor. Sem credencial real da Meta, o painel mantém explícito que a conexão oficial ainda está pendente.
 - Contato público usa Rafael como fallback quando `OWNER_WHATSAPP` não existe.
 - Filas sequenciais preservadas.
 - Duplicata global de vídeo bloqueada.
@@ -155,12 +165,12 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Cooldown de 30 minutos aplicado no servidor.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
-- Gate mais recente antes desta âncora: 60/60 API, 6/6 cliente, lint/build verdes e E2E 1/1.
+- Gate mais recente: 65/65 API, 6/6 cliente, TypeScript/build/PWA verdes e E2E 1/1.
 
 ## 12. Pendências conscientes
 
-- Implementar/polir seletor de provedor WhatsApp no dashboard e camada WPPConnect.
-- Separar formalmente prova de presença/admin do grupo da aprovação Owner antes de ativar dupla checagem obrigatória.
+- Parear/implementar a sessão WPPConnect real e sua leitura de grupos/admins; o modal e armazenamento seguro já existem.
+- Obter prova real de Owner-admin pelo provedor. Presença no grupo, Owner-admin e aprovação Owner já são estados separados no motor; sem prova de admin a verificação externa não libera acesso.
 - Conectar credenciais Meta reais e webhook HTTPS.
 - Parear sessão WPPConnect somente após consentimento explícito no dashboard.
 - Publicar backend/webapp em HTTPS; GitHub pode ser usado como repositório, mas GitHub Pages sozinho não hospeda a API Fastify/SQLite.

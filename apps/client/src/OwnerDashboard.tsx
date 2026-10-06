@@ -1,14 +1,44 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Check, Download, LogOut, RefreshCw, ShieldCheck, Users, Youtube } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, LogOut, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
 import { ApiError, ownerApi, type OwnerOverview } from "./api";
+import { WhatsAppIntegrationModal } from "./WhatsAppIntegrationModal";
+import { ParticipantAdminModal } from "./ParticipantAdminModal";
 import { INTERNATIONAL_PHONE_PATTERN, formatInternationalPhoneInput } from "./phone";
 
 function localMonth() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bahia", year: "numeric", month: "2-digit" }).formatToParts(new Date());
   return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}`;
 }
-const date = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "Ainda não acessou";
+const date = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "—";
 const money = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const coins = (millis: number) => (millis / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+
+function AdminHelpModal({ topic, onClose }: { topic: "groups" | "manual"; onClose: () => void }) {
+  return <div className="modal-backdrop admin-help-backdrop" onMouseDown={onClose}>
+    <section className="modal admin-help-modal" role="dialog" aria-modal="true" aria-label={topic === "groups" ? "Ajuda sobre grupos e acesso" : "Ajuda sobre autorização manual"} onMouseDown={(e)=>e.stopPropagation()}>
+      <button className="close" aria-label="Fechar ajuda" onClick={onClose}>×</button>
+      <p className="eyebrow dark">AJUDA ADMINISTRATIVA</p>
+      {topic === "groups" ? <>
+        <h2>Para que servem estes grupos?</h2>
+        <p>Os cards representam os grupos <strong>SOS YOUTUBER</strong> aceitos pelo sistema. Eles não são filas de vídeos: são grupos de acesso dos participantes.</p>
+        <div className="help-points">
+          <p><strong>Ativo</strong> permite login e novas aprovações naquele grupo. <strong>Pausado</strong> suspende novos acessos sem apagar usuários, saldos ou histórico.</p>
+          <p><strong>Validação Owner</strong> significa que a autorização é feita manualmente pelos Owners. Quando uma integração externa de grupo estiver realmente validada, o card indicará esse modo separadamente.</p>
+          <p>Os grupos aparecem em carrossel porque podem existir de 1 a 99. A tela mostra apenas controles administrativos; nenhum participante vê este painel.</p>
+        </div>
+      </> : <>
+        <h2>O que é autorização manual?</h2>
+        <p>É uma rota administrativa excepcional para um participante que você já conferiu fora da fila normal de solicitações.</p>
+        <div className="help-points">
+          <p>O Owner informa <strong>nome + WhatsApp + grupo</strong>. O sistema cria um registro administrativo com data, origem <code>OWNER_MANUAL</code> e nome do Owner responsável.</p>
+          <p>Use a aba <strong>Solicitações</strong> como caminho padrão. A autorização manual existe para correções, migrações ou casos já validados por você.</p>
+          <p>Se o grupo estiver usando uma verificação externa obrigatória, a aprovação manual fica registrada, mas o acesso só é liberado quando as demais provas exigidas estiverem presentes.</p>
+        </div>
+      </>}
+      <button className="secondary" onClick={onClose}>Entendi</button>
+    </section>
+  </div>;
+}
 
 export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   const [month, setMonth] = useState(localMonth);
@@ -17,26 +47,54 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [manualName,setManualName] = useState("");
   const [phone, setPhone] = useState("");
   const [group, setGroup] = useState("1");
   const [newGroup, setNewGroup] = useState("");
   const [selections, setSelections] = useState<Record<string, string>>({});
+  const [showWhatsAppConfig,setShowWhatsAppConfig] = useState(false);
+  const [participantPhone,setParticipantPhone] = useState<string>();
+  const [helpTopic,setHelpTopic] = useState<"groups"|"manual">();
+  const groupRail=useRef<HTMLDivElement>(null);
+
   const load = useCallback(async () => {
     try { setData(await ownerApi.overview(month)); setError(""); }
     catch (cause) { if (cause instanceof ApiError && cause.status === 401) onLogout(); else setError(cause instanceof Error ? cause.message : "Falha ao carregar painel."); }
   }, [month, onLogout]);
-  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 30_000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 10_000); return () => window.clearInterval(timer); }, [load]);
+
   async function act(work: () => Promise<unknown>, message: string) {
     setBusy(true); setError(""); setNotice("");
     try { await work(); setNotice(message); await load(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); }
     finally { setBusy(false); }
   }
-  async function addMember(event: FormEvent) { event.preventDefault(); await act(() => ownerApi.approveMember(phone, group), "Número autorizado no grupo selecionado."); setPhone(""); }
-  async function addGroup(event: FormEvent) { event.preventDefault(); await act(() => ownerApi.group(newGroup, true), "Grupo adicionado."); setNewGroup(""); }
+  async function addMember(event: FormEvent) {
+    event.preventDefault();
+    await act(() => ownerApi.approveMember(phone, group, manualName), "Autorização manual registrada com auditoria.");
+    setManualName(""); setPhone("");
+  }
+  async function addGroup(event: FormEvent) {
+    event.preventDefault();
+    await act(() => ownerApi.group(newGroup, true), "Grupo adicionado e ativado.");
+    setNewGroup("");
+  }
+  async function checkVersion() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const latest=await ownerApi.version();
+      setNotice(latest.gitSha === data?.version.gitSha
+        ? `Você já está na versão Git ${latest.gitSha}${latest.dirty ? " · há WIP local ainda não commitado." : "."}`
+        : `O servidor está na versão Git ${latest.gitSha}. Recarregue o painel para usar a versão mais recente.`);
+    } catch(cause) { setError(cause instanceof Error ? cause.message : "Não foi possível verificar a versão."); }
+    finally { setBusy(false); }
+  }
+
   if (!data) return <main className="loading"><ShieldCheck /><span>Carregando painel do Owner…</span>{error && <p className="error">{error}</p>}</main>;
   const m = data.metrics;
   const activeGroups = data.groups.filter((item) => item.enabled);
+  const scrollGroups = (direction:number) => groupRail.current?.scrollBy({ left: direction * 310, behavior:"smooth" });
+
   return <div className="app-shell owner-shell">
     <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>Conexão <strong>Youtube</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} aria-label="Atualizar painel"><RefreshCw size={18} /></button><button className="profile" onClick={onLogout} aria-label={`Sair da conta de ${data.owner.name}`}><span><ShieldCheck size={19} /></span><div><strong>{data.owner.name}</strong><small>Painel administrativo</small></div><LogOut size={16} /></button></div></header>
     <main className="dashboard">
@@ -49,19 +107,87 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
         <article><Check /><span>Pacotes Pix aprovados</span><strong>{m.approvedPurchasesMonth}</strong><small>{m.demoPurchasesMonth} simulações, contadas separadamente</small></article>
         <article><ShieldCheck /><span>Receita Pix do mês</span><strong>{money(m.revenueCentsMonth)}</strong><small>Aprovados; simulações excluídas</small></article>
       </section>
-      <section className="owner-panel" style={{marginBottom:24}} aria-label="Integração WhatsApp"><h2>Bot SOS YouTube</h2><p className="muted">{data.whatsapp.configured ? "Meta Cloud API conectada ao servidor." : "Números Owner configurados; falta conectar o transporte automático do bot (Meta Cloud API ou provedor local)."} {data.whatsapp.queued} mensagens na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} envios aceitos pela Meta.</p><p className="muted">{data.whatsapp.ownerAlertsConfigured ? "Alertas aos Owners preparados." : "Configure telefones dos Owners e template aprovado para receber alertas."} {data.whatsapp.decisionTemplateConfigured ? "Decisões tardias podem ser notificadas por template aprovado." : "Dentro da janela ativa o bot responde à decisão; fora dela, configure o template de decisão."}</p><p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) SOS vinculado(s) à Groups API · ${data.whatsapp.automaticMemberships} associação(ões) automática(s) ativa(s).` : "Nenhum grupo SOS oficial sincronizado ainda. Enquanto a Meta não devolver grupos elegíveis, a conferência manual continua disponível."}</p><div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Sincronização dos grupos SOS concluída.")}>Sincronizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens elegíveis recolocadas na fila.")}>Repetir envios com falha</button>}</div></section>
+
+      <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
+        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><h2 className="bot-config-title"><Bot size={22}/>CONFIGURAR BOT SOS YOUTUBE</h2></div><button className="primary compact" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured ? "Modificar" : "Configurar integração"}</button></div>
+        <div className="integration-summary-grid">
+          <div><span>Modo</span><strong>{data.whatsapp.integration.mode === "HYBRID" ? "Híbrido" : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : "Meta oficial"}</strong><small>{data.whatsapp.integration.mode === "HYBRID" ? "Meta para mensagens + complemento opcional para grupos tradicionais." : data.whatsapp.integration.mode === "DISABLED" ? "Automação externa pausada; gestão manual continua disponível." : "WhatsApp Business Platform como canal principal."}</small></div>
+          <div><span>Credenciais Meta</span><strong>{data.whatsapp.integration.tokenValidatedAt ? "Validadas" : data.whatsapp.integration.accessTokenConfigured ? "Salvas · validar" : "Token necessário"}</strong><small>{data.whatsapp.integration.tokenValidatedAt ? `Última validação: ${date(data.whatsapp.integration.tokenValidatedAt)}` : "Enquanto não houver token validado, envio real pela API oficial permanece indisponível."}</small></div>
+          <div><span>Transporte nesta execução</span><strong>{data.whatsapp.configured ? "Ativo" : "Ainda inativo"}</strong><small>{data.whatsapp.queued} na fila · {data.whatsapp.failed} falhas · {data.whatsapp.sent} aceitas pelo provedor.</small></div>
+        </div>
+        <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) SOS oficial(is) vinculado(s) · ${data.whatsapp.automaticMemberships} associação(ões) automática(s).` : "Nenhum grupo SOS oficial sincronizado ainda. A conferência Owner permanece disponível e o modo híbrido poderá complementar grupos tradicionais."}</p>
+        <div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Sincronização dos grupos SOS concluída.")}>Sincronizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens elegíveis recolocadas na fila.")}>Repetir envios com falha</button>}</div>
+      </section>
+
+      <div className="owner-version"><span>Sistema <strong>v{data.version.appVersion}</strong> · Git <code>{data.version.gitSha}</code>{data.version.dirty ? " · WIP local" : ""} · atualização automática a cada 10 s</span><button className="text-button" disabled={busy} onClick={()=>void checkVersion()}><RefreshCw size={14}/>Verificar atualização</button></div>
       {error && <p className="error banner" role="alert">{error}</p>}
       {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
+
       <nav className="owner-tabs" aria-label="Seções administrativas">
         {([["requests", `Solicitações (${m.pendingRequests})`], ["users", "Participantes"], ["purchases", "Compras"], ["groups", "Grupos e acesso"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={() => setTab(key)}>{title}</button>)}
       </nav>
-      {tab === "requests" && <section className="owner-panel"><h2>Solicitações de cadastro</h2><p className="muted">Quando o grupo SOS está sincronizado pela Meta, entrada/saída atualiza o acesso automaticamente. Pendências de grupos ainda não sincronizados podem ser conferidas pelos Owners.</p>
-        {data.requests.length === 0 ? <div className="empty-state"><Users /><p>As novas solicitações aparecerão aqui.</p></div> : <div className="request-list">{data.requests.map((item) => <article className="request-card" key={item.id}><div>{item.status === "PENDING" && <span className="pending-user-badge">Novo Usuário! Registro pendente 📨 · aguarda registro ▶️</span>}<strong>{item.name}</strong><span>{item.phone} · {date(item.createdAt)} · {item.source === "WHATSAPP" ? "Recebido pelo WhatsApp" : "Solicitação web"}</span><small>{item.status === "PENDING" ? "Aguardando aprovação" : item.status === "APPROVED" ? "Aprovado" : "Não aprovado"}</small></div>{item.status === "PENDING" && <div className="request-actions"><label>Grupo<select aria-label={`Grupo para ${item.name}`} value={selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code ?? ""} onChange={(e) => setSelections({ ...selections, [item.id]: e.target.value })}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label><button className="primary compact" disabled={busy || !activeGroups.length} onClick={() => void act(() => ownerApi.decide(item.id, "APPROVED", selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code), "Solicitação aprovada. O participante já pode entrar.")}>Aprovar</button><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.decide(item.id, "DECLINED"), "Solicitação não aprovada.")}>Recusar</button></div>}</article>)}</div>}
+
+      {tab === "requests" && <section className="owner-panel">
+        <h2>Solicitações de cadastro</h2>
+        <p className="muted">A decisão do Owner é preservada com data e autoria. Registros aprovados permanecem visíveis, mas deixam de mostrar qualquer texto de pendência.</p>
+        {data.requests.length === 0 ? <div className="empty-state"><Users /><p>As novas solicitações aparecerão aqui.</p></div> : <div className="request-list">{data.requests.map((item) => <article className={`request-card request-card-${item.status.toLowerCase()}`} key={item.id}>
+          <div>
+            {item.status === "PENDING" ? <div className="request-badges"><span className="new-user-badge">Novo Usuário!</span><span className="request-state pending">🔴 Registro pendente</span></div> : item.status === "APPROVED" ? <span className="request-state approved">🟢 Usuário aprovado!</span> : <span className="request-state declined">⚪ Solicitação não aprovada</span>}
+            <strong>{item.name}</strong>
+            <span>{item.phone} · {date(item.createdAt)} · {item.source === "WHATSAPP" ? "Recebido pelo WhatsApp" : item.source === "OWNER_MANUAL" ? "Cadastro manual Owner" : "Solicitação web"}</span>
+            {item.status === "APPROVED" && <small>Aprovado em {date(item.approvedAt)} por {item.approvedByOwnerName ?? "Owner não identificado (registro legado)"}</small>}
+          </div>
+          {item.status === "PENDING" && <div className="request-actions"><label>Grupo<select aria-label={`Grupo para ${item.name}`} value={selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code ?? ""} onChange={(e) => setSelections({ ...selections, [item.id]: e.target.value })}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label><button className="primary compact" disabled={busy || !activeGroups.length} onClick={() => void act(() => ownerApi.decide(item.id, "APPROVED", selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code), "Aprovação do Owner registrada.")}>Aprovar</button><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.decide(item.id, "DECLINED"), "Solicitação marcada como não aprovada.")}>Recusar</button></div>}
+        </article>)}</div>}
       </section>}
-      {tab === "users" && <section className="owner-panel"><div className="section-title"><h2>Participantes cadastrados</h2><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.exportUsers(), "Exportação de usuários concluída.")}><Download size={16} /> Exportar CSV</button></div><div className="table-scroll"><table><thead><tr><th>Nome / WhatsApp</th><th>Grupo</th><th>Último acesso</th><th>Saldo por origem</th><th>Passes / carteira</th></tr></thead><tbody>{data.users.map((u) => <tr key={u.id}><td><strong>{u.name}</strong><small>{u.phone}</small></td><td>SOS {u.groupCode}</td><td>{date(u.lastSeenAt)}</td><td><strong>{(u.balanceMillis / 1000).toLocaleString("pt-BR")} moedas</strong><small>Inicial/promocional {(u.promoMillis / 1000).toLocaleString("pt-BR")} · compradas {(u.purchasedMillis / 1000).toLocaleString("pt-BR")} · bônus {(u.rewardMillis / 1000).toLocaleString("pt-BR")}</small></td><td>{u.extraPasses} passe{u.extraPasses === 1 ? "" : "s"}<small>{u.paymentHold ? "Em revisão" : "Disponível"}</small></td></tr>)}</tbody></table>{!data.users.length && <p className="muted">Nenhum participante completou o cadastro.</p>}</div><p className="muted table-note">Até 200 registros recentes na tela. O CSV inclui todos os usuários cadastrados.</p></section>}
-      {tab === "purchases" && <section className="owner-panel"><h2>Pacotes de moedas</h2><div className="table-scroll"><table><thead><tr><th>Participante</th><th>Valor</th><th>Tipo</th><th>Status</th><th>Criado em</th></tr></thead><tbody>{data.purchases.map((p) => <tr key={p.id}><td><strong>{p.name}</strong><small>{p.phone}</small></td><td>{money(p.amountCents)}</td><td>{p.provider === "DEMO" ? "Simulação" : "Pix"}</td><td>{p.status}</td><td>{date(p.createdAt)}</td></tr>)}</tbody></table>{!data.purchases.length && <p className="muted">Nenhum pacote solicitado.</p>}</div></section>}
-      {tab === "groups" && <section className="owner-panel"><h2>Grupos e números autorizados</h2><p className="muted">Os grupos de participantes vão de 1 a 99. Contas Owner são reconhecidas automaticamente pelo cadastro e não usam marcador visível na interface.</p><div className="group-chips">{data.groups.map((g) => <button className={g.enabled ? "group-chip enabled" : "group-chip"} key={g.code} disabled={busy} onClick={() => void act(() => ownerApi.group(g.code, !g.enabled), g.enabled ? "Grupo desativado; acessos suspensos." : "Grupo ativado.")}>SOS YOUTUBER {g.code} · {g.enabled ? "Ativo" : "Inativo"} · {g.membershipMode === "META_GROUPS_API" ? "Meta automático" : "Owner"}</button>)}</div><form className="owner-inline-form" onSubmit={addGroup}><label>Novo grupo<input inputMode="numeric" pattern="[1-9]|[1-9][0-9]" maxLength={2} value={newGroup} onChange={(e) => setNewGroup(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} placeholder="1 a 99" required /></label><button className="secondary" disabled={busy}>Adicionar grupo</button></form><h3>Autorizar participante já conferido</h3><form className="owner-inline-form" onSubmit={addMember}><label>WhatsApp<input inputMode="tel" value={phone} onChange={(e) => setPhone(formatInternationalPhoneInput(e.target.value))} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label><label>Grupo<select value={group} onChange={(e) => setGroup(e.target.value)}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label><button className="primary compact" disabled={busy || !activeGroups.length}>Autorizar número</button></form><div className="table-scroll"><table><thead><tr><th>WhatsApp</th><th>Grupo</th><th>Acesso</th><th>Ação</th></tr></thead><tbody>{data.members.map((m) => <tr key={m.phone}><td>{m.phone}</td><td>SOS {m.groupCode}</td><td>{m.revokedAt ? "Revogado" : m.source === "META_GROUPS_API" ? "Automático Meta" : "Autorizado"}</td><td>{!m.revokedAt && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.revoke(m.phone), "Acesso revogado; dados e saldo preservados.")}>Revogar</button>}</td></tr>)}</tbody></table></div></section>}
-      <footer><ShieldCheck size={17} /><span>Dados de contato disponíveis apenas ao Owner. Indicadores mensais usam o fuso de Salvador.</span></footer>
+
+      {tab === "users" && <section className="owner-panel">
+        <div className="section-title"><div><h2>Participantes</h2><p className="muted">Clique no nome para abrir o painel administrativo individual.</p></div><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.exportUsers(), "Exportação de usuários concluída.")}><Download size={16} /> Exportar CSV</button></div>
+        <div className="table-scroll"><table><thead><tr><th>Nome / WhatsApp</th><th>Grupo</th><th>Aprovação</th><th>Último acesso</th><th>Saldo</th><th>Estado</th></tr></thead><tbody>
+          {data.users.map((u) => <tr key={u.id}><td><button className="participant-link" onClick={()=>setParticipantPhone(u.phone)}>{u.name}</button><small>{u.phone}</small></td><td>SOS {u.groupCode}</td><td><strong>{date(u.approvedAt)}</strong><small>por {u.approvedByOwnerName ?? "Owner não identificado"}</small></td><td>{u.lastSeenAt ? date(u.lastSeenAt) : "Ainda não acessou"}</td><td><strong>{coins(u.balanceMillis)} moedas</strong><small>{u.extraPasses} passe{u.extraPasses===1?"":"s"}</small></td><td>{u.revokedAt ? <span className="table-status off">Revogado</span> : u.paymentHold ? <span className="table-status warn">Em revisão</span> : <span className="table-status on">Ativo</span>}</td></tr>)}
+        </tbody></table>{!data.users.length && <p className="muted">Nenhum participante aprovado ainda.</p>}</div>
+      </section>}
+
+      {tab === "purchases" && <section className="owner-panel"><h2>Pacotes de moedas</h2><p className="muted">Transações de provedor são trilha de auditoria. Para administrar uma carteira, abra o participante pelo nome.</p><div className="table-scroll"><table><thead><tr><th>Participante</th><th>Valor</th><th>Tipo</th><th>Status</th><th>Criado em</th></tr></thead><tbody>{data.purchases.map((p) => <tr key={p.id}><td><button className="participant-link" onClick={()=>setParticipantPhone(p.phone)}>{p.name}</button><small>{p.phone}</small></td><td>{money(p.amountCents)}</td><td>{p.provider === "DEMO" ? "Simulação" : "Pix"}</td><td>{p.status}</td><td>{date(p.createdAt)}</td></tr>)}</tbody></table>{!data.purchases.length && <p className="muted">Nenhum pacote solicitado.</p>}</div></section>}
+
+      {tab === "groups" && <section className="owner-panel groups-admin-panel">
+        <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">Controle quais grupos SOS YOUTUBER podem autenticar e receber novas aprovações.</p></div><span className="live-chip"><RefreshCw size={13}/>Atualiza a cada 10 s</span></div>
+        <div className="group-carousel-shell">
+          <button className="carousel-arrow" aria-label="Grupos anteriores" onClick={()=>scrollGroups(-1)}><ChevronLeft/></button>
+          <div className="group-carousel" ref={groupRail}>{data.groups.map((g) => {
+            const members=data.members.filter((m)=>m.groupCode===g.code && !m.revokedAt).length;
+            return <article className={`group-admin-card ${g.enabled ? "enabled":"disabled"}`} key={g.code}>
+              <div className="group-card-top"><span className="group-index">SOS YOUTUBER {g.code}</span><span className={g.enabled ? "table-status on":"table-status off"}>{g.enabled ? "Ativo":"Pausado"}</span></div>
+              <strong>{members} participante{members===1?"":"s"} com acesso</strong>
+              <small>Validação: {g.membershipMode === "META_GROUPS_API" ? "Meta / prova externa" : "Owner"}</small>
+              <small>{g.lastSyncedAt ? `Última sincronização: ${date(g.lastSyncedAt)}` : "Sem sincronização externa"}</small>
+              <button className={g.enabled ? "secondary":"primary compact"} disabled={busy} onClick={() => void act(() => ownerApi.group(g.code, !g.enabled), g.enabled ? `SOS YOUTUBER ${g.code} pausado; dados preservados.` : `SOS YOUTUBER ${g.code} ativado.`)}>{g.enabled ? "Pausar grupo":"Ativar grupo"}</button>
+            </article>;
+          })}</div>
+          <button className="carousel-arrow" aria-label="Próximos grupos" onClick={()=>scrollGroups(1)}><ChevronRight/></button>
+        </div>
+
+        <form className="owner-inline-form add-group-form" onSubmit={addGroup}><label>Novo grupo<input inputMode="numeric" pattern="[1-9]|[1-9][0-9]" maxLength={2} value={newGroup} onChange={(e) => setNewGroup(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} placeholder="1 a 99" required /></label><button className="secondary" disabled={busy}>Adicionar grupo</button></form>
+
+        <div className="manual-access-section">
+          <div className="heading-with-help"><h3>Autorização manual excepcional</h3><button className="help-icon" aria-label="Explicar autorização manual" onClick={()=>setHelpTopic("manual")}><HelpCircle size={18}/></button></div>
+          <p className="muted">Use quando você já conferiu a pessoa fora do fluxo normal de solicitações. O registro fica associado ao Owner responsável.</p>
+          <form className="owner-inline-form manual-access-form" onSubmit={addMember}>
+            <label>Nome<input value={manualName} onChange={(e)=>setManualName(e.target.value)} placeholder="Nome do participante" required /></label>
+            <label>WhatsApp<input inputMode="tel" value={phone} onChange={(e) => setPhone(formatInternationalPhoneInput(e.target.value))} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
+            <label>Grupo<select value={group} onChange={(e) => setGroup(e.target.value)}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label>
+            <button className="primary compact" disabled={busy || !activeGroups.length}>Registrar autorização</button>
+          </form>
+        </div>
+
+        <div className="table-scroll compact-access-table"><table><thead><tr><th>WhatsApp</th><th>Grupo</th><th>Aprovado em</th><th>Owner</th><th>Estado</th></tr></thead><tbody>{data.members.map((m) => <tr key={m.phone}><td><button className="participant-link" onClick={()=>setParticipantPhone(m.phone)}>{m.phone}</button></td><td>SOS {m.groupCode}</td><td>{date(m.approvedAt)}</td><td>{m.approvedByOwnerName ?? "Registro legado"}</td><td>{m.revokedAt ? "Revogado" : "Autorizado"}</td></tr>)}</tbody></table></div>
+      </section>}
+
+      <footer><ShieldCheck size={17} /><span>Dados de contato e controles desta área são exclusivos do Owner. Indicadores mensais usam o fuso de Salvador.</span></footer>
     </main>
+
+    {showWhatsAppConfig && <WhatsAppIntegrationModal initial={data.whatsapp.integration} onClose={()=>setShowWhatsAppConfig(false)} onSaved={(_state,message)=>{ setNotice(message); void load(); }} />}
+    {participantPhone && <ParticipantAdminModal phone={participantPhone} groups={data.groups} onClose={()=>setParticipantPhone(undefined)} onChanged={(next)=>{ if(next) setParticipantPhone(next); void load(); }} />}
+    {helpTopic && <AdminHelpModal topic={helpTopic} onClose={()=>setHelpTopic(undefined)} />}
   </div>;
 }

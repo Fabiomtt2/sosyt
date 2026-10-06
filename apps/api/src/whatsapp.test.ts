@@ -42,6 +42,22 @@ describe("bot oficial WhatsApp", () => {
     expect(sent.filter((s)=>s.type==="text").some((s)=>s.text.body.includes("validado em breve"))).toBe(true);
     await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(6);
   });
+  it("nova conversa no bot não duplica nem reabre cadastro pendente durante o bloqueio",async () => {
+    await post(payload("retry-m1","Quero participar"));
+    await post(payload("retry-m2","Lia"));
+    const first=db.prepare("SELECT id,status,retry_block_until AS blockedUntil FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string;status:string;blockedUntil:string};
+    expect(first.status).toBe("PENDING");
+    expect(Date.parse(first.blockedUntil)).toBeGreaterThan(Date.now());
+
+    await post(payload("retry-m3","Quero participar"));
+    await post(payload("retry-m4","Lia"));
+    expect(count("participation_requests")).toBe(1);
+    const alerts=db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE payload LIKE '%sos_pendente%'").get() as {n:number};
+    expect(alerts.n).toBe(2);
+    const received=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='retry-m4:received'").get() as {payload:string};
+    expect(JSON.parse(received.payload).text.body).toContain("já está registrado");
+  });
+
   it("usa Rafael como número público quando não há OWNER_WHATSAPP dedicado", async () => {
     config.OWNER_WHATSAPP=undefined;
     expect(publicWhatsAppNumber(config)).toBe("5571999999102");
@@ -90,7 +106,7 @@ describe("bot oficial WhatsApp", () => {
     expect(decisionPayload.template.name).toBe("sos_decisao");
     expect(decisionPayload.template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Caio","NÃO APROVADO","-",config.WEB_APP_URL]);
   });
-  it("descobre grupos SOS oficiais e sincroniza participantes automaticamente",async () => {
+  it("descobre grupos SOS e registra prova de presença sem aprovar participante automaticamente",async () => {
     let detailParticipants=[{wa_id:"5571999999001"}];
     vi.stubGlobal("fetch",vi.fn(async (url:string) => {
       if (url.includes("/123456/groups?")) return new Response(JSON.stringify({data:{groups:[{id:"group-2",subject:"SOS YOUTUBER 2"},{id:"other",subject:"Outro grupo"}]}}),{status:200});
@@ -99,20 +115,24 @@ describe("bot oficial WhatsApp", () => {
     }));
     expect(await syncOfficialWhatsAppGroups(db,config)).toEqual({discovered:2,linked:1,memberships:1});
     expect(db.prepare("SELECT whatsapp_group_id AS groupId,membership_mode AS mode FROM groups WHERE code='2'").get()).toEqual({groupId:"group-2",mode:"META_GROUPS_API"});
-    expect(db.prepare("SELECT group_code AS groupCode,source,revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get()).toEqual({groupCode:"2",source:"META_GROUPS_API",revokedAt:null});
+    expect(db.prepare("SELECT provider,owner_admin_count AS ownerAdminCount FROM whatsapp_group_verifications WHERE group_code='2'").get()).toEqual({provider:"META_GROUPS_API",ownerAdminCount:0});
+    expect(db.prepare("SELECT provider,group_code AS groupCode,revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get()).toEqual({provider:"META_GROUPS_API",groupCode:"2",revokedAt:null});
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone='5571999999001'").get()).toBeUndefined();
     detailParticipants=[];
     await syncOfficialWhatsAppGroups(db,config);
-    expect((db.prepare("SELECT revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
   });
-  it("webhook oficial de participantes concede e revoga associação sem duplicar evento",async () => {
+  it("webhook oficial registra e revoga prova de presença sem conceder aprovação sozinho",async () => {
     db.prepare("UPDATE groups SET whatsapp_group_id='group-1',membership_mode='META_GROUPS_API' WHERE code='1'").run();
+    db.prepare("INSERT INTO whatsapp_group_verifications (provider,group_code,external_group_id,subject,owner_admin_count,verified_at) VALUES ('META_GROUPS_API','1','group-1','SOS YOUTUBER 1',0,?)").run(new Date().toISOString());
     const groupPayload=(id:string,type:string,key:string) => ({object:"whatsapp_business_account",entry:[{id:"654321",changes:[{field:"group_participants_update",value:{metadata:{phone_number_id:"123456"},groups:[{timestamp:id,group_id:"group-1",type,[key]:[{wa_id:"5571999999001"}]}]}}]}]});
     const add=groupPayload("100","group_participants_add","added_participants");
     expect((await post(add)).statusCode).toBe(200); await post(add);
     expect(count("whatsapp_group_events")).toBe(1);
-    expect(db.prepare("SELECT group_code AS groupCode,source,revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get()).toEqual({groupCode:"1",source:"META_GROUPS_API",revokedAt:null});
+    expect(db.prepare("SELECT group_code AS groupCode,revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get()).toEqual({groupCode:"1",revokedAt:null});
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone='5571999999001'").get()).toBeUndefined();
     expect((await post(groupPayload("101","group_participants_remove","removed_participants"))).statusCode).toBe(200);
-    expect((db.prepare("SELECT revoked_at AS revokedAt FROM group_memberships WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
   });
   it("ignora outro número de atendimento e nome sem contexto; recusa payload malformado",async () => {
     await post(payload("m1","Quero participar","99999")); await post(payload("m2","Pessoa"));

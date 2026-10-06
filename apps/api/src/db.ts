@@ -28,6 +28,29 @@ CREATE TABLE IF NOT EXISTS group_memberships (
   revoked_at TEXT,
   source TEXT NOT NULL DEFAULT 'OWNER'
 );
+CREATE TABLE IF NOT EXISTS integration_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS whatsapp_group_verifications (
+  provider TEXT NOT NULL,
+  group_code TEXT NOT NULL REFERENCES groups(code),
+  external_group_id TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  owner_admin_count INTEGER NOT NULL DEFAULT 0,
+  verified_at TEXT NOT NULL,
+  PRIMARY KEY(provider, group_code)
+);
+CREATE TABLE IF NOT EXISTS whatsapp_member_verifications (
+  provider TEXT NOT NULL,
+  group_code TEXT NOT NULL REFERENCES groups(code),
+  phone TEXT NOT NULL,
+  external_group_id TEXT NOT NULL,
+  verified_at TEXT NOT NULL,
+  revoked_at TEXT,
+  PRIMARY KEY(provider, group_code, phone)
+);
 CREATE TABLE IF NOT EXISTS participation_requests (
   id TEXT PRIMARY KEY,
   phone TEXT NOT NULL UNIQUE,
@@ -179,19 +202,30 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("groups", "membership_mode", "TEXT NOT NULL DEFAULT 'OWNER_VERIFIED'");
   addColumn("groups", "last_synced_at", "TEXT");
   addColumn("group_memberships", "source", "TEXT NOT NULL DEFAULT 'OWNER'");
+  addColumn("group_memberships", "approved_by_owner_id", "TEXT");
+  addColumn("group_memberships", "approved_by_owner_name", "TEXT");
   addColumn("users", "last_seen_at", "TEXT");
   addColumn("users", "cooldown_until", "TEXT");
   addColumn("users", "cooldown_reason", "TEXT");
   addColumn("participation_requests", "source", "TEXT NOT NULL DEFAULT 'WEB'");
   addColumn("participation_requests", "whatsapp_verified_at", "TEXT");
+  addColumn("participation_requests", "retry_block_until", "TEXT");
+  addColumn("participation_requests", "duplicate_attempts", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("participation_requests", "approved_at", "TEXT");
+  addColumn("participation_requests", "approved_by_owner_id", "TEXT");
+  addColumn("participation_requests", "approved_by_owner_name", "TEXT");
   addColumn("submissions", "author_name", "TEXT");
   addColumn("submissions", "author_group", "TEXT");
   addColumn("oauth_states", "round_id", "TEXT");
   addColumn("playlist_watch_progress", "finalized_at", "TEXT");
   addColumn("playlist_watch_progress", "finalize_reason", "TEXT");
+  addColumn("wallet_ledger", "note", "TEXT");
+  addColumn("wallet_ledger", "actor_owner_id", "TEXT");
+  addColumn("wallet_ledger", "actor_owner_name", "TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_whatsapp_group_id ON groups(whatsapp_group_id) WHERE whatsapp_group_id IS NOT NULL;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_submissions_video_id ON submissions(video_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_users_cooldown_until ON users(cooldown_until);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_participation_retry_block ON participation_requests(retry_block_until);");
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);

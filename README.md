@@ -5,14 +5,14 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem Filas g
 ## Fluxo implementado
 
 - Uma única tela de login usa nome, WhatsApp com código do país e grupo SOS YOUTUBER de 1 a 99. O backend identifica automaticamente se o cadastro corresponde a participante ou Owner; `#` permanece apenas como detalhe interno da API e nunca é exibido na interface.
-- `Quero participar` registra a solicitação no painel e mostra uma confirmação amigável. O contato público usa `OWNER_WHATSAPP` quando definido ou o número Owner Rafael como fallback. A automação oficial usa Meta Cloud API quando conectada; WPPConnect é o complemento self-hosted planejado para grupos tradicionais, com ativação explícita no painel Owner.
+- `Quero participar` registra uma solicitação persistente e mantém uma tela de acompanhamento até a decisão. Reenvios do mesmo WhatsApp ficam protegidos por bloqueio temporário de 120 minutos; a aprovação aparece nessa mesma tela antes do retorno ao login. O contato público usa `OWNER_WHATSAPP` quando definido ou Rafael como fallback. A automação oficial usa Meta Cloud API quando conectada; WPPConnect é o complemento self-hosted planejado para grupos tradicionais, com ativação explícita no painel Owner.
 - A associação ao grupo SOS YOUTUBER é automatizada quando a Groups API oficial expõe grupos elegíveis: o worker reconhece `SOS YOUTUBER N`, sincroniza participantes e webhooks de entrada/saída atualizam o acesso. Grupos que a Meta não expõe permanecem disponíveis para conferência Owner.
 - Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes em cada Fila. O mesmo vídeo não pode ser reutilizado em Fila posterior.
 - Só URLs estruturais do YouTube são aceitas. Com `YOUTUBE_API_KEY`, o servidor também consulta a API para confirmar existência/acessibilidade.
 - Cada usuário começa com 10 moedas internas. Salvar custa 1; a primeira contribuição de cada Fila usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas compradas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
 - Ao completar 10 links, a Fila fica pronta e uma nova Fila abre. Quem participou permanece na tarefa da Fila concluída até atingir 100% ou escolher `Concluir tarefa`; só depois do cooldown persistente de 30 minutos volta ao fluxo comum. Depois da criação da playlist, o acompanhamento consolida 1 moeda interna a cada 10% de progresso, até 10 por usuário/Fila, sem duplicar marcos já creditados.
 - Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária.
-- Painel Owner: aprova/revoga números, gerencia grupos, lista usuários/compras, separa o saldo por origem, exporta CSV e acompanha solicitações, Filas, playlists, Pix e situação da integração WhatsApp.
+- Painel Owner: registra decisão com data/Owner responsável, gerencia grupos em carrossel, possui autorização manual excepcional auditada, popup administrativo de participante, saldos por origem, exportação CSV e configuração persistente do bot WhatsApp (Oficial/Híbrido/Desativado).
 
 ## Executar no computador
 
@@ -39,7 +39,7 @@ npm run build
 npm run test:e2e --workspace apps/client
 ```
 
-Na consolidação corrente de 05/10/2026: 60 testes de API, 6 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
+Na consolidação corrente de 06/10/2026: 65 testes de API, 6 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
 ## Integrações e limites atuais
 
