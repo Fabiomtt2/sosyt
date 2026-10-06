@@ -28,7 +28,7 @@ A governança corrente está em `AGENTS.md` e a fonte de verdade de produto/cont
 - Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–999. O backend resolve automaticamente participante/Owner. Se o participante ainda não estiver aprovado, a UI registra a solicitação pendente e mostra confirmação amigável; após aprovação, entra diretamente quando `group_memberships` confirma telefone + grupo. Não há Credencial/OTP no fluxo principal.
 - 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
 - Ao fechar o ciclo, recompensa de curadoria existente permanece.
-- Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
+- Participantes daquela Fila podem criar playlist privada na própria conta via OAuth Google/YouTube. A UI oferece um único CTA `Criar playlist` por usuário/Fila; contribuições extras do mesmo usuário não duplicam a ação dentro dos slots.
 - Acompanhamento de reprodução usa IFrame Player API, conta avanço natural com aba visível, ignora saltos grandes e sincroniza progresso por usuário/Fila. Fechar pausa; `Concluir tarefa` encerra no percentual atual. 100% conclui automaticamente.
 - Regra confirmada pelo usuário: cada marco de 10% consolidado gera 1 moeda interna, máximo 10 por playlist/ciclo. Ledger `WATCH_PROGRESS` torna os marcos idempotentes.
 - Moedas são crédito interno para controlar capacidade de contribuição; não são saque ou pagamento em dinheiro. O Owner vê separadamente origem inicial/promocional, comprada e bônus/recompensa.
@@ -95,7 +95,7 @@ Gate completo executado após recuperação por Git e refinamento visual:
 - Banco local, no diagnóstico desta rodada, tinha `0` memberships ativos e `0` usuários cadastrados; por isso nenhum participante real conseguia entrar antes de aprovação.
 - Grupos públicos atuais: `1`, `2`, `10`.
 - O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. O dashboard Owner já permite salvar no servidor e validar a configuração oficial Meta; sem credencial real, a conexão permanece explicitamente pendente. O complemento escolhido para grupos tradicionais é WPPConnect, ainda não pareado/ativado.
-- O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto.
+- O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto. O launcher canônico está versionado em `scripts/launch-xubuntu.sh`, prefere Firefox explicitamente e usa `xdg-open` apenas como fallback.
 
 ## Publicação web
 

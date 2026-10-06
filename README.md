@@ -11,7 +11,7 @@ Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem Filas g
 - Só URLs estruturais do YouTube são aceitas. Com `YOUTUBE_API_KEY`, o servidor também consulta a API para confirmar existência/acessibilidade.
 - Cada usuário começa com 10 moedas internas. Salvar custa 1; a primeira contribuição de cada Fila usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas compradas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
 - Ao completar 10 links, a Fila fica pronta e uma nova Fila abre. Quem participou permanece na tarefa da Fila concluída até atingir 100% ou escolher `Concluir tarefa`; só depois do cooldown persistente de 30 minutos volta ao fluxo comum. Depois da criação da playlist, o acompanhamento consolida 1 moeda interna a cada 10% de progresso, até 10 por usuário/Fila, sem duplicar marcos já creditados.
-- Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária.
+- Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária. Cada participante elegível vê um único botão `Criar playlist` por Fila, mesmo que tenha salvo mais de uma URL usando passes extras.
 - Painel Owner: registra decisão com data/Owner responsável, administra virtualmente grupos SOS YOUTUBER 1–999 em carrossel funcional, possui autorização manual excepcional usando o mesmo seletor internacional de telefone, popup administrativo de participante, saldos por origem, exportação CSV e configuração persistente do bot WhatsApp (Oficial/Híbrido/Desativado). O botão de integração segue o vermelho ASTRA; o Híbrido usa identidade vaporwave com Meta/YouTube 50/50. O modal tem scroll interno, ajuda contextual e fecha por `Esc` em camadas.
 
 ## Executar no computador
@@ -24,7 +24,7 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. Os nomes padrão de Owner são `Fabio0` e `Rafael0`, com aliases sem o sufixo zero. O telefone configurado para cada Owner faz parte da identificação; o marcador `#` existe apenas internamente na API e nunca é solicitado na interface. Dados reais de Owner permanecem somente no `.env` local. Nunca publique o `.env`.
+Abra http://localhost:5173. No Xubuntu, `scripts/launch-xubuntu.sh` inicia os serviços quando necessário e abre uma janela Firefox nova com cache-bust; o atalho de desktop deve apontar para esse script versionado. Os nomes padrão de Owner são `Fabio0` e `Rafael0`, com aliases sem o sufixo zero. O telefone configurado para cada Owner faz parte da identificação; o marcador `#` existe apenas internamente na API e nunca é solicitado na interface. Dados reais de Owner permanecem somente no `.env` local. Nunca publique o `.env`.
 
 Em desenvolvimento, `AUTH_DEV_MODE=true` habilita a credencial administrativa local definida para teste; o participante aprovado entra diretamente por nome + WhatsApp + grupo. O mecanismo OTP permanece apenas como compatibilidade/legado no backend. `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção os modos de demonstração são recusados pelo carregador de configuração.
 

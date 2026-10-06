@@ -11,7 +11,7 @@ Se houver qualquer sinal de perda de contexto, executar primeiro `docs/SKILL-REC
 Antes de editar:
 1. `git status --short`
 2. `git log -5 --oneline --decorate`
-3. ler `AGENTS.md`, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md` e este arquivo;
+3. ler `AGENTS.md`, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md`, `docs/AUDITORIA-PARTICIPANTE-INFRA-20261006.md` e este arquivo;
 4. preservar WIP; nunca reset/clean/stash sem autorização explícita;
 5. tratar `Conexão Youtube` como origem histórica ASTRA somente leitura durante auditorias.
 

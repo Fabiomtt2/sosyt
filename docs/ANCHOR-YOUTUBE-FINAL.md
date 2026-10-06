@@ -100,7 +100,7 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 
 ## 7. Playlist, acompanhamento e conclusão
 
-- Participante da Fila pode criar playlist privada em sua própria conta via OAuth Google/YouTube explícito.
+- Participante da Fila pode criar playlist privada em sua própria conta via OAuth Google/YouTube explícito. A interface oferece **um único CTA “Criar playlist” por usuário/Fila**, no card principal; nunca repetir o botão em cada URL que a mesma pessoa salvou com passes extras.
 - Acompanhamento atual usa IFrame Player API: tempo natural, aba visível, grandes saltos ignorados e persistência por usuário/Fila.
 - Cada marco consolidado de 10% concede 1 moeda interna, máximo de 10 por Fila; ledger `WATCH_PROGRESS` é idempotente.
 - Fechar a janela de acompanhamento apenas pausa; o estado continua salvo.
@@ -170,6 +170,7 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
 - Gate mais recente: 65/65 API, 9/9 cliente, TypeScript/build/PWA verdes e E2E 1/1.
+- O launcher Xubuntu canônico é `scripts/launch-xubuntu.sh`: inicia os serviços quando necessário, abre URL com cache-bust e prefere Firefox explicitamente, usando `xdg-open` somente como fallback. O atalho local deve ser apenas um wrapper para esse script versionado.
 
 ## 12. Pendências conscientes
 
