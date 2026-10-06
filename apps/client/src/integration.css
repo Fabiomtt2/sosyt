@@ -12,7 +12,7 @@
 }
 .astra-integration-modal::-webkit-scrollbar{width:10px}
 .astra-integration-modal::-webkit-scrollbar-thumb{background:#d7cec7;border:3px solid #fffdfa;border-radius:999px}
-.astra-integration-modal .astra-modal-title{display:grid!important;grid-template-columns:52px 1fr!important;gap:16px!important;align-items:start!important;margin:0 0 22px!important}
+.astra-integration-modal .astra-modal-title{display:grid!important;grid-template-columns:52px 1fr!important;gap:16px!important;align-items:start!important;margin:0 0 22px!important;height:auto!important;min-height:0!important;padding:0!important;background:transparent!important;color:inherit!important}
 .astra-integration-modal .astra-modal-title>span{
   width:50px!important;height:50px!important;display:grid!important;place-items:center!important;border-radius:14px!important;
   background:#e72b3b!important;color:#fff!important;box-shadow:0 12px 26px #b51f3026!important

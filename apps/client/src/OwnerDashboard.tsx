@@ -190,8 +190,8 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
           <div className="heading-with-help"><h3>Autorização manual excepcional</h3><button className="help-icon" aria-label="Explicar autorização manual" onClick={()=>setHelpTopic("manual")}><HelpCircle size={18}/></button></div>
           <p className="muted">Use quando você já conferiu a pessoa fora do fluxo normal de solicitações. O registro fica associado ao Owner responsável.</p>
           <form className="manual-access-form modern-manual-form" onSubmit={addMember}>
-            <label>Nome<input value={manualName} onChange={(e)=>setManualName(e.target.value)} placeholder="Nome do participante" required /></label>
-            <div className="field-block"><label>WhatsApp</label><PhoneField id="manual-whatsapp" value={phone} onChange={setPhone} required/><small className="field-help-copy">Código do país + DDD + Número do WhatsApp.</small></div>
+            <div className="field-block"><label htmlFor="manual-name">Nome</label><input id="manual-name" value={manualName} onChange={(e)=>setManualName(e.target.value)} placeholder="Nome do participante" required /></div>
+            <div className="field-block"><label htmlFor="manual-whatsapp">WhatsApp</label><PhoneField id="manual-whatsapp" value={phone} onChange={setPhone} required/><small className="field-help-copy">Código do país + DDD + Número do WhatsApp.</small></div>
             <div className="manual-group-field">
               <div className="manual-group-heading"><strong>Grupo</strong><span>SOS YOUTUBER {group}</span></div>
               <div className="manual-group-picker">

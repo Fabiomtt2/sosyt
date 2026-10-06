@@ -121,3 +121,9 @@ Mesmo com o E2E anterior verde, o usuário ainda percebe desalinhamento entre `Q
 ## Regra de heartbeat reforçada
 
 Durante esta rodada, qualquer execução prolongada deve emitir heartbeat ao usuário em cada marco e nunca ultrapassar ~5 minutos sem output.
+
+
+## Reauditoria posterior — 66af15c
+- A evidência visual revelou um RED que o teste anterior não capturava: a tag semântica header do título da integração herdava o CSS global da barra principal e criava uma faixa navy sobre o modal. Corrigido trocando o wrapper por div e protegendo .astra-modal-title contra background/height/padding globais.
+- A autorização manual tinha wrappers alinhados, porém o grid esticava o label/input Nome para compensar o hint adicional do PhoneField. Corrigido com align-self/align-content e controles padronizados em 50 px.
+- Regressões automáticas novas: geometria Nome x WhatsApp <=1 px; modal 1366x768 dentro da viewport, sem overlap inicial/overflow lateral e título transparente.

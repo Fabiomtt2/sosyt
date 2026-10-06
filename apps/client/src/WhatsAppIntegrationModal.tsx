@@ -122,10 +122,10 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
     <section className="modal integration-modal astra-integration-modal" role="dialog" aria-modal="true" aria-label="Configurar integração WhatsApp" onMouseDown={(e)=>e.stopPropagation()}>
       <button className="close" aria-label="Fechar configuração" onClick={onClose}>×</button>
 
-      <header className="integration-title astra-modal-title">
+      <div className="integration-title astra-modal-title">
         <span><Bot size={25}/></span>
         <div><p className="eyebrow dark">OWNER · AUTOMAÇÃO</p><h2>Configurar integração</h2><p className="muted">Os dados ficam salvos no servidor e permanecem disponíveis para os Owners mesmo após fechar o navegador.</p></div>
-      </header>
+      </div>
 
       <div className="astra-status-grid">
         <article><span>Canal selecionado</span><strong>{state.mode==="HYBRID" ? "HÍBRIDO" : state.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{state.mode==="HYBRID" ? "Meta + complemento opcional" : state.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>

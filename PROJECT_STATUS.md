@@ -113,3 +113,11 @@ Gate completo executado após recuperação por Git e refinamento visual:
 - Observabilidade, backup/restauração e implantação.
 - Revisar requisitos contratuais/políticas dos provedores antes de produção.
 - APK debug atualizado foi gerado; instalação automática no aparelho físico ficou pendente porque o transporte USB/ADB oscilou durante a tentativa. Android WIP histórico não foi destruído.
+
+
+## Reauditoria visual — 06/10/2026 · HEAD base 66af15c
+- Local e origin/main foram reancorados no mesmo commit antes da rodada.
+- RED real em Grupos e acesso: o grid esticava internamente o campo Nome; corrigido para mesma coordenada Y e 50 px de altura do PhoneField. E2E exige diferença <=1 px.
+- RED real no modal Configurar integração: o wrapper era um header e herdava a barra navy global, gerando a faixa escura/texto ilegível. Wrapper isolado + proteção em integration.css.
+- Novo gate visual cobre 1366x768, scroll interno, ausência de overflow horizontal e não sobreposição título/status/seção.
+- Página participante e motor de Filas/moedas/URLs/progresso permanecem invariantes protegidos pelo gate completo.

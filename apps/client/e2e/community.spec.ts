@@ -261,6 +261,21 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await group999.getByRole("button", { name: "Ativar grupo" }).click();
   await expect(group999.getByText("Ativo", { exact: true })).toBeVisible();
   await expect(page.locator(".manual-access-section").getByText("Código do país + DDD + Número do WhatsApp.", { exact: true })).toBeVisible();
+  const manualFieldGeometry = await page.locator(".manual-access-section").evaluate((section) => {
+    const nameInput = section.querySelector("input[placeholder='Nome do participante']")!;
+    const phoneField = section.querySelector(".phone-field")!;
+    const name = nameInput.getBoundingClientRect();
+    const phone = phoneField.getBoundingClientRect();
+    const nameBlock = nameInput.closest(".field-block")!.getBoundingClientRect();
+    const phoneBlock = phoneField.closest(".field-block")!.getBoundingClientRect();
+    const nameLabel = nameInput.closest(".field-block")!.querySelector("label")!.getBoundingClientRect();
+    const phoneLabel = phoneField.closest(".field-block")!.querySelector("label")!.getBoundingClientRect();
+    return { nameY:name.y, phoneY:phone.y, nameHeight:name.height, phoneHeight:phone.height,
+      nameBlockY:nameBlock.y,phoneBlockY:phoneBlock.y,nameLabelY:nameLabel.y,phoneLabelY:phoneLabel.y,
+      nameLabelH:nameLabel.height,phoneLabelH:phoneLabel.height };
+  });
+  expect(Math.abs(manualFieldGeometry.nameY-manualFieldGeometry.phoneY)).toBeLessThanOrEqual(1);
+  expect(Math.abs(manualFieldGeometry.nameHeight-manualFieldGeometry.phoneHeight)).toBeLessThanOrEqual(1);
   await page.getByRole("button", { name: "Explicar grupos e acesso" }).click();
   await expect(page.getByRole("dialog", { name: "Ajuda sobre grupos e acesso" })).toBeVisible();
   await expect(page.getByText("Eles não são filas de vídeos:", { exact: false })).toBeVisible();
@@ -274,9 +289,32 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const integrationButtonStyle = await integrationConfigButton.evaluate((element) => ({ backgroundColor:getComputedStyle(element).backgroundColor, color:getComputedStyle(element).color }));
   expect(integrationButtonStyle.backgroundColor).toBe("rgb(231, 43, 59)");
   expect(integrationButtonStyle.color).toBe("rgb(255, 255, 255)");
+  await page.setViewportSize({ width: 1366, height: 768 });
   await integrationConfigButton.click();
   const integrationDialog = page.getByRole("dialog", { name: "Configurar integração WhatsApp" });
   await expect(integrationDialog).toBeVisible();
+  const modalGeometry = await integrationDialog.evaluate((el:HTMLElement) => {
+    const modal=el.getBoundingClientRect();
+    const title=el.querySelector(".astra-modal-title")!.getBoundingClientRect();
+    const status=el.querySelector(".astra-status-grid")!.getBoundingClientRect();
+    const firstSection=el.querySelector(".integration-section")!.getBoundingClientRect();
+    const style=getComputedStyle(el);
+    return {
+      modalTop:modal.top,modalBottom:modal.bottom,modalWidth:modal.width,
+      titleBottom:title.bottom,statusTop:status.top,statusBottom:status.bottom,sectionTop:firstSection.top,
+      overflowX:style.overflowX,overflowY:style.overflowY,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth,
+      titleBackground:getComputedStyle(el.querySelector(".astra-modal-title")!).backgroundColor,
+      titleHeight:title.height
+    };
+  });
+  expect(modalGeometry.modalTop).toBeGreaterThanOrEqual(0);
+  expect(modalGeometry.modalBottom).toBeLessThanOrEqual(768);
+  expect(modalGeometry.statusTop).toBeGreaterThanOrEqual(modalGeometry.titleBottom-1);
+  expect(modalGeometry.sectionTop).toBeGreaterThanOrEqual(modalGeometry.statusBottom-1);
+  expect(modalGeometry.scrollWidth).toBeLessThanOrEqual(modalGeometry.clientWidth+1);
+  expect(modalGeometry.titleBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(modalGeometry.titleHeight).toBeLessThan(140);
+  await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-top-desktop.png"), fullPage: true });
   const integrationOverflowY = await integrationDialog.evaluate((el) => getComputedStyle(el).overflowY);
   expect(["auto", "scroll"]).toContain(integrationOverflowY);
   await expect(page.getByRole("radio", { name: /Meta Oficial/ })).toBeVisible();
@@ -316,6 +354,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(await integrationDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
   await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(integrationDialog).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });

@@ -584,6 +584,8 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .group-jump-form{display:grid;grid-template-columns:minmax(180px,240px) auto;gap:10px;align-items:end;padding-top:12px;border-top:1px solid #eee7e0}
 .group-jump-form button{min-height:48px}
 .modern-manual-form{display:grid;grid-template-columns:1fr 1.35fr;gap:16px}
+.modern-manual-form>.field-block{align-self:start;align-content:start}
+.modern-manual-form>.field-block>input,.modern-manual-form>.field-block .phone-field{height:50px;min-height:50px}
 .modern-manual-form>.manual-group-field,.modern-manual-form>.primary{grid-column:1/-1}
 .manual-group-field{display:grid;gap:9px}
 .manual-group-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.84rem}
