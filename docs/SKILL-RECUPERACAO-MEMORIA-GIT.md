@@ -94,7 +94,7 @@ Commit pequeno, temático, somente após verde. Registrar no `PROJECT_STATUS.md`
 - Não inferir o fluxo de `Quero participar` pela aparência atual. Recuperar histórico de `App.tsx`, `owner.ts` e `whatsapp.ts`.
 - Fluxo recuperado em 05/10/2026: **CTA → tela intermediária de dados → `/participation/request` → pendência/dashboard → `whatsappUrl` com mensagem pronta → usuário confirma Enviar → bot Cloud API continua onboarding**.
 - `wa.me` não envia mensagem sozinho. Nunca descrever o deep link como envio automático.
-- Bot já possui acolhimento, pergunta “Como gostaria de ser chamado?”, pendência, alerta administrativo, decisão e Credencial OTP quando configurada. Não reimplementar sem RED.
+- Bot já possui acolhimento, pergunta “Como gostaria de ser chamado?”, pendência, alerta administrativo e decisão. Participante não recebe Credencial/OTP no fluxo principal; após aprovação entra diretamente com nome + WhatsApp + grupo. Não reintroduzir a etapa de Credencial sem um novo requisito explícito.
 - Owner/usuário já usam login único; `#` é interno. Não reintroduzir UI específica de Owner.
 - Telefone é internacional e não recebe `+55` automático.
 - Grupo é 1–99.

@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
-import { flushWhatsAppOutbox, queueParticipationDecision, syncOfficialWhatsAppGroups } from "./whatsapp.js";
+import { flushWhatsAppOutbox, publicWhatsAppNumber, queueParticipationDecision, syncOfficialWhatsAppGroups, whatsappJoinUrl } from "./whatsapp.js";
 
 describe("bot oficial WhatsApp", () => {
   let db: AppDatabase, config: Config, app: Awaited<ReturnType<typeof buildApp>>;
@@ -42,6 +42,12 @@ describe("bot oficial WhatsApp", () => {
     expect(sent.filter((s)=>s.type==="text").some((s)=>s.text.body.includes("validado em breve"))).toBe(true);
     await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(6);
   });
+  it("usa Rafael como número público quando não há OWNER_WHATSAPP dedicado", async () => {
+    config.OWNER_WHATSAPP=undefined;
+    expect(publicWhatsAppNumber(config)).toBe("5571999999102");
+    expect(whatsappJoinUrl(config)).toContain("https://wa.me/5571999999102");
+  });
+
   it("prioriza o número administrativo configurado para novo registro",async () => {
     config.OWNER_ALERT_WHATSAPP="5511998765432";
     await post(payload("alert-m1","Quero participar"));
@@ -66,11 +72,9 @@ describe("bot oficial WhatsApp", () => {
     const decisionPayload=JSON.parse(job.payload);
     expect(decisionPayload.type).toBe("text");
     expect(decisionPayload.text.body).toContain("aprovado no SOS YOUTUBER 1");
-    expect(count("login_codes")).toBe(1);
-    const credentialJob=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'approval-credential:%'").get() as {payload:string};
-    const credentialPayload=JSON.parse(credentialJob.payload);
-    expect(credentialPayload.type).toBe("template");
-    expect(credentialPayload.template.name).toBe("sos_codigo");
+    expect(decisionPayload.text.body).toContain("Nenhuma credencial adicional é necessária.");
+    expect(count("login_codes")).toBe(0);
+    expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key LIKE 'approval-credential:%'").get()).toBeUndefined();
   });
   it("usa template de decisão fora da janela e deduplica o aviso",async () => {
     await post(payload("late-m1","Quero participar"));

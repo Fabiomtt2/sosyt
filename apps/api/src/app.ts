@@ -22,8 +22,8 @@ import {
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string };
-    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string };
+    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string };
+    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string };
   }
 }
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useRef, type FormEvent } from "react"
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
-import { Check, CircleDollarSign, Clock3, ExternalLink, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
+import { ArrowLeft, Check, CircleDollarSign, Clock3, ExternalLink, Link2, LoaderCircle, LockKeyhole, LogOut, Plus, RefreshCw, ShieldCheck, Youtube } from "lucide-react";
 import { OwnerDashboard } from "./OwnerDashboard";
 import { WatchProgress, readSavedWatchPercent } from "./WatchProgress";
 import { api, ownerApi, participationApi, ApiError, type Dashboard, type Pix, type Round } from "./api";
@@ -44,13 +44,20 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           setStep("credential");
         } else {
           if (!/^(?:[1-9]|[1-9][0-9])$/.test(form.groupCode)) throw new Error("Digite o número do seu grupo SOS YOUTUBER, de 1 a 99.");
-          const result = await api.login({ name, phone: form.phone, groupCode: form.groupCode });
-          localStorage.removeItem("conexao_owner_token");
-          localStorage.setItem("conexao_token", result.token);
-          onDone("user");
+          try {
+            const result = await api.login({ name, phone: form.phone, groupCode: form.groupCode });
+            localStorage.removeItem("conexao_owner_token");
+            localStorage.setItem("conexao_token", result.token);
+            onDone("user");
+          } catch (cause) {
+            if (!(cause instanceof ApiError) || cause.status !== 403) throw cause;
+            const pending = await participationApi.join({ name, phone: form.phone, groupCode: form.groupCode, consent: true });
+            setJoinMode(true);
+            setJoined(pending);
+          }
         }
       } else if (authRole === "owner") {
-        if (!credential.trim()) throw new Error("Digite a credencial administrativa.");
+        if (!credential.trim()) throw new Error("Digite sua credencial.");
         const result = await ownerApi.login({ name, identifier: form.phone, groupCode: "#", secret: credential });
         localStorage.removeItem("conexao_token");
         localStorage.setItem("conexao_owner_token", result.token);
@@ -82,21 +89,30 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     <section className="login-card">
       <div>
         <p className="eyebrow dark">ACESSO SOS YOUTUBER</p>
-        <h2>{step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Digite sua Credencial"}</h2>
-        <p className={step === "profile" && !joinMode ? "muted login-helper" : "muted"}>{step === "profile" ? joinMode ? "Informe seus dados. Ao continuar, sua solicitação entra no painel e o WhatsApp fica pronto para iniciar o bot." : "Informe seus dados — identificamos automaticamente seu perfil pelo WhatsApp." : "Digite a credencial administrativa para abrir o painel de Owner."}</p>
+        <h2>{joined ? "Solicitação registrada" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
+        <p className={!joined && (step === "credential" || (step === "profile" && !joinMode)) ? "muted login-helper" : "muted"}>{joined ? "Seu cadastro entrou na fila de validação da equipe." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
-      {joined ? <div className="join-success" role="status"><ShieldCheck size={30} /><p>{joined.message}</p>{joined.whatsappUrl && <a className="primary" href={joined.whatsappUrl} target="_blank" rel="noreferrer">Continuar no WhatsApp</a>}<p className="muted">{joined.whatsappUrl ? "Sua solicitação já aparece no dashboard administrativo. No WhatsApp, confirme o envio da mensagem para continuar com o bot." : "Sua solicitação já aparece no dashboard administrativo. O bot do WhatsApp ainda não está conectado neste ambiente; a aprovação continua disponível pelo painel de Owner."}</p><button className="secondary" onClick={() => { setJoined(undefined); setJoinMode(false); returnToProfile(); }}>Voltar ao login</button></div> : <form noValidate onSubmit={submit}>
-        {step === "profile" ? <>
-          <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
-          <label>WhatsApp<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatInternationalPhoneInput(e.target.value) })} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
-          <label>SOS YOUTUBER — Digite a qual grupo você pertence<input inputMode="numeric" maxLength={2} pattern="[1-9]|[1-9][0-9]" value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(/[^0-9]/g, "").slice(0, 2) })} placeholder="1 a 99" required={joinMode} /></label>
-          {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o SOS YouTube a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
-        </> : <>
-          <label>Credencial administrativa<input type="password" autoComplete="current-password" value={credential} onChange={(e) => setCredential(e.target.value)} placeholder="Credencial do administrador" /></label>
-        </>}
-        {error && <p className="error">{error}</p>}
-        <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
-        {step === "credential" && <button type="button" className="text-button" onClick={returnToProfile}>Voltar e corrigir os dados</button>}
+      {joined ? <div className="join-success" role="status">
+        <div className="join-success-heading"><ShieldCheck size={30} /><strong>{joined.message}</strong></div>
+        <p><strong>{form.name.trim()}</strong>, agora só falta uma etapa para você participar do nosso sistema!</p>
+        <p className="muted">Nós entraremos em contato com seu número WhatsApp informado em breve para seguirmos com o registro.</p>
+        <button className="secondary back-to-login" onClick={() => { setJoined(undefined); setJoinMode(false); returnToProfile(); }}><ArrowLeft size={18} />Voltar para tela de login</button>
+      </div> : <form className="access-form" noValidate onSubmit={submit}>
+        <div className="access-fields">
+          {step === "profile" ? <>
+            <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
+            <label>WhatsApp<input inputMode="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: formatInternationalPhoneInput(e.target.value) })} pattern={INTERNATIONAL_PHONE_PATTERN} placeholder="+ código do país + número" required /></label>
+            <label>SOS YOUTUBER — Digite a qual grupo você pertence<input inputMode="numeric" maxLength={2} pattern="[1-9]|[1-9][0-9]" value={form.groupCode} onChange={(e) => setForm({ ...form, groupCode: e.target.value.replace(/[^0-9]/g, "").slice(0, 2) })} placeholder="1 a 99" required={joinMode} /></label>
+            {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o SOS YouTube a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
+          </> : <>
+            <label>Credencial<input type="password" autoComplete="current-password" value={credential} onChange={(e) => setCredential(e.target.value)} placeholder="Digite sua credencial" /></label>
+            <button type="button" className="text-button back-link" onClick={returnToProfile}><ArrowLeft size={16} />Voltar para tela de login</button>
+          </>}
+          {error && <p className="error">{error}</p>}
+        </div>
+        <div className="access-actions">
+          <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
+        </div>
       </form>}
       {step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
     </section>

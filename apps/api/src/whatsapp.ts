@@ -12,8 +12,11 @@ const now = () => new Date().toISOString();
 const phoneValid = (phone: string) => /^[1-9]\d{7,14}$/.test(phone);
 export const whatsappConfigured = (config: Config) => Boolean(config.WHATSAPP_PHONE_NUMBER_ID && config.WHATSAPP_ACCESS_TOKEN && config.WHATSAPP_APP_SECRET && config.WHATSAPP_VERIFY_TOKEN);
 const equal = (a: string, b: string) => timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
+export function publicWhatsAppNumber(config: Config) {
+  return config.OWNER_WHATSAPP ?? config.OWNER_RAFAEL_WHATSAPP;
+}
 export function whatsappJoinUrl(config: Config) {
-  const phone = config.OWNER_WHATSAPP;
+  const phone = publicWhatsAppNumber(config);
   return phone ? `https://wa.me/${phone}?text=${encodeURIComponent("Olá! Quero participar do projeto SOS YouTube.")}` : undefined;
 }
 function queue(db: AppDatabase, recipient: string, payload: Payload, dedupeKey: string, expiresAt?: string) {
@@ -59,11 +62,8 @@ export function queueParticipationDecision(
   const dedupe = `decision:${requestId}:${status}:${groupCode ?? "-"}`;
 
   if (inServiceWindow && serviceExpiresAt) {
-    const credentialHint = config.WHATSAPP_OTP_TEMPLATE
-      ? "Sua Credencial temporária será enviada pelo WhatsApp e vale por 10 minutos."
-      : "Abra o aplicativo para solicitar sua Credencial de acesso pelo WhatsApp.";
     const body = status === "APPROVED"
-      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} usando seu número e o grupo ${groupCode}. ${credentialHint}`
+      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} usando seu nome, WhatsApp e o grupo ${groupCode}. Nenhuma credencial adicional é necessária.`
       : `Olá, ${request.name}. Sua solicitação ao SOS YouTube não foi aprovada neste momento. Se acreditar que houve engano, responda por aqui para que os Owners possam revisar.`;
     queue(db,request.phone,{type:"text",text:{body}},dedupe,serviceExpiresAt.toISOString());
     return true;
@@ -289,7 +289,7 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{body:`Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`}},`${msg.id}:received`,expires);
-              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em ciclos de 10 links. Depois da liberação, entre no aplicativo com seu nome, WhatsApp e grupo SOS YOUTUBER. Sua Credencial de acesso será enviada pelo WhatsApp quando você solicitar a entrada."}},`${msg.id}:project-info`,expires);
+              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em ciclos de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome, WhatsApp e grupo SOS YOUTUBER. Não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
             }
           }
         }

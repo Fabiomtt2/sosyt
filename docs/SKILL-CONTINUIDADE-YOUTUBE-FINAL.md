@@ -27,7 +27,7 @@ Antes de editar:
 - Campo de grupo: **SOS YOUTUBER — Digite a qual grupo você pertence**; somente 1 a 99, sem zero inicial.
 - `#` é detalhe interno da API Owner. Nunca exibir `#` como valor, placeholder, palavra-chave ou instrução.
 - Participante não possui campo secreto no fluxo principal. Após validação de telefone + grupo em `group_memberships`, entra diretamente.
-- Somente Owner recebe o campo **Credencial administrativa**; em desenvolvimento o valor é `sosyout`, enquanto produção exige segredo forte do servidor.
+- Somente Owner recebe o campo **Credencial** depois de nome + WhatsApp identificarem uma conta Owner; em desenvolvimento o valor é `sosyout`, enquanto produção exige segredo forte do servidor.
 - Roteamento automático: backend identifica participante vs Owner; a UI não pergunta o papel.
 - Owners aceitam nome configurado com sufixo 0 e alias equivalente sem 0/acento; privilégio só existe quando o WhatsApp também corresponde à conta configurada no `.env`.
 - Telefones reais, credenciais e número administrativo ficam somente no `.env` ignorado pelo Git.
@@ -37,7 +37,7 @@ Antes de editar:
 - A CTA abre primeiro a tela intermediária de participação. Ao enviar, os dados são registrados no backend/dashboard; em seguida, a interface oferece o WhatsApp com a mensagem pré-preenchida para iniciar o bot. Não pular essa tela com link direto.
 - O bot acolhe, explica o projeto, pergunta “Como gostaria de ser chamado?” e registra solicitação pendente.
 - Nova solicitação aparece no dashboard e gera alerta administrativo pela Cloud API quando configurada.
-- Aprovação acontece pelo dashboard ou pela sincronização oficial de grupo quando disponível. Participante aprovado entra diretamente; o mecanismo OTP legado permanece no backend, fora do fluxo principal.
+- Aprovação acontece pelo dashboard ou pela sincronização oficial de grupo quando disponível. Participante não aprovado recebe confirmação de cadastro pendente, não erro de login; aprovado entra diretamente sem Credencial/OTP.
 - Não duplicar CTAs de participação no login por apelo visual.
 
 ## Linguagem visual ASTRA

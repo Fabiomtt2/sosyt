@@ -1,37 +1,14 @@
-import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { ownerAccounts, ownerNameMatches, ownerCredentialVersion } from "./owners.js";
-import { whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision, queueWhatsAppOtp } from "./whatsapp.js";
+import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^(?:[1-9]|[1-9]\d)$/);
-function loginCodeHash(config: Config, phone: string, code: string) {
-  return createHash("sha256").update(`${config.AUTH_CODE_PEPPER}:${phone}:${code}`).digest("hex");
-}
-
-function issueApprovedCredential(
-  db: AppDatabase,
-  config: Config,
-  request: { id: string; phone: string; name: string; source: string },
-  groupCode: string
-) {
-  if (request.source !== "WHATSAPP" || !config.WHATSAPP_OTP_TEMPLATE) return false;
-  const code = String(randomInt(100000,1_000_000));
-  const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + 10 * 60_000).toISOString();
-  db.transaction(() => {
-    db.prepare("UPDATE login_codes SET used_at=? WHERE phone=? AND used_at IS NULL").run(createdAt.toISOString(),request.phone);
-    db.prepare(`INSERT INTO login_codes (id,phone,name,group_code,code_hash,expires_at,created_at)
-      VALUES (?,?,?,?,?,?,?)`)
-      .run(randomUUID(),request.phone,request.name,groupCode,loginCodeHash(config,request.phone,code),expiresAt,createdAt.toISOString());
-  })();
-  return queueWhatsAppOtp(db,config,request.phone,code,`approval-credential:${request.id}`,expiresAt);
-}
-
 export function hasMembership(db: AppDatabase, phone: string, group?: string): boolean {
   const member = db.prepare("SELECT m.group_code FROM group_memberships m JOIN groups g ON g.code = m.group_code WHERE m.phone = ? AND m.revoked_at IS NULL AND g.enabled = 1").get(phone) as { group_code: string } | undefined;
   return Boolean(member && (!group || member.group_code === group));
@@ -49,7 +26,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
   }
   app.get("/public/groups", async () => ({
     groups: (db.prepare("SELECT code FROM groups WHERE enabled = 1 ORDER BY length(code), code").all() as Array<{ code: string }>).map(({ code }) => code),
-    ownerContactAvailable: Boolean(config.OWNER_WHATSAPP),
+    ownerContactAvailable: Boolean(publicWhatsAppNumber(config)),
     membershipRequired: config.REQUIRE_GROUP_MEMBERSHIP, whatsappJoinUrl: whatsappJoinUrl(config)
   }));
   app.post("/participation/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
@@ -62,8 +39,9 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
       .run(randomUUID(), body.name, body.phone, body.groupCode ?? null, now, now);
     const row = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(body.phone) as { id: string };
     queueOwnerAlerts(db,config,row.id,body.phone,body.name,`web:${randomUUID()}`);
+    const contact = publicWhatsAppNumber(config);
     const text = `Olá! Quero participar do projeto SOS YouTube. Meu nome é ${body.name}, WhatsApp ${body.phone}. ${body.groupCode ? "Gostaria de entrar no SOS YOUTUBER " + body.groupCode + "." : "Gostaria de entrar em um grupo SOS YOUTUBER."} Minha solicitação já está no painel.`;
-    return { ok: true, message: "Solicitação registrada. Ela já aparece no dashboard administrativo e será validada em breve.", whatsappUrl: config.OWNER_WHATSAPP ? `https://wa.me/${config.OWNER_WHATSAPP}?text=${encodeURIComponent(text)}` : undefined };
+    return { ok: true, message: "Sua solicitação de cadastro foi registrada e será validada em breve.", whatsappUrl: contact ? `https://wa.me/${contact}?text=${encodeURIComponent(text)}` : undefined };
   });
   app.post("/auth/role", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema }).parse(request.body);
@@ -78,7 +56,8 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const hash = (value: string) => createHash("sha256").update(value).digest();
     const devCredentialAccepted = config.AUTH_DEV_MODE && body.secret === "sosyout";
     if (!devCredentialAccepted && !timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });
-    return { token: app.jwt.sign({ sub: `owner:${account.id}`, purpose: "owner", aud: "conexao-owner", jti: ownerCredentialVersion(account.secret) }, { expiresIn: "1h" }), role: "owner", owner: { name: account.name, groupCode: "#" } };
+    const displayName = body.name.trim();
+    return { token: app.jwt.sign({ sub: `owner:${account.id}`, purpose: "owner", aud: "conexao-owner", jti: ownerCredentialVersion(account.secret), displayName }, { expiresIn: "1h" }), role: "owner", owner: { name: displayName, canonicalName: account.name, groupCode: "#" } };
   });
 
   app.get("/admin/overview", { preHandler: ownerGuard }, async (request) => {
@@ -91,7 +70,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
     const count = (sql: string, ...params: string[]) => (db.prepare(sql).get(...params) as { n: number }).n;
     const revenue = db.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS n FROM payments WHERE provider = 'MERCADO_PAGO' AND status = 'APPROVED' AND approved_at >= ? AND approved_at < ?").get(start, end) as { n: number };
     return {
-      month, timezone: "America/Bahia", owner: { name: account.name, groupCode: "#" }, whatsapp: whatsappStatus(db,config),
+      month, timezone: "America/Bahia", owner: { name: request.user.displayName?.trim() || account.name, canonicalName: account.name, groupCode: "#" }, whatsapp: whatsappStatus(db,config),
       metrics: {
         registeredUsers: count("SELECT COUNT(*) AS n FROM users"),
         activeUsers30d: count("SELECT COUNT(*) AS n FROM users WHERE last_seen_at >= ?", new Date(Date.now() - 30 * 86400_000).toISOString()),
@@ -139,10 +118,7 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
       db.prepare("INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?,?,?,'OWNER') ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='OWNER'").run(body.phone,body.groupCode,stamp);
       db.prepare("UPDATE participation_requests SET status='APPROVED',updated_at=? WHERE phone=?").run(stamp,body.phone);
     })();
-    if (pending) {
-      queueParticipationDecision(db,config,pending.id,"APPROVED",body.groupCode);
-      issueApprovedCredential(db,config,pending,body.groupCode);
-    }
+    if (pending) queueParticipationDecision(db,config,pending.id,"APPROVED",body.groupCode);
     return { ok: true };
   });
   app.delete("/admin/members/:phone", { preHandler: ownerGuard }, async (request) => {
@@ -164,7 +140,6 @@ export async function registerOwnerRoutes(app: FastifyInstance, db: AppDatabase,
       db.prepare("UPDATE participation_requests SET status=?,updated_at=? WHERE id=?").run(body.status,now,id);
     })();
     queueParticipationDecision(db,config,id,body.status,group);
-    if (body.status === "APPROVED" && group) issueApprovedCredential(db,config,row,group);
     return { ok: true };
   });
   return { ownerGuard };

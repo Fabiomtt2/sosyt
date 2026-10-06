@@ -41,7 +41,7 @@ describe("Owner e acesso por grupo", () => {
     const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael0",identifier:"+55 71 [9] 9999-0002",groupCode:"#",secret:"rafael-own-secret-32-characters-long"}});
     expect(rafael.statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,identifier:"5571999990099"}})).statusCode).toBe(401);
-    expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael0",groupCode:"#"});
+    expect((await app.inject({url:"/admin/overview",headers:authorization(rafael.json().token)})).json().owner).toEqual({name:"Rafael0",canonicalName:"Rafael0",groupCode:"#"});
     const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
     expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);
   });
@@ -68,12 +68,12 @@ describe("Owner e acesso por grupo", () => {
   it("aceita aliases também no login Owner e encaminha ao mesmo dashboard", async () => {
     const fabio = await app.inject({ method:"POST", url:"/admin/login", payload:{ ...ownerBody, name:"Fábio" } });
     expect(fabio.statusCode).toBe(200);
-    expect((await app.inject({ url:"/admin/overview", headers:authorization(fabio.json().token) })).json().owner).toEqual({ name:"Fabio0", groupCode:"#" });
+    expect((await app.inject({ url:"/admin/overview", headers:authorization(fabio.json().token) })).json().owner).toEqual({ name:"Fábio", canonicalName:"Fabio0", groupCode:"#" });
     const rafael = await app.inject({ method:"POST", url:"/admin/login", payload:{ name:"Rafael", identifier:"+55 71 99999-0002", groupCode:"#", secret:"rafael-own-secret-32-characters-long" } });
     expect(rafael.statusCode).toBe(200);
-    expect((await app.inject({ url:"/admin/overview", headers:authorization(rafael.json().token) })).json().owner).toEqual({ name:"Rafael0", groupCode:"#" });
+    expect((await app.inject({ url:"/admin/overview", headers:authorization(rafael.json().token) })).json().owner).toEqual({ name:"Rafael", canonicalName:"Rafael0", groupCode:"#" });
   });
-  it("login direto exige aprovação do número no grupo informado; OTP legado continua protegido", async () => {
+  it("login direto exige aprovação do número no grupo informado; participante não ganha privilégio por tentativa de acesso", async () => {
     const direct = (groupCode = "1") => app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa", phone:"5571999999001", groupCode } });
     expect((await direct()).statusCode).toBe(403);
     expect((await requestCode()).statusCode).toBe(403);

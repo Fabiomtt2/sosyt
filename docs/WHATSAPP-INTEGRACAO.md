@@ -16,7 +16,7 @@ Envio aceito pela API NÃO comprova entrega/leitura. O painel contabiliza aceite
 
 | Campo | Conteúdo |
 | --- | --- |
-| OWNER_WHATSAPP | Número Business de atendimento, DDI+DDD+número, usado pelo link |
+| OWNER_WHATSAPP | Número Business dedicado, quando houver. Se ausente, o número Owner Rafael é o contato público de fallback. |
 | OWNER_FABIO_WHATSAPP / OWNER_RAFAEL_WHATSAPP | Telefones associados às contas Owner |
 | OWNER_ALERT_WHATSAPP | Número administrativo prioritário para alertas de novos registros; se vazio, usa os telefones Owner configurados |
 | WHATSAPP_PHONE_NUMBER_ID | ID Meta do número Business (não é o telefone) |
@@ -36,7 +36,7 @@ O template de alerta deve ter parâmetros de corpo nesta ordem: `{{1}}` nome dec
 
 O OTP deve usar o template aprovado de autenticação compatível com os componentes enviados pelo adaptador. O número deve estar habilitado na Cloud API. Publicar HTTPS e configurar no aplicativo Meta o callback e assinatura `messages`. O desafio GET valida hub.mode, hub.verify_token e hub.challenge; o POST verifica X-Hub-Signature-256. Só desativar AUTH_DEV_MODE após teste real de entrega e validade do código.
 
-Estado operacional deste Xubuntu em 05/10/2026: as credenciais Meta e templates necessários estão ausentes. Portanto bot real, webhook externo, alerta automático ao Owner e sincronização/verificação real de grupos não estão operacionais neste ambiente. Os adaptadores e testes controlados existem, mas isso não equivale a uma integração Meta ativa.
+Estado operacional deste Xubuntu em 05/10/2026: os números Owner e de alerta estão configurados. Faltam as credenciais da Meta Cloud API (Phone Number ID, WABA ID, access token, app secret/verify token e templates). A Groups API oficial existe e o adaptador já possui sincronização de grupos/participantes; sem essas credenciais ela não pode operar. Como fallback local foi pesquisado WAHA/NOWEB, que usa WebSocket sem Chromium e oferece mensagens, webhooks e Groups API, mas depende de pareamento QR e é uma integração não oficial do WhatsApp Web.
 
 ## Grupos SOS YOUTUBER
 

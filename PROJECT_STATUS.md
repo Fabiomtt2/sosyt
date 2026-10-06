@@ -25,7 +25,7 @@ A governança corrente está em `AGENTS.md`. `.env` é local/ignorado e não dev
 - Quadro global entre todos os grupos SOS YOUTUBER com 10 posições sequenciais, URL, autor, grupo e horário permanentes.
 - URL precisa ser YouTube; validação estrutural sempre e consulta externa quando `YOUTUBE_API_KEY` existe.
 - `Fabio0` e `Rafael0`: contas Owner separadas, identificadas automaticamente por nome + WhatsApp configurado; em desenvolvimento usam a credencial administrativa `sosyout`. Em produção o servidor exige segredo Owner forte. O `#` permanece apenas como detalhe interno da API.
-- Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–99. O backend resolve automaticamente participante/Owner. Participante aprovado entra diretamente quando `group_memberships` confirma telefone + grupo; não há Credencial/OTP no fluxo principal.
+- Login neutro: nome + WhatsApp internacional + SOS YOUTUBER 1–99. O backend resolve automaticamente participante/Owner. Se o participante ainda não estiver aprovado, a UI registra a solicitação pendente e mostra confirmação amigável; após aprovação, entra diretamente quando `group_memberships` confirma telefone + grupo. Não há Credencial/OTP no fluxo principal.
 - 10 moedas iniciais; Save custa 1; Pix de R$20 adiciona 20 moedas compradas e 1 passe; moedas naturais não concedem passe.
 - Ao fechar o ciclo, recompensa de curadoria existente permanece.
 - Participantes daquele ciclo podem criar playlist privada na própria conta via OAuth Google/YouTube.
@@ -75,7 +75,7 @@ A intro também fixa por teste: botão `Quero participar` isolado e com a mesma 
 
 Gate completo executado após recuperação por Git e refinamento visual:
 - `git diff --check`: aprovado;
-- backend: 58/58 testes;
+- backend: 59/59 testes;
 - cliente: 6/6 testes;
 - TypeScript API e cliente: aprovado;
 - build API + React/PWA: aprovado;
@@ -89,7 +89,7 @@ Gate completo executado após recuperação por Git e refinamento visual:
 - Owner identificado por nome/alias + WhatsApp recebe apenas o campo `Credencial administrativa`; em `AUTH_DEV_MODE=true`, `sosyout` é aceito para teste local.
 - Banco local, no diagnóstico desta rodada, tinha `0` memberships ativos e `0` usuários cadastrados; por isso nenhum participante real conseguia entrar antes de aprovação.
 - Grupos públicos atuais: `1`, `2`, `10`.
-- `OWNER_WHATSAPP`/contato público de atendimento está ausente e as credenciais/templates Meta estão ausentes; portanto o botão de participação registra a pendência, mas não pode prosseguir para bot real neste ambiente até a integração Meta ser configurada.
+- O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. Os números Owner/alerta já estão configurados neste Xubuntu; o que falta para o transporte oficial são as credenciais da Meta Cloud API. O fallback estudado é WAHA/NOWEB, sem Chromium.
 - O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto.
 
 ## Pendências externas/produção
