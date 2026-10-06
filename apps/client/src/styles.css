@@ -650,7 +650,7 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
   display:grid;
   grid-auto-flow:column;
   grid-template-rows:repeat(3,34px);
-  grid-auto-columns:62px;
+  grid-auto-columns:calc((100% - 24px)/5);
   gap:6px;
   padding:1px;
   scrollbar-width:none;

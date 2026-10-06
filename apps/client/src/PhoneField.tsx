@@ -159,7 +159,9 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   function scrollDdds(direction:number) {
-    dddRailRef.current?.scrollBy({ left:direction*300, behavior:"smooth" });
+    const rail=dddRailRef.current;
+    if (!rail) return;
+    rail.scrollBy({ left:direction*Math.max(rail.clientWidth-12,120), behavior:"smooth" });
   }
 
   function changeSubscriber(raw:string) {

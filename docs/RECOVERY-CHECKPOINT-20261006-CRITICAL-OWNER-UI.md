@@ -108,7 +108,7 @@ Mesmo com o E2E anterior verde, o usuário ainda percebe desalinhamento entre `Q
 ## Fechamento dos REDs desta rodada
 
 - ✅ **P0 Owner × solicitação pendente:** corrigido. A candidatura persistente agora pode ser suprimida apenas na sessão atual quando o usuário escolhe outra identidade; Owner reconhecido tem prioridade absoluta para a etapa `Credencial`. Credencial errada não cria solicitação, não altera `blockedUntil` e não exibe cooldown de cadastro.
-- ✅ **DDD incremental:** seletor brasileiro aceita busca invisível por teclado; `7` filtra 7x e `71` leva ao DDD 71, preservando o carrossel ‹/› e sem nova caixa visual.
+- ✅ **DDD incremental e contenção:** seletor brasileiro aceita busca invisível por teclado; `7` filtra 7x e `71` leva ao DDD 71, preservando o carrossel ‹/› e sem nova caixa visual. Auditoria visual posterior fixou o viewport em 5 colunas × 3 linhas completas (15 DDDs), sem cards parcialmente cortados e com teste explícito contra overflow horizontal.
 - ✅ **Modal de integração:** criado `apps/client/src/integration.css` como skin canônica carregada após o CSS legado. Botão externo permanece vermelho ASTRA; modal branco/creme; cards de status brancos com acento lateral vermelho; Meta Oficial azul; Híbrido vaporwave com Meta/YouTube 50/50; Desativado cinza; scroll interno, Esc em camadas e ajudas contextuais preservados.
 - ✅ **E2E:** cenário cobre os três pontos acima; o gate final com `integration.css` realmente carregado fechou verde 1/1 em 36,8 s, além de 65/65 testes de API, 9/9 testes de cliente, TypeScript e build/PWA verdes.
 

@@ -122,6 +122,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const countryBounds = await countryDialog.boundingBox();
   expect(countryBounds).not.toBeNull();
   expect(countryBounds!.y + countryBounds!.height).toBeLessThanOrEqual(844);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  expect(await countryDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await expect(page.getByRole("button", { name: "Países anteriores" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Próximos países" })).toBeVisible();
   await page.getByRole("button", { name: "Próximos países" }).click();
@@ -140,6 +142,16 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   await expect(page.getByRole("button", { name: "DDDs anteriores" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Próximos DDDs" })).toBeVisible();
+  const dddCardsContained = await page.locator(".ddd-rail").evaluate((rail) => {
+    const r=rail.getBoundingClientRect();
+    return Array.from(rail.children).every((child) => {
+      const c=(child as HTMLElement).getBoundingClientRect();
+      const intersects=c.right>r.left && c.left<r.right;
+      return !intersects || (c.left>=r.left-1 && c.right<=r.right+1);
+    });
+  });
+  expect(dddCardsContained).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await page.getByRole("button", { name: "Próximos DDDs" }).click();
   await expect.poll(async () => page.locator(".ddd-rail").evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
