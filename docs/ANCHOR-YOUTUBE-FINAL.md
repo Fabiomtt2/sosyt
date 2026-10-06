@@ -173,7 +173,9 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Obter prova real de Owner-admin pelo provedor. Presença no grupo, Owner-admin e aprovação Owner já são estados separados no motor; sem prova de admin a verificação externa não libera acesso.
 - Conectar credenciais Meta reais e webhook HTTPS.
 - Parear sessão WPPConnect somente após consentimento explícito no dashboard.
-- Publicar backend/webapp em HTTPS; GitHub pode ser usado como repositório, mas GitHub Pages sozinho não hospeda a API Fastify/SQLite.
+- Preview frontend público deve usar o repositório `Fabiomtt2/sosyt` e GitHub Pages em `https://fabiomtt2.github.io/sosyt/`; `VITE_PUBLIC_BASE=/sosyt/` é obrigatório no build Pages.
+- A build pública nunca pode cair no `localhost:3333` do visitante. Sem `VITE_API_URL` público, deve explicar que o backend ainda não foi conectado.
+- Publicar backend em HTTPS separadamente; GitHub Pages não hospeda Fastify/SQLite, webhooks nem workers do bot.
 - Validar Google/YouTube e Mercado Pago reais antes de produção.
 - Políticas de privacidade, termos, retenção/exclusão, backup/restore e observabilidade.
 

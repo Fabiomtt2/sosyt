@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --config vite.config.ts",
+    "build": "tsc -b && vite build --config vite.config.ts",
     "test": "vitest run src --passWithNoTests",
     "lint": "tsc -b --pretty false",
-    "android:sync": "vite build --mode android && cap sync android",
+    "android:sync": "vite build --config vite.config.ts --mode android && cap sync android",
     "android:apk": "node ../../scripts/android-build.mjs",
     "test:e2e": "node ../../scripts/browser-tests.mjs"
   },

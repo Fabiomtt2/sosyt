@@ -41,6 +41,10 @@ npm run test:e2e --workspace apps/client
 
 Na consolidação corrente de 06/10/2026: 65 testes de API, 6 testes do cliente, TypeScript, build React/PWA e 1 cenário Playwright ponta a ponta passaram. As capturas fictícias ficam em `docs/evidencias`.
 
+## Preview público
+
+O frontend pode ser publicado pelo workflow GitHub Pages em `https://fabiomtt2.github.io/sosyt/`. O build público usa base `/sosyt/` e nunca tenta acessar o `localhost` do visitante. Enquanto um backend HTTPS não estiver conectado pela variável do repositório `VITE_API_URL`, a interface informa claramente que o servidor público ainda não foi publicado. GitHub Pages hospeda apenas HTML/PWA; Fastify, SQLite, webhooks e bots exigem um backend separado.
+
 ## Integrações e limites atuais
 
 Google OAuth/YouTube Data API, Mercado Pago e WhatsApp Cloud API possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real de OTP/bot.

@@ -1,10 +1,14 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3333";
+const configuredApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const isBrowser = typeof window !== "undefined";
+const isLocalHost = !isBrowser || ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const API_URL = configuredApiUrl || (isLocalHost ? "http://localhost:3333" : "");
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly data: Record<string, unknown> = {}) { super(message); }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  if (!API_URL) throw new ApiError("A versão pública do SOS YouTube está disponível, mas o servidor ainda não foi publicado. O Owner pode continuar configurando e testando localmente enquanto conectamos um backend HTTPS.", 0, { code: "PUBLIC_BACKEND_NOT_CONFIGURED" });
   const token = localStorage.getItem("conexao_token");
   let response: Response;
   try {

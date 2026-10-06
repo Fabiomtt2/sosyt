@@ -94,6 +94,13 @@ Gate completo executado após recuperação por Git e refinamento visual:
 - O contato público usa `OWNER_WHATSAPP` quando definido e, na ausência dele, usa o número Owner Rafael. O dashboard Owner já permite salvar no servidor e validar a configuração oficial Meta; sem credencial real, a conexão permanece explicitamente pendente. O complemento escolhido para grupos tradicionais é WPPConnect, ainda não pareado/ativado.
 - O modo dev remove service workers/caches antigos e o launcher XFCE abre URL com cache-bust para reduzir risco de testar bundle PWA obsoleto.
 
+## Publicação web
+
+- Preview estático preparado para GitHub Pages em `https://fabiomtt2.github.io/sosyt/`.
+- O build Pages usa `/sosyt/` em assets, manifest, PWA `start_url` e `scope`.
+- `VITE_API_URL` é variável do repositório e ficará vazia até existir backend HTTPS; nesse estado a versão pública não tenta o localhost do visitante.
+- `vite.config.ts` é a única configuração Vite canônica; scripts nomeiam explicitamente esse arquivo para impedir precedência de artefatos legados.
+
 ## Pendências externas/produção
 
 - Credenciais e teste real Meta WhatsApp/Groups API.
