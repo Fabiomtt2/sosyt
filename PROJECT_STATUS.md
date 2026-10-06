@@ -101,7 +101,7 @@ Gate completo executado após recuperação por Git e refinamento visual:
 
 - GitHub Pages continua disponível em `https://fabiomtt2.github.io/sosyt/`; o build Pages usa `/sosyt/` em assets, manifest, PWA `start_url` e `scope`.
 - Backend HTTPS real já existe no Railway: `https://sos-youtuber-api-production.up.railway.app`, Fastify em produção, healthcheck `/health` e SQLite em volume persistente.
-- Frontend full-stack alternativo já existe em `https://sos-youtuber-web-production.up.railway.app`, apontando para a API Railway. API e web já acompanharam o checkpoint anterior `02f3e4b`; após o merge da branch `sol/owner-control-plane-20261006` devem ser repontados ao novo HEAD canônico.
+- Frontend full-stack existe em `https://sos-youtuber-web-production.up.railway.app`, apontando para a API Railway. Após o merge, API e Web foram repontados para `checkpoint de aplicação 65d5b2c` e ficaram online/SUCCESS, 1/1 réplica e sem alertas/falhas; a API passou healthcheck 200 com o volume persistente montado.
 - A build pública nunca deve cair no `localhost:3333` do visitante; `VITE_API_URL` deve apontar para backend HTTPS quando a publicação precisar operar de ponta a ponta.
 - `vite.config.ts` é a única configuração Vite canônica; scripts nomeiam explicitamente esse arquivo para impedir precedência de artefatos legados.
 
@@ -137,7 +137,7 @@ Gate completo executado após recuperação por Git e refinamento visual:
 
 ## Owner control plane + pagamentos + auditoria visual — 06/10/2026
 
-- Base desta rodada: `main @ 02f3e4b`; branch isolada `sol/owner-control-plane-20261006`.
+- Base desta rodada: `main @ 02f3e4b`; a branch `sol/owner-control-plane-20261006` foi validada e convergida no checkpoint de aplicação `65d5b2c`.
 - **Premissa preservada:** moedas virtuais, compra de pacote, passes, wallet/ledger, Fila, cooldown e progresso continuam com a lógica anterior. A camada financeira apenas processa/confirma o Pix.
 - DDD brasileiro: removido timer de 1,2 s que apagava a busca incremental. `71` permanece filtrado enquanto o popover estiver aberto; E2E espera 1,6 s para proteger essa regressão.
 - Grupos: `enabled` agora significa **habilitado internamente no SOS**, não “grupo WhatsApp existente”. Overview/gerenciamento separam vínculo externo, provedor de verificação, Owner-admin, última prova/sincronização e `join_url`. ID externo é somente leitura.

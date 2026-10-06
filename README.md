@@ -49,7 +49,7 @@ O frontend continua publicável pelo workflow GitHub Pages em `https://fabiomtt2
 - Web: `https://sos-youtuber-web-production.up.railway.app`
 - Fastify em produção, healthcheck `/health` e SQLite em volume persistente.
 
-Os serviços Railway já acompanharam o checkpoint `02f3e4b`; após o merge de `sol/owner-control-plane-20261006` devem ser repontados ao novo HEAD canônico. GitHub Pages continua hospedando apenas HTML/PWA; `VITE_API_URL` nunca deve cair no `localhost` do visitante.
+Os serviços Railway acompanham `checkpoint de aplicação 65d5b2c`: API e Web estão online/SUCCESS, a API mantém o volume SQLite persistente e respondeu healthcheck 200. GitHub Pages continua hospedando apenas HTML/PWA; `VITE_API_URL` nunca deve cair no `localhost` do visitante.
 
 ## Integrações e limites atuais
 
@@ -63,7 +63,7 @@ O acompanhamento de reprodução após a playlist ser criada usa a IFrame Player
 
 ### Continuidade da rodada 06/10/2026
 
-O Git local canônico está em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. O checkpoint anterior foi convergido em `main @ 02f3e4b`; a rodada atual trabalha em `sol/owner-control-plane-20261006`. O snapshot Vercel `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs` permanece apenas como recuperação histórica.
+O Git local canônico está em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. A rodada Owner control plane partiu de `02f3e4b`, foi validada e convergida no checkpoint de aplicação `65d5b2c`; a branch histórica é `sol/owner-control-plane-20261006`. O snapshot Vercel `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs` permanece apenas como recuperação histórica.
 
 O gate atual passou com **67/67 API, 9/9 cliente, lint/TypeScript, build API + React/PWA e E2E Playwright 1/1**. O E2E cobre DDI/DDD persistente, modos WhatsApp, pagamentos Owner desktop/mobile, blur/body lock/scroll interno, mês PT-BR, grupos com prova externa separada e responsividade. Não criar infraestrutura paga quando houver rota local/gratuita funcional.
 
