@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 async function fillBrazilPhone(page: any, subscriber: string) {
   await page.getByRole("button", { name: "Selecionar país e DDI" }).click();
   await page.getByPlaceholder("Buscar país ou DDI").fill("Brasil");
+  await expect(page.locator(".phone-option-list button")).toHaveCount(1);
   await page.getByRole("button", { name: "Brasil +55" }).click();
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   const dddRail = page.locator(".ddd-rail");
@@ -318,12 +319,23 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const integrationOverflowY = await integrationDialog.evaluate((el) => getComputedStyle(el).overflowY);
   expect(["auto", "scroll"]).toContain(integrationOverflowY);
   await expect(page.getByRole("radio", { name: /Meta Oficial/ })).toBeVisible();
-  await expect(page.getByRole("radio", { name: /Híbrido/ })).toBeVisible();
-  await page.getByRole("radio", { name: /Híbrido/ }).click();
+  await expect(page.getByRole("radio", { name: /Meta \+ Grupos/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Evolution Gateway/ })).toBeVisible();
+  await page.getByRole("radio", { name: /Meta \+ Grupos/ }).click();
+  await expect(page.locator(".astra-status-grid article").first().locator("strong")).toHaveText("META + GRUPOS");
   await page.getByRole("button", { name: "Explicar o modo selecionado" }).click();
-  await expect(page.getByRole("dialog", { name: "O que muda no modo híbrido?" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "O que muda em Meta + Grupos?" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "O que muda no modo híbrido?" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "O que muda em Meta + Grupos?" })).toHaveCount(0);
+  await page.getByRole("radio", { name: /Evolution Gateway/ }).click();
+  await expect(page.locator(".astra-status-grid article").first().locator("strong")).toHaveText("EVOLUTION");
+  await expect(page.locator(".astra-status-grid article").nth(1).locator("span")).toHaveText("Gateway Evolution");
+  await expect(page.getByPlaceholder("https://evolution.seudominio.com")).toBeVisible();
+  await expect(page.getByLabel("Credencial de acesso da Meta", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Para ativar mensagens reais pela Meta", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Explicar endereço de retorno da Meta" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Validar conexão" })).toHaveCount(0);
+  await page.getByRole("radio", { name: /Meta \+ Grupos/ }).click();
   await expect(integrationDialog).toBeVisible();
   await expect(page.getByText("PENDENTE", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Credencial de acesso da Meta", { exact: true })).toBeVisible();
@@ -341,7 +353,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(astraStatus.backgroundColor).toBe("rgb(255, 255, 255)");
   expect(astraStatus.borderLeftColor).toBe("rgb(231, 43, 59)");
   expect(astraStatus.borderLeftWidth).toBe("4px");
-  const hybridMode = page.getByRole("radio", { name: /Híbrido/ });
+  const hybridMode = page.getByRole("radio", { name: /Meta \+ Grupos/ });
   const hybridModeBackground = await hybridMode.evaluate((element) => getComputedStyle(element).backgroundImage);
   expect(hybridModeBackground).toContain("linear-gradient");
   const hybridSplit = await hybridMode.locator(".mode-symbol.hybrid").evaluate((element) => {

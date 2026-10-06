@@ -60,7 +60,7 @@ export type Pix = { id: string; providerPaymentId: string; status: string; qrCod
 
 
 export type WhatsAppIntegrationState = {
-  mode: "OFFICIAL" | "HYBRID" | "DISABLED";
+  mode: "OFFICIAL" | "META_GROUPS" | "EVOLUTION" | "DISABLED";
   businessAccountId: string;
   phoneNumberId: string;
   businessPhone: string;
@@ -73,6 +73,9 @@ export type WhatsAppIntegrationState = {
   wppUrl: string;
   wppSession: string;
   wppTokenConfigured: boolean;
+  evolutionUrl: string;
+  evolutionInstance: string;
+  evolutionApiKeyConfigured: boolean;
   officialReady: boolean;
   webhookUrl: string;
 };
@@ -117,8 +120,8 @@ export const ownerApi = {
   syncWhatsAppGroups: () => ownerRequest<{ discovered: number; linked: number; memberships: number }>("/admin/whatsapp/groups/sync", { method: "POST" }),
   whatsappIntegration: () => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp"),
   saveWhatsAppIntegration: (body: Partial<{
-    mode: "OFFICIAL" | "HYBRID" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
-    accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string;
+    mode: "OFFICIAL" | "META_GROUPS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
+    accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string; evolutionUrl: string; evolutionInstance: string; evolutionApiKey: string;
   }>) => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp", { method: "POST", body: JSON.stringify(body) }),
   generateWhatsAppVerifyToken: () => ownerRequest<{ ok: true; verifyToken: string; state: WhatsAppIntegrationState }>("/admin/integrations/whatsapp/verify-token", { method: "POST" }),
   validateWhatsApp: () => ownerRequest<{ ok: true; validatedAt: string; phone: { id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string } }>("/admin/integrations/whatsapp/validate", { method: "POST" }),

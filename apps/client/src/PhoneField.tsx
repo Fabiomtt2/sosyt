@@ -32,6 +32,10 @@ const COUNTRIES: CountryItem[] = getCountries()
   }))
   .sort((a,b) => a.name.localeCompare(b.name,"pt-BR"));
 
+function normalizeSearch(value:string) {
+  return value.normalize("NFD").replace(/\p{M}/gu,"").trim().toLocaleLowerCase("pt-BR");
+}
+
 function inferCountry(value: string): CountryCode | undefined {
   const digits=value.replace(/\D/g,"");
   if (!digits) return undefined;
@@ -172,8 +176,9 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
 
   const item=country ? COUNTRIES.find((entry)=>entry.country===country) : undefined;
   const filtered=COUNTRIES.filter((entry)=>{
-    const q=search.trim().toLocaleLowerCase("pt-BR");
-    return !q || entry.name.toLocaleLowerCase("pt-BR").includes(q) || entry.callingCode.includes(q.replace(/\D/g,"")) || entry.country.toLowerCase().includes(q);
+    const q=normalizeSearch(search);
+    const digits=search.replace(/\D/g,"");
+    return !q || normalizeSearch(entry.name).includes(q) || entry.country.toLowerCase().includes(q) || (digits.length>0 && entry.callingCode.includes(digits));
   });
   const filteredDdds=dddSearch ? BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch)) : BRAZIL_DDDS;
   const dddInfo=BRAZIL_DDDS.find(([code])=>code===ddd);

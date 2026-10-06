@@ -54,7 +54,7 @@
   background:#fff!important;color:#28232a!important;box-shadow:none!important;outline:none!important
 }
 .astra-integration-modal input:focus,.astra-integration-modal select:focus{border-color:#e72b3b!important;box-shadow:0 0 0 4px #e72b3b12!important}
-.astra-integration-modal .mode-choice-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:10px!important}
+.astra-integration-modal .mode-choice-grid{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important}
 .astra-integration-modal .mode-choice{
   min-height:108px!important;display:grid!important;grid-template-columns:auto 1fr!important;gap:8px 11px!important;align-items:center!important;
   padding:15px!important;border:1px solid #e4ddd7!important;border-radius:15px!important;background:#fff!important;color:#393239!important;
@@ -70,6 +70,8 @@
   background:linear-gradient(135deg,#2b6ff3 0%,#6758dd 38%,#a84edc 64%,#ef5b91 100%)!important;border-color:#8a58df!important
 }
 .astra-integration-modal .mode-choice.hybrid.selected small{color:#fbf4ff!important}
+.astra-integration-modal .mode-choice.evolution.selected{background:linear-gradient(135deg,#161f3a,#4f46a5)!important;border-color:#4f46a5!important}
+.astra-integration-modal .mode-choice.evolution.selected small{color:#f0efff!important}
 .astra-integration-modal .mode-choice.disabled.selected{background:#696d76!important;border-color:#696d76!important}
 .astra-integration-modal .mode-choice.disabled.selected small{color:#f1f2f4!important}
 .astra-integration-modal .mode-symbol{
@@ -77,6 +79,8 @@
   background:#f1efed!important;color:#5d565d!important;font-weight:900!important;font-size:1.2rem!important
 }
 .astra-integration-modal .mode-choice.selected .mode-symbol.meta,.astra-integration-modal .mode-choice.selected .mode-symbol.off{background:#ffffff22!important;color:#fff!important}
+.astra-integration-modal .mode-symbol.evolution{background:#eef0ff!important;color:#4f46a5!important;font-weight:900!important}
+.astra-integration-modal .mode-choice.evolution.selected .mode-symbol.evolution{background:#ffffff22!important;color:#fff!important}
 .astra-integration-modal .mode-symbol.hybrid{
   width:58px!important;height:38px!important;grid-template-columns:1fr 1fr!important;display:grid!important;padding:0!important;overflow:hidden!important;
   border-radius:11px!important;background:#fff!important
@@ -100,7 +104,8 @@
 .astra-integration-modal .help-popover-backdrop{position:fixed!important;inset:0!important;z-index:130!important;border-radius:0!important;background:#11182799!important;backdrop-filter:blur(5px)!important}
 .astra-integration-modal .help-popover{width:min(480px,calc(100vw - 36px))!important;padding:28px!important;background:#fff!important;color:#393239!important;border-radius:18px!important;box-shadow:0 28px 80px #0006!important}
 .astra-integration-modal .help-popover p{color:#68616a!important;line-height:1.62!important}
-.owner-shell .integration-mode-card.mode-hybrid{background:linear-gradient(135deg,#2b6ff3 0%,#6758dd 38%,#a84edc 64%,#ef5b91 100%)!important}
+.owner-shell .integration-mode-card.mode-hybrid,.owner-shell .integration-mode-card.mode-meta_groups{background:linear-gradient(135deg,#2b6ff3 0%,#6758dd 38%,#a84edc 64%,#ef5b91 100%)!important}
+.owner-shell .integration-mode-card.mode-evolution{background:linear-gradient(135deg,#161f3a,#4f46a5)!important;color:#fff!important}
 .owner-shell .summary-hybrid-icons{display:inline-grid!important;grid-template-columns:1fr 1fr!important;width:38px!important;height:20px!important;border-radius:6px!important;overflow:hidden!important;padding:0!important;margin-right:6px!important;vertical-align:middle!important}
 .owner-shell .summary-hybrid-icons>span,.owner-shell .summary-hybrid-icons>svg{width:100%!important;height:100%!important;display:grid!important;place-items:center!important;margin:0!important;padding:3px!important}
 .owner-shell .summary-hybrid-icons>span{background:#edf4ff!important;color:#1769e0!important}

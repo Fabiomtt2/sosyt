@@ -49,9 +49,9 @@ Data-base: 06/10/2026.
 ### Estado oficial
 
 - O código possui adaptador Meta Cloud API, webhook assinado, outbox persistente, retry/backoff, alertas Owner e sincronização oficial de grupos.
-- O dashboard Owner possui a seção `CONFIGURAR BOT SOS YOUTUBE` e um modal persistente com modos Oficial/Híbrido/Desativado. Na UI os rótulos são em português (`ID da conta do WhatsApp Business`, `ID do número do WhatsApp`, `Credencial de acesso da Meta`, `Chave secreta do aplicativo`, `Token de verificação`) e termos técnicos aparecem apenas nas explicações abertas por `?`.
-- Segredos informados no modal são criptografados localmente com AES-256-GCM e nunca retornam em texto puro pela API; a UI recebe apenas indicadores configurado/não configurado. Verify Token gerado pelo app é mostrado uma única vez.
-- Configuração salva pelo Owner é aplicada ao runtime do webhook/outbox/sincronização sem exigir reinício; valores do `.env` permanecem como fallback.
+- O dashboard Owner possui a seção `CONFIGURAR BOT SOS YOUTUBE` e um modal persistente com quatro modos: **Meta Oficial**, **Meta + Grupos**, **Evolution Gateway** e **Desativado**. Na UI os rótulos são em português (`ID da conta do WhatsApp Business`, `ID do número do WhatsApp`, `Credencial de acesso da Meta`, `Chave secreta do aplicativo`, `Token de verificação`) e termos técnicos aparecem apenas nas explicações abertas por `?`. A escolha visual usa o estado atual do formulário imediatamente; textos/status não podem continuar descrevendo o modo salvo anterior.
+- Segredos informados no modal são criptografados **no servidor** com AES-256-GCM e nunca retornam em texto puro pela API; a UI recebe apenas indicadores configurado/não configurado. Verify Token gerado pelo app é mostrado uma única vez.
+- Configuração Meta/WPPConnect salva pelo Owner é aplicada ao runtime correspondente sem exigir reinício; valores do `.env` permanecem como fallback. Evolution Gateway já possui persistência segura e UI próprias, mas seu transporte/eventos ainda precisam de adaptador e validação antes de serem considerados ativos.
 - O painel deve deixar explícito, em linguagem amigável, quando a conexão oficial está pendente ou quando a credencial da Meta ainda é necessária; após uma chamada real à Graph API, grava a data da validação e passa a mostrar o estado validado.
 - Números Owner podem estar configurados mesmo quando o transporte Meta ainda não está conectado.
 - `OWNER_WHATSAPP` dedicado é opcional; na ausência, Rafael é o contato público de fallback.
@@ -59,13 +59,14 @@ Data-base: 06/10/2026.
 
 ### Provedores
 
-Três modos de operação devem ser suportados pelo dashboard:
+Quatro modos de operação são suportados pelo dashboard:
 
-1. **Oficial / Meta** — mensagens e webhooks pela WhatsApp Business Platform.
-2. **Híbrido** — Meta como canal oficial de comunicação + WPPConnect como complemento opcional para grupos tradicionais/membros/admins.
-3. **Desativado** — nenhuma automação externa; dashboard/manual permanece disponível.
+1. **Meta Oficial** — mensagens e webhooks pela WhatsApp Business Platform.
+2. **Meta + Grupos** (valor persistido `META_GROUPS`) — Meta como canal oficial de comunicação + WPPConnect como complemento para grupos tradicionais/membros/admins. Configuração histórica `HYBRID` é migrada automaticamente para `META_GROUPS`.
+3. **Evolution Gateway** (valor `EVOLUTION`) — configuração independente de URL, instância e API key da Evolution API. A API key é cifrada com o mesmo mecanismo AES-256-GCM das demais credenciais e nunca retorna em texto puro. A configuração/persistência é real; transporte/eventos Evolution só podem ser marcados como ativos após adaptador e validação próprios.
+4. **Desativado** — nenhuma automação externa; dashboard/manual permanece disponível.
 
-- O modo complementar deve trazer aviso amigável: usa WhatsApp Web, pode exigir QR, pode quebrar após mudanças do WhatsApp e pode causar restrições na conta; nunca ativar silenciosamente.
+- O modo complementar Meta + Grupos deve trazer aviso amigável: usa WhatsApp Web, pode exigir QR, pode quebrar após mudanças do WhatsApp e pode causar restrições na conta; nunca ativar silenciosamente.
 - Fábio e Rafael são contas Owner autorizadas para homologar o modo complementar quando houver pareamento explícito; seus números reais continuam somente no ambiente local.
 - Não deixar Meta e WPPConnect enviarem a mesma mensagem sem deduplicação/roteamento explícito.
 - WPPConnect deve preferencialmente atuar como prova complementar de grupo/admin; Meta continua sendo o transporte oficial sempre que disponível.
@@ -137,7 +138,7 @@ Ações manuais do responsável Meta: login/consentimento, eventual verificaçã
 - Erros devem ser explicados em PT-BR; não exibir mensagens nativas em inglês.
 - Estados de pendência, tarefa e cooldown devem parecer parte do design ASTRA, não telas técnicas.
 - O seletor internacional de telefone nunca pode expandir/quebrar a página: países ficam em viewport interno com rolagem suave e setas ↑/↓; o DDD brasileiro usa trilho horizontal com ‹/›. O viewport DDD mostra exatamente **5 colunas × 3 linhas (15 DDDs completos)** por página visual, sem cards parcialmente cortados, e as setas avançam aproximadamente uma página inteira. Com o seletor DDD aberto, a digitação numérica funciona como busca incremental invisível (`7` → DDDs 7x; `71` → DDD 71), sem campo de busca extra. Ambos fecham com `Esc`; o E2E deve falhar se DDI/DDD criarem overflow horizontal no documento.
-- O modal `Configurar integração` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. O título do modal não pode usar a tag global `header` nem herdar a barra navy do app; `.astra-modal-title` deve permanecer transparente e com altura natural. O E2E valida o modal também em 1366×768 para impedir sobreposição/overflow. O botão que abre a integração permanece **vermelho ASTRA**, independentemente do modo. Meta Oficial usa azul; Híbrido usa gradiente vaporwave azul/roxo/magenta e mostra Meta + YouTube em metades geométricas 50/50 sem recorte; Desativado usa cinza. A composição principal usa superfícies brancas/creme e separadores suaves; os cards-resumo de estado também permanecem brancos, com acento lateral vermelho ASTRA, nunca blocos vermelhos agressivos. `apps/client/src/integration.css`, carregado após `styles.css`, é a skin canônica desta integração e deve impedir que CSS legado volte a dominar o modal. Termos técnicos e campos híbridos devem ter ajuda `?` em linguagem leiga.
+- O modal `Configurar integração` tem scroll interno próprio, bloqueia o scroll da página ao fundo e responde a `Esc`: primeiro fecha a ajuda contextual aberta e, no próximo `Esc`, fecha o modal. O título do modal não pode usar a tag global `header` nem herdar a barra navy do app; `.astra-modal-title` deve permanecer transparente e com altura natural. O E2E valida o modal também em 1366×768 para impedir sobreposição/overflow. O botão que abre a integração permanece **vermelho ASTRA**, independentemente do modo. Meta Oficial usa azul; Meta + Grupos usa gradiente vaporwave azul/roxo/magenta e mostra Meta + YouTube em metades geométricas 50/50 sem recorte; Evolution Gateway usa navy/índigo próprio; Desativado usa cinza. A composição principal usa superfícies brancas/creme e separadores suaves; os cards-resumo de estado também permanecem brancos, com acento lateral vermelho ASTRA, nunca blocos vermelhos agressivos. `apps/client/src/integration.css`, carregado após `styles.css`, é a skin canônica desta integração e deve impedir que CSS legado volte a dominar o modal. Termos técnicos, campos Meta + Grupos e campos Evolution devem ter ajuda `?` em linguagem leiga.
 - Dashboard Owner: pendente usa `Novo Usuário!` verde + `🔴 Registro pendente`; após aprovação, a pendência desaparece e vira `🟢 Usuário aprovado!`, preservando o registro. O cartão `Transporte nesta execução` é cinza com `AINDA INATIVO` quando o backend/provedor não está ativo e verde com `ATIVO ✅` quando `whatsapp.configured` estiver verdadeiro no servidor.
 - Aba `Participantes` mostra data/hora e Owner responsável pela aprovação. O nome abre popup administrativo restrito ao Owner com cadastro editável, carteira, compras somente leitura, ledger e ações administrativas auditáveis.
 - `Grupos e acesso` cobre virtualmente todos os grupos `1–999` em páginas de carrossel, sem renderizar 999 cards ao mesmo tempo. Grupo ainda não persistido aparece como `Disponível` e o próprio card pode ativá-lo no servidor. Há navegação anterior/próxima e salto direto para um número. `Autorização manual excepcional` reutiliza o mesmo seletor internacional de WhatsApp do login e um seletor visual de grupo 1–999; ao autorizar, ativa o grupo escolhido se necessário e grava data/Owner responsável. Os controles `Nome` e `WhatsApp` devem compartilhar o mesmo topo e altura visual de 50 px no desktop; isso é protegido por E2E.
@@ -169,7 +170,7 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Cooldown de 30 minutos aplicado no servidor.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
-- Gate mais recente: 65/65 API, 9/9 cliente, TypeScript/build/PWA verdes e E2E 1/1.
+- Gate mais recente da recuperação local em 06/10/2026: 65/65 API, 9/9 cliente, TypeScript/API + React/PWA verdes e E2E Playwright 1/1 no próprio Inspiron. O E2E prova também que buscar `Brasil` no seletor DDI retorna somente Brasil e que alternar Meta + Grupos ↔ Evolution atualiza contexto/status imediatamente sem resíduos Meta.
 - O launcher Xubuntu canônico é `scripts/launch-xubuntu.sh`: inicia os serviços quando necessário, abre URL com cache-bust e prefere Firefox explicitamente, usando `xdg-open` somente como fallback. O atalho local deve ser apenas um wrapper para esse script versionado.
 
 ## 12. Pendências conscientes
@@ -179,10 +180,19 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Conectar credenciais Meta reais e webhook HTTPS.
 - Parear sessão WPPConnect somente após consentimento explícito no dashboard.
 - Preview frontend público deve usar o repositório `Fabiomtt2/sosyt` e GitHub Pages em `https://fabiomtt2.github.io/sosyt/`; `VITE_PUBLIC_BASE=/sosyt/` é obrigatório no build Pages.
-- A build pública nunca pode cair no `localhost:3333` do visitante. Sem `VITE_API_URL` público, deve explicar que o backend ainda não foi conectado.
-- Publicar backend em HTTPS separadamente; GitHub Pages não hospeda Fastify/SQLite, webhooks nem workers do bot.
+- A build pública nunca pode cair no `localhost:3333` do visitante. O backend Railway já existe; qualquer build (incluindo Pages) que não receba `VITE_API_URL` público deve apenas informar que **essa publicação** ainda não está conectada ao servidor, sem tentar localhost.
+- Backend HTTPS já foi publicado no Railway em `https://sos-youtuber-api-production.up.railway.app`, com volume persistente para SQLite e healthcheck `/health`. O frontend full-stack alternativo está em `https://sos-youtuber-web-production.up.railway.app`. Ambos ainda devem acompanhar o novo HEAD canônico após o merge desta rodada. GitHub Pages continua sendo apenas frontend estático/PWA.
 - Validar Google/YouTube e Mercado Pago reais antes de produção.
 - Políticas de privacidade, termos, retenção/exclusão, backup/restore e observabilidade.
+
+## 13. Infraestrutura e recuperação — 06/10/2026
+
+- Git local canônico no Inspiron: `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. A recuperação desta rodada parte de `main @ 45ce984` limpo e usa branch isolada `sol/whatsapp-modes-evolution-20261006-recovered`.
+- GitHub canônico: `Fabiomtt2/sosyt`. O GitHub App do ChatGPT pode continuar somente-leitura/403; no Xubuntu, `gh` está autenticado como `Fabiomtt2` com escopos `repo` e `workflow`, portanto push/checks/merge devem preferir essa rota quando necessário.
+- Desktop Commander secundário está operacional no Inspiron e deve ser a rota local preferida enquanto estiver online; não depender da conta antiga sem cota.
+- Railway: projeto `SOS YouTuber`, API `sos-youtuber-api-production.up.railway.app`, frontend `sos-youtuber-web-production.up.railway.app`, SQLite persistente em volume. Os serviços foram inicialmente presos a `45ce984` e precisam ser repontados ao novo HEAD após o merge.
+- Recuperação Vercel independente: sandbox persistente `sosyt-sol-20261006`, snapshot `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs`. O checkpoint Sandbox mais completo era `6b29eb6`; `951bf7b`/`0dccc7d` foram intermediários. Nenhum desses hashes foi publicado no GitHub; a recuperação local atual os supersede e deve ser a fonte para o novo commit canônico.
+- Não criar infraestrutura paga para contornar conectores quando houver rota local/gratuita disponível.
 
 ## Regra de atualização
 

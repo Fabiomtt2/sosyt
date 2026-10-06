@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 
-export const whatsappModeSchema = z.enum(["OFFICIAL", "HYBRID", "DISABLED"]);
+export const whatsappModeSchema = z.enum(["OFFICIAL", "META_GROUPS", "EVOLUTION", "DISABLED"]);
 export type WhatsAppMode = z.infer<typeof whatsappModeSchema>;
 
 const metaSettingsSchema = z.object({
@@ -18,7 +18,10 @@ const metaSettingsSchema = z.object({
   verifyToken: z.string().trim().min(12).max(256).optional(),
   wppUrl: z.string().url().optional(),
   wppSession: z.string().trim().regex(/^[A-Za-z0-9_-]{2,64}$/).optional(),
-  wppToken: z.string().trim().min(8).max(4096).optional()
+  wppToken: z.string().trim().min(8).max(4096).optional(),
+  evolutionUrl: z.string().url().optional(),
+  evolutionInstance: z.string().trim().regex(/^[A-Za-z0-9_-]{2,80}$/).optional(),
+  evolutionApiKey: z.string().trim().min(8).max(4096).optional()
 });
 export type MetaSettingsInput = z.infer<typeof metaSettingsSchema>;
 
@@ -35,7 +38,10 @@ const keyNames = {
   validatedDisplayPhone: "whatsapp.meta.validated_display_phone",
   wppUrl: "whatsapp.wpp.url",
   wppSession: "whatsapp.wpp.session",
-  wppToken: "whatsapp.wpp.token"
+  wppToken: "whatsapp.wpp.token",
+  evolutionUrl: "whatsapp.evolution.url",
+  evolutionInstance: "whatsapp.evolution.instance",
+  evolutionApiKey: "whatsapp.evolution.api_key"
 } as const;
 
 function get(db: AppDatabase, key: string) {
@@ -69,13 +75,16 @@ function configuredSecret(db: AppDatabase, config: Config, key: string, envValue
 }
 
 export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
-  const mode = whatsappModeSchema.catch("OFFICIAL").parse(get(db,keyNames.mode) ?? "OFFICIAL");
+  const storedMode = get(db,keyNames.mode) ?? "OFFICIAL";
+  const mode = whatsappModeSchema.catch("OFFICIAL").parse(storedMode === "HYBRID" ? "META_GROUPS" : storedMode);
   const businessAccountId = get(db,keyNames.businessAccountId) ?? config.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const phoneNumberId = get(db,keyNames.phoneNumberId) ?? config.WHATSAPP_PHONE_NUMBER_ID;
   const businessPhone = get(db,keyNames.businessPhone);
   const graphVersion = get(db,keyNames.graphVersion) ?? config.WHATSAPP_GRAPH_VERSION;
   const wppUrl = get(db,keyNames.wppUrl) ?? config.WPP_CONNECT_URL;
   const wppSession = get(db,keyNames.wppSession) ?? config.WPP_CONNECT_SESSION;
+  const evolutionUrl = get(db,keyNames.evolutionUrl) ?? "";
+  const evolutionInstance = get(db,keyNames.evolutionInstance) ?? "";
   return {
     mode,
     businessAccountId: businessAccountId ?? "",
@@ -90,6 +99,9 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
     wppUrl,
     wppSession,
     wppTokenConfigured: configuredSecret(db,config,keyNames.wppToken,config.WPP_CONNECT_TOKEN),
+    evolutionUrl,
+    evolutionInstance,
+    evolutionApiKeyConfigured: configuredSecret(db,config,keyNames.evolutionApiKey),
     officialReady: Boolean(businessAccountId && phoneNumberId && configuredSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN) && configuredSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET) && configuredSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN)),
     webhookUrl: new URL("/webhooks/whatsapp",config.API_PUBLIC_URL).toString()
   };
@@ -104,10 +116,13 @@ export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: un
   set(db,keyNames.graphVersion,body.graphVersion);
   if (body.wppUrl!==undefined) set(db,keyNames.wppUrl,body.wppUrl);
   if (body.wppSession!==undefined) set(db,keyNames.wppSession,body.wppSession);
+  if (body.evolutionUrl!==undefined) set(db,keyNames.evolutionUrl,body.evolutionUrl);
+  if (body.evolutionInstance!==undefined) set(db,keyNames.evolutionInstance,body.evolutionInstance);
   if (body.accessToken) set(db,keyNames.accessToken,seal(config,body.accessToken));
   if (body.appSecret) set(db,keyNames.appSecret,seal(config,body.appSecret));
   if (body.verifyToken) set(db,keyNames.verifyToken,seal(config,body.verifyToken));
   if (body.wppToken) set(db,keyNames.wppToken,seal(config,body.wppToken));
+  if (body.evolutionApiKey) set(db,keyNames.evolutionApiKey,seal(config,body.evolutionApiKey));
   return readWhatsAppIntegration(db,config);
 }
 

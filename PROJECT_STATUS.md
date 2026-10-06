@@ -61,7 +61,7 @@ Isso não simula acesso a grupos comuns não expostos pela API oficial. A valida
 - Texto auxiliar do login é uma linha no desktop e responsivo no mobile.
 - País/DDI fica contido em popover com rolagem interna e setas ↑/↓; DDD brasileiro usa trilho horizontal ‹/› e busca incremental por teclado sem caixa extra (`7` filtra 7x; `71` localiza 71). O DDD exibe 15 cards completos (5×3) por viewport, sem coluna parcialmente cortada; E2E também bloqueia overflow horizontal do seletor/documento. Ambos fecham com `Esc` e não alteram a altura da página.
 - `Grupos e acesso` pagina funcionalmente o espaço 1–999 em carrossel; grupos não persistidos podem ser ativados diretamente. A autorização manual usa o mesmo `PhoneField` internacional e seletor visual 1–999.
-- Modal do BOT possui scroll interno, fecha por `Esc` em camadas e explica Oficial/Híbrido/Desativado. O botão `Configurar integração` usa sempre vermelho ASTRA; Meta Oficial usa azul e o Híbrido usa vaporwave azul/roxo/magenta com Meta + YouTube 50/50. O conteúdo do modal usa fundo branco/creme e separadores suaves; transporte inativo mostra `AINDA INATIVO` sem emoji.
+- Modal do BOT possui scroll interno, fecha por `Esc` em camadas e explica **Meta Oficial / Meta + Grupos / Evolution Gateway / Desativado**. O botão `Configurar integração` usa sempre vermelho ASTRA; Meta Oficial usa azul, Meta + Grupos usa vaporwave azul/roxo/magenta com Meta + YouTube 50/50, Evolution usa navy/índigo e Desativado usa cinza. A seleção altera imediatamente textos/status/campos antes de salvar; Evolution não exibe aviso, webhook ou validação Meta.
 - Passe Premium global foi limitado a profundidade, consistência de cartões, botões, slots, dashboard e modais, preservando paleta navy/vermelho/creme e tipografia ASTRA.
 - Webapp/XFCE é a prioridade corrente; APK não é prioridade desta rodada.
 
@@ -99,10 +99,22 @@ Gate completo executado após recuperação por Git e refinamento visual:
 
 ## Publicação web
 
-- Preview estático preparado para GitHub Pages em `https://fabiomtt2.github.io/sosyt/`.
-- O build Pages usa `/sosyt/` em assets, manifest, PWA `start_url` e `scope`.
-- `VITE_API_URL` é variável do repositório e ficará vazia até existir backend HTTPS; nesse estado a versão pública não tenta o localhost do visitante.
+- GitHub Pages continua disponível em `https://fabiomtt2.github.io/sosyt/`; o build Pages usa `/sosyt/` em assets, manifest, PWA `start_url` e `scope`.
+- Backend HTTPS real já existe no Railway: `https://sos-youtuber-api-production.up.railway.app`, Fastify em produção, healthcheck `/health` e SQLite em volume persistente.
+- Frontend full-stack alternativo já existe em `https://sos-youtuber-web-production.up.railway.app`, apontando para a API Railway. API e web foram inicialmente fixados em `45ce984` e devem ser repontados ao HEAD canônico desta rodada após o merge.
+- A build pública nunca deve cair no `localhost:3333` do visitante; `VITE_API_URL` deve apontar para backend HTTPS quando a publicação precisar operar de ponta a ponta.
 - `vite.config.ts` é a única configuração Vite canônica; scripts nomeiam explicitamente esse arquivo para impedir precedência de artefatos legados.
+
+## Recuperação e convergência — 06/10/2026
+
+- Git local encontrado e reancorado em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`; `main` e `origin/main` estavam limpos em `45ce984`.
+- Branch de recuperação atual: `sol/whatsapp-modes-evolution-20261006-recovered`.
+- Desktop Commander secundário está online no Inspiron com cota disponível e é a rota local preferencial.
+- `gh` local está autenticado como `Fabiomtt2` com escopos `repo` e `workflow`, contornando o GitHub App somente-leitura desta instância.
+- O trabalho feito no Vercel ficou preservado no snapshot `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs`; o hash Sandbox `6b29eb6` era o checkpoint mais completo, enquanto `951bf7b`/`0dccc7d` eram intermediários. Esses hashes nunca chegaram ao GitHub e foram recuperados/supersedidos na branch local atual.
+- Recuperação implementada localmente: busca DDI por nome/acento; badge ASTRA da autorização manual; `META_GROUPS` com migração do legado `HYBRID`; Evolution Gateway com URL/instância/API key cifrada; contexto do modal e resumo Owner sensíveis ao provider.
+- Gate local desta recuperação: 65/65 API, 9/9 cliente, build API, React/PWA e Playwright E2E 1/1 aprovados. Evidências visuais foram regeneradas em `docs/evidencias/`.
+- Nenhum recurso pago deve ser criado para contornar conectores quando houver rota local/gratuita funcional.
 
 ## Pendências externas/produção
 

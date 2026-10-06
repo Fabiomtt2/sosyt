@@ -162,10 +162,10 @@ describe("Owner e acesso por grupo", () => {
 
     const saved = await app.inject({
       method:"POST",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken),
-      payload:{ mode:"HYBRID",businessAccountId:"123456789012345",phoneNumberId:"987654321098765",businessPhone:"+5571999990001",graphVersion:"v23.0",accessToken:"test-system-user-access-token-123456789",appSecret:"meta-app-secret-test",wppUrl:"http://127.0.0.1:21465",wppSession:"sos-youtube" }
+      payload:{ mode:"META_GROUPS",businessAccountId:"123456789012345",phoneNumberId:"987654321098765",businessPhone:"+5571999990001",graphVersion:"v23.0",accessToken:"test-system-user-access-token-123456789",appSecret:"meta-app-secret-test",wppUrl:"http://127.0.0.1:21465",wppSession:"sos-youtube" }
     });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toMatchObject({ mode:"HYBRID",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:false,wppSession:"sos-youtube" });
+    expect(saved.json()).toMatchObject({ mode:"META_GROUPS",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:false,wppSession:"sos-youtube" });
     expect(JSON.stringify(saved.json())).not.toContain("test-system-user-access-token");
     expect(JSON.stringify(saved.json())).not.toContain("meta-app-secret-test");
 
@@ -176,10 +176,22 @@ describe("Owner e acesso por grupo", () => {
 
     const state = await app.inject({ method:"GET",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken) });
     expect(state.statusCode).toBe(200);
-    expect(state.json()).toMatchObject({ mode:"HYBRID",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:true,officialReady:true });
+    expect(state.json()).toMatchObject({ mode:"META_GROUPS",accessTokenConfigured:true,appSecretConfigured:true,verifyTokenConfigured:true,officialReady:true });
     expect(state.json()).not.toHaveProperty("accessToken");
     expect(state.json()).not.toHaveProperty("appSecret");
     expect(state.json()).not.toHaveProperty("verifyToken");
+
+    const evolution = await app.inject({
+      method:"POST",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken),
+      payload:{ mode:"EVOLUTION",evolutionUrl:"https://evolution.example.test",evolutionInstance:"sos-youtuber",evolutionApiKey:"evolution-secret-api-key-123" }
+    });
+    expect(evolution.statusCode).toBe(200);
+    expect(evolution.json()).toMatchObject({ mode:"EVOLUTION",evolutionUrl:"https://evolution.example.test",evolutionInstance:"sos-youtuber",evolutionApiKeyConfigured:true });
+    expect(JSON.stringify(evolution.json())).not.toContain("evolution-secret-api-key-123");
+
+    const evolutionState = await app.inject({ method:"GET",url:"/admin/integrations/whatsapp",headers:authorization(ownerToken) });
+    expect(evolutionState.json()).toMatchObject({ mode:"EVOLUTION",evolutionApiKeyConfigured:true });
+    expect(evolutionState.json()).not.toHaveProperty("evolutionApiKey");
 
     const webhook = await app.inject({ method:"GET",url:`/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(generated.json().verifyToken)}&hub.challenge=12345` });
     expect(webhook.statusCode).toBe(200);
