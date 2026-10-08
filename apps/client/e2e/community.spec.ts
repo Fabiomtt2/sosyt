@@ -1,10 +1,21 @@
+import { execFileSync } from "node:child_process";
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
 async function fillBrazilPhone(page: any, subscriber: string) {
   await page.getByRole("button", { name: "Selecionar país e DDI" }).click();
-  await page.getByPlaceholder("Buscar país ou DDI").fill("Brasil");
-  await expect(page.locator(".phone-option-list button")).toHaveCount(1);
+  const countryDialog=page.getByRole("dialog",{name:"País e DDI"});
+  await expect(countryDialog).toBeVisible();
+  await page.keyboard.type("5");
+  await expect(page.locator(".phone-incremental-filter strong")).toHaveText("5");
+  const afterFive=await page.locator(".phone-option-list button").evaluateAll((buttons)=>buttons.map((button)=>button.textContent??""));
+  expect(afterFive.length).toBeGreaterThan(1);
+  expect(afterFive.every((label)=>/\+5\d*/.test(label))).toBe(true);
+  await page.keyboard.type("5");
+  await expect(page.locator(".phone-incremental-filter strong")).toHaveText("55");
+  await expect(page.getByRole("button",{name:"Brasil +55"})).toBeVisible();
+  await page.waitForTimeout(1700);
+  await expect(page.locator(".phone-incremental-filter strong")).toHaveText("55");
   await page.getByRole("button", { name: "Brasil +55" }).click();
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   const dddRail = page.locator(".ddd-rail");
@@ -17,7 +28,7 @@ async function fillBrazilPhone(page: any, subscriber: string) {
 }
 
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const evidence = resolve("../../docs/evidencias"), errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/");
@@ -105,9 +116,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(securityWeights[2]).toBeGreaterThanOrEqual(700);
   await expect(page.locator(".security-emblem")).toHaveCount(0);
 
-  await page.screenshot({ path: resolve(evidence, "login-desktop.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "login-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: resolve(evidence, "login-mobile.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "login-mobile.png"), fullPage: true });
   await continueButton.click();
   await expect(page.getByText("Informe seu nome ou como prefere ser chamado.", { exact: true })).toBeVisible();
   await expect(page.getByText("Please fill out this field", { exact: false })).toHaveCount(0);
@@ -146,35 +157,35 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("button", { name: "Selecionar DDD do Brasil" }).click();
   await expect(page.getByRole("button", { name: "DDDs anteriores" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Próximos DDDs" })).toBeVisible();
-  const dddCardsContained = await page.locator(".ddd-rail").evaluate((rail) => {
+  const dddLayout = await page.locator(".ddd-rail").evaluate((rail) => {
     const r=rail.getBoundingClientRect();
-    return Array.from(rail.children).every((child) => {
-      const c=(child as HTMLElement).getBoundingClientRect();
+    const cards=Array.from(rail.children).map((child)=>(child as HTMLElement).getBoundingClientRect());
+    const visible=cards.filter((c)=>c.right>r.left&&c.left<r.right&&c.bottom>r.top&&c.top<r.bottom);
+    const contained=cards.every((c)=>{
       const intersects=c.right>r.left && c.left<r.right;
       return !intersects || (c.left>=r.left-1 && c.right<=r.right+1);
     });
+    return {contained,visibleCount:visible.length};
   });
-  expect(dddCardsContained).toBe(true);
+  expect(dddLayout.contained).toBe(true);
+  expect(dddLayout.visibleCount).toBe(15);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await page.getByRole("button", { name: "Próximos DDDs" }).click();
   await expect.poll(async () => page.locator(".ddd-rail").evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
-  const groupField = page.getByLabel("Digite o número correspondente ao seu grupo");
-  await groupField.fill("123");
-  await expect(groupField).toHaveValue("123");
-  await groupField.fill("1");
+  await expect(page.getByLabel("Digite o número correspondente ao seu grupo")).toHaveCount(0);
   await page.getByRole("checkbox").check(); await page.getByRole("button", { name: "Enviar dados e continuar" }).click();
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
-  await expect(page.getByText("Sua solicitação de cadastro foi registrada e será validada em breve.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Sua solicitação foi registrada\. O grupo será preenchido automaticamente/)).toBeVisible();
   await expect(page.getByText("Proteção contra cadastro repetido", { exact: true })).toBeVisible();
   await expect(page.getByText(/nunca é acionado por senha ou credencial incorreta/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Verificar situação" })).toBeVisible();
   await expect(page.getByText("Pode fechar esta página.", { exact: false })).toBeVisible();
-  await page.screenshot({ path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "solicitacao-mobile.png"), fullPage: true });
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
-  await expect(page.getByText("Sua solicitação continua aguardando análise dos Owners.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Seu pedido continua salvo e pode ser acompanhado neste aparelho.", { exact: true })).toBeVisible();
 
   const ownerApproval = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "sosyout" } });
   expect(ownerApproval.ok()).toBeTruthy();
@@ -182,7 +193,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const requestsOverview = await request.get("http://127.0.0.1:17333/admin/overview", { headers: { authorization: `Bearer ${approvalToken}` } });
   const requestData = (await requestsOverview.json()).requests.find((item: { name: string }) => item.name === "Pessoa E2E");
   expect(requestData).toBeTruthy();
-  const approved = await request.post(`http://127.0.0.1:17333/admin/requests/${requestData.id}/decision`, { headers: { authorization: `Bearer ${approvalToken}` }, data: { status: "APPROVED", groupCode: "1" } });
+  const approved = await request.post("http://127.0.0.1:17333/admin/members", {
+    headers: { authorization: `Bearer ${approvalToken}` },
+    data: { phone:"5571900000001",groupCode:"1",name:"Pessoa E2E" }
+  });
   expect(approved.ok()).toBeTruthy();
   const pendingSeed = await request.post("http://127.0.0.1:17333/participation/request", {
     data: { name: "Pessoa Pendente", phone: "5571900000099", groupCode: "2", consent: true }
@@ -234,8 +248,14 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Pessoa Pendente", { exact: true })).toBeVisible();
   const pendingBadgeStyle = await page.locator(".new-user-badge").evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(pendingBadgeStyle).toBe("rgb(231, 247, 237)");
-  await page.screenshot({ path: resolve(evidence, "owner-solicitacoes-desktop.png"), fullPage: true });
-  await expect(page.getByRole("button", { name: /Fábio/ })).toBeVisible();
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-solicitacoes-desktop.png"), fullPage: true });
+  await expect(page.getByRole("button", { name: "Abrir menu do Owner Fábio" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Trocar avatar de Fábio" })).toBeVisible();
+  const ownerHeaderBadge=page.locator(".header-admin-badge");
+  await expect(ownerHeaderBadge).toHaveText("OWNER");
+  const ownerBadgeStyle=await ownerHeaderBadge.evaluate((el)=>({background:getComputedStyle(el).backgroundImage,color:getComputedStyle(el).color,borderRadius:getComputedStyle(el).borderRadius}));
+  expect(ownerBadgeStyle.background).toContain("linear-gradient");
+  expect(ownerBadgeStyle.borderRadius).not.toBe("0px");
   await expect(page.getByText("Outubro de 2026", { exact:true })).toBeVisible();
   await expect(page.getByText("Painel sincronizado com o servidor", { exact:false })).toBeVisible();
   await page.getByRole("button", { name:"Explicar versão e sincronização do painel" }).click();
@@ -253,7 +273,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("dialog", { name: "Administrar participante" })).toBeVisible();
   await expect(page.getByText("ÁREA RESTRITA · OWNER", { exact: true })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Administrar participante" }).getByText(/por Fabio0/)).toBeVisible();
-  await page.screenshot({ path: resolve(evidence, "owner-participante-desktop.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-participante-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: "Fechar participante" }).click();
 
   await page.getByRole("button", { name: "Compras", exact: true }).click();
@@ -281,14 +301,14 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByRole("button", { name: "Explicar Mercado Pago" }).click();
   await expect(page.getByRole("dialog", { name: "Quando escolher Mercado Pago?" })).toBeVisible();
   await page.getByRole("button", { name: "Fechar explicação" }).click();
-  await page.screenshot({ path: resolve(evidence, "owner-pagamentos-after-audit-desktop.png"), fullPage:false });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-pagamentos-after-audit-desktop.png"), fullPage:false });
   const paymentScroll = await paymentDialog.evaluate((el:HTMLElement)=>({clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,scrollTop:el.scrollTop}));
   expect(paymentScroll.scrollHeight).toBeGreaterThan(paymentScroll.clientHeight);
   await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTo({top:el.scrollHeight,behavior:"instant" as ScrollBehavior}));
   expect(await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTop)).toBeGreaterThan(paymentScroll.scrollTop);
   await paymentDialog.evaluate((el:HTMLElement)=>el.scrollTo({top:0,behavior:"instant" as ScrollBehavior}));
   await page.setViewportSize({ width:390, height:844 });
-  await page.screenshot({ path: resolve(evidence, "owner-pagamentos-after-audit-mobile.png"), fullPage:false });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-pagamentos-after-audit-mobile.png"), fullPage:false });
   expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
   await page.setViewportSize({ width:1366, height:768 });
   await page.getByRole("button", { name: "Fechar configuração de pagamentos" }).click();
@@ -315,7 +335,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(groupDialog.getByText("NÃO CONFIRMADO",{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).toBe("hidden");
   expect(await groupDialog.evaluate((el)=>getComputedStyle(el.parentElement!).backdropFilter)).toContain("blur");
-  await page.screenshot({path:resolve(evidence,"owner-grupo-gerenciar-desktop.png"),fullPage:false});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"owner-grupo-gerenciar-desktop.png"),fullPage:false});
   await page.getByRole("button",{name:"Fechar gerenciamento do grupo"}).click();
   expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).not.toBe("hidden");
   await expect(page.locator(".manual-access-section").getByText("Código do país + DDD + Número do WhatsApp.", { exact: true })).toBeVisible();
@@ -372,7 +392,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(modalGeometry.scrollWidth).toBeLessThanOrEqual(modalGeometry.clientWidth+1);
   expect(modalGeometry.titleBackground).toBe("rgba(0, 0, 0, 0)");
   expect(modalGeometry.titleHeight).toBeLessThan(140);
-  await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-top-desktop.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-whatsapp-config-top-desktop.png"), fullPage: true });
   const integrationOverflowY = await integrationDialog.evaluate((el) => getComputedStyle(el).overflowY);
   expect(["auto", "scroll"]).toContain(integrationOverflowY);
   await expect(page.getByRole("radio", { name: /Meta Oficial/ })).toBeVisible();
@@ -421,7 +441,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(Math.abs((hybridSplit.metaWidth+hybridSplit.youtubeWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
   await expect(hybridMode.locator(".youtube-half svg")).toBeVisible();
   expect(await integrationDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
-  await page.screenshot({ path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(integrationDialog).toHaveCount(0);
@@ -432,31 +452,165 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(activeOwnerTabBox).not.toBeNull();
   expect(activeOwnerTabBox!.x).toBeGreaterThanOrEqual(-1);
   expect(activeOwnerTabBox!.x+activeOwnerTabBox!.width).toBeLessThanOrEqual(391);
-  await page.screenshot({ path: resolve(evidence, "owner-mobile.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.screenshot({ path: resolve(evidence, "owner-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: /Fábio/ }).click();
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-desktop.png"), fullPage: true });
+
+  // Percurso real Owner -> participante administrativo -> Owner. O retorno deve
+  // renovar a sessão administrativa e jamais cair na proteção de cadastro de 120 min.
+  await page.getByRole("button", { name: "Abrir menu do Owner Fábio" }).click();
+  let ownerDeskMenu=page.getByRole("dialog",{name:"Menu do Owner"});
+  await expect(ownerDeskMenu).toBeVisible();
+  const ownerOpenRound=ownerDeskMenu.locator(".owner-round-row.open").first();
+  const ownerRoundTitle=ownerOpenRound.getByText("Fila 1",{exact:true});
+  const ownerRoundProgress=ownerOpenRound.locator(".owner-round-progress");
+  await expect(ownerRoundTitle).toBeVisible();
+  await expect(ownerRoundProgress).toHaveText(/\d+\/10 vídeos · recebendo contribuições/);
+  const ownerRoundGeometry=await ownerOpenRound.evaluate((el:HTMLElement)=>{
+    const title=el.querySelector(".owner-round-copy>strong")!.getBoundingClientRect();
+    const progress=el.querySelector(".owner-round-progress")!.getBoundingClientRect();
+    return {titleBottom:title.bottom,progressTop:progress.top,titleLeft:title.left,progressLeft:progress.left};
+  });
+  expect(ownerRoundGeometry.progressTop).toBeGreaterThanOrEqual(ownerRoundGeometry.titleBottom-1);
+  expect(Math.abs(ownerRoundGeometry.titleLeft-ownerRoundGeometry.progressLeft)).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Escape");
+  await expect(ownerDeskMenu).toHaveCount(0);
+  await page.getByRole("button", { name: "Abrir menu do Owner Fábio" }).click();
+  ownerDeskMenu=page.getByRole("dialog",{name:"Menu do Owner"});
+  await ownerDeskMenu.getByRole("button",{name:"Participar da fila",exact:true}).click();
+  await expect(page.getByRole("heading",{name:"Vamos montar a próxima seleção?"})).toBeVisible();
+  await expect(page.locator(".header-admin-badge")).toHaveText("ADMIN");
+  await expect(page.getByText("QUADRO COMPARTILHADO · FILA 1",{exact:true})).toBeVisible();
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-admin-desktop.png"),fullPage:true});
+  await page.getByRole("button",{name:"Abrir menu da minha conta"}).click();
+  const adminAccountMenu=page.getByRole("dialog",{name:"Minha conta"});
+  await expect(adminAccountMenu.getByText("Owner principal · Fila atual 1",{exact:true})).toBeVisible();
+  await expect(adminAccountMenu.getByText("Fila atual:",{exact:false})).toBeVisible();
+  await expect(adminAccountMenu.getByText("Grupo SOS YOUTUBER #",{exact:false})).toHaveCount(0);
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-admin-conta-desktop.png"),fullPage:false});
+  await adminAccountMenu.getByRole("button",{name:"Voltar ao painel administrativo"}).click();
+  await expect(page.getByRole("heading",{name:"Sua conexão, em números."})).toBeVisible();
+  await expect(page.getByText("Proteção contra cadastro repetido",{exact:true})).toHaveCount(0);
+  await expect(page.locator(".header-admin-badge")).toHaveText("OWNER");
+
+  await page.getByRole("button", { name: "Abrir menu do Owner Fábio" }).click();
+  ownerDeskMenu=page.getByRole("dialog",{name:"Menu do Owner"});
+  await expect(ownerDeskMenu).toBeVisible();
+  await ownerDeskMenu.getByRole("button",{name:/Sair do painel Owner/}).click();
+  await expect(page.getByRole("heading",{name:"Vamos montar a próxima seleção?"})).toBeVisible();
+  await expect(page.locator(".header-admin-badge")).toHaveText("ADMIN");
+  await page.getByRole("button",{name:"Abrir menu da minha conta"}).click();
+  const postOwnerLogoutMenu=page.getByRole("dialog",{name:"Minha conta"});
+  await postOwnerLogoutMenu.getByRole("button",{name:"Sair da minha conta"}).click();
+  await expect(page.getByRole("heading",{name:"Entre na sua conexão"})).toBeVisible();
 
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await fillBrazilPhone(page, "900000001");
-  await page.getByLabel("Digite o número correspondente ao seu grupo").fill("1"); await page.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(page.getByLabel("Digite o número correspondente ao seu grupo")).toHaveCount(0); await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByLabel("Credencial", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Vamos montar a próxima seleção?" })).toBeVisible();
+
+  const avatarTrigger=page.getByRole("button",{name:"Trocar avatar de Pessoa E2E"});
+  const avatarGeometry=await avatarTrigger.evaluate((el:HTMLElement)=>{
+    const box=el.getBoundingClientRect(),style=getComputedStyle(el);
+    const avatar=el.querySelector(".header-avatar") as HTMLElement;
+    const avatarBox=avatar.getBoundingClientRect(),avatarStyle=getComputedStyle(avatar);
+    return {width:box.width,height:box.height,radius:parseFloat(style.borderTopLeftRadius),overflow:style.overflow,
+      avatarWidth:avatarBox.width,avatarHeight:avatarBox.height,avatarRadius:parseFloat(avatarStyle.borderTopLeftRadius),avatarOverflow:avatarStyle.overflow};
+  });
+  expect(Math.abs(avatarGeometry.width-avatarGeometry.height)).toBeLessThanOrEqual(1);
+  expect(avatarGeometry.radius).toBeGreaterThanOrEqual(avatarGeometry.width/2-1);
+  // O botão externo permite o badge ADMIN/OWNER ultrapassar a borda; quem recorta
+  // a imagem é o avatar interno, que permanece perfeitamente circular.
+  expect(avatarGeometry.overflow).toBe("visible");
+  expect(Math.abs(avatarGeometry.avatarWidth-avatarGeometry.avatarHeight)).toBeLessThanOrEqual(1);
+  expect(avatarGeometry.avatarRadius).toBeGreaterThanOrEqual(avatarGeometry.avatarWidth/2-1);
+  expect(avatarGeometry.avatarOverflow).toBe("hidden");
+
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-inicio-desktop.png"),fullPage:true});
+  const banners=page.getByRole("region",{name:"Boas-vindas ao SOS YouTuber"});
+  await banners.getByRole("button",{name:"Próximo banner"}).click();
+  await expect(banners.getByText("Seu tempo continua com você.",{exact:true})).toBeVisible();
+  await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-tempo-desktop.png"),fullPage:false});
+  await banners.getByRole("button",{name:"Próximo banner"}).click();
+  await expect(banners.getByText("Uma contribuição extra na mesma fila.",{exact:true})).toBeVisible();
+  await page.setViewportSize({width:390,height:844});
+  await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-passe-mobile.png"),fullPage:false});
+  await page.setViewportSize({width:1440,height:1000});
+  await banners.getByRole("button",{name:"Próximo banner"}).click();
+
+  await avatarTrigger.click();
+  const avatarDialog=page.getByRole("dialog",{name:"Escolher avatar"});
+  await expect(avatarDialog).toBeVisible();
+  await expect(avatarDialog.getByRole("button",{name:/Escolher avatar /})).toHaveCount(34);
+  await expect(avatarDialog.getByText("Tirar foto",{exact:true})).toHaveCount(0);
+  await expect(avatarDialog.getByText("Galeria",{exact:true})).toHaveCount(0);
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-avatar-desktop.png"),fullPage:false});
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-avatar-mobile.png"),fullPage:false});
+  await avatarDialog.getByRole("button",{name:"Escolher avatar 17",exact:true}).click();
+  await expect(avatarDialog).toHaveCount(0);
+  await expect(avatarTrigger.locator(".header-avatar.preset")).toBeVisible();
+  await avatarTrigger.click();
+  const selectedAvatarDialog=page.getByRole("dialog",{name:"Escolher avatar"});
+  await expect(selectedAvatarDialog.getByRole("button",{name:"Escolher avatar 17",exact:true})).toHaveClass(/selected/);
+  await page.keyboard.press("Escape");
+  await expect(selectedAvatarDialog).toHaveCount(0);
+  await expect(avatarTrigger).toBeFocused();
+  expect(await page.evaluate(()=>document.body.style.overflow)).not.toBe("hidden");
+
+  await page.getByRole("button",{name:"Abrir menu da minha conta"}).click();
+  const accountMenu=page.getByRole("dialog",{name:"Minha conta"});
+  await expect(accountMenu).toBeVisible();
+  await expect(accountMenu.getByRole("region",{name:"Tempo acumulado de acompanhamento"})).toBeVisible();
+  await expect(accountMenu.getByText("Foto do perfil",{exact:true})).toBeVisible();
+  await expect(accountMenu.getByRole("button",{name:"Tirar foto"})).toBeVisible();
+  await expect(accountMenu.getByRole("button",{name:"Galeria"})).toBeVisible();
+  await expect(accountMenu.getByRole("button",{name:"Usar iniciais"})).toBeVisible();
+  await page.getByRole("button",{name:"Fechar minha conta"}).click();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/dQw4w9WgXcQ");
   await page.getByRole("button", { name: "Salvar no espaço 1" }).click();
   await expect(page.getByText("Você já participou desta fila.", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Comprar moedas" }).click();
+  await page.getByRole("button", { name: "Ver moedas e passes" }).click();
+  const storeDialog=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
+  await expect(storeDialog).toBeVisible();
+  expect(await page.evaluate(()=>document.body.style.overflow)).toBe("hidden");
+  await storeDialog.locator("summary").focus();
+  await page.keyboard.press("Tab");
+  await expect(storeDialog.getByRole("button",{name:"Fechar loja"})).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(storeDialog.locator("summary")).toBeFocused();
+  await storeDialog.evaluate(el=>el.scrollTop=0);
+
+  await expect(storeDialog.getByText("10 moedas + 1 passe bônus",{exact:false})).toBeVisible();
+  await expect(storeDialog.getByRole("heading",{name:"1 passe",exact:true})).toBeVisible();
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-mobile.png"),fullPage:false});
+  expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await page.setViewportSize({width:1366,height:768});
+  await storeDialog.locator(".store-editorial-art").evaluateAll(async images=>{await Promise.all(images.map(image=>(image as HTMLImageElement).decode()));});
+  const productGeometry=await storeDialog.locator(".store-product").evaluateAll(cards=>cards.map(card=>{
+    const image=card.querySelector("img")!.getBoundingClientRect(),copy=card.querySelector(".store-product-copy")!.getBoundingClientRect();
+    return image.bottom<=copy.top+1;
+  }));
+  expect(productGeometry).toEqual([true,true]);
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-desktop.png"),fullPage:false});
+  expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await page.setViewportSize({width:390,height:844});
+  await storeDialog.getByRole("button",{name:"Quero este pacote"}).click();
   await page.getByLabel("E-mail do pagador").fill("e2e@example.com"); await page.getByLabel("CPF do pagador").fill("12345678901");
-  await page.getByRole("button", { name: "Gerar Pix" }).click(); await page.getByRole("button", { name: "Simular aprovação" }).click();
+  await page.getByRole("button", { name: /Gerar Pix de/ }).click(); await page.getByRole("button", { name: "Simular confirmação" }).click();
   await expect(page.getByText("Pagamento confirmado:", { exact: false })).toBeVisible();
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/9bZkp7q19f0");
   await page.getByRole("button", { name: "Salvar no espaço 2" }).click();
   await expect(page.getByText("2 de 10 vídeos", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await page.screenshot({ path: resolve(evidence, "participante-mobile.png"), fullPage: true });
-  const owner = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "sosyout" } });
-  expect(owner.ok()).toBeTruthy(); const ownerToken = (await owner.json()).token;
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "participante-mobile.png"), fullPage: true });
+  const ownerToken = approvalToken; // Reuse the Owner session already authenticated in this scenario.
   for (let n = 3; n <= 10; n++) {
     const phone = `55719000000${String(n).padStart(2, "0")}`;
     const member = await request.post("http://127.0.0.1:17333/admin/members", { headers: { authorization: `Bearer ${ownerToken}` }, data: { name: `Participante ${n}`, phone, groupCode: n % 2 ? "1" : "2" } }); expect(member.ok()).toBeTruthy();
@@ -474,10 +628,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("heading", { name: "Esta fila já foi preenchida." })).toBeVisible();
   await expect(page.getByText("A próxima fila já pode estar sendo montada por outros participantes.", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
-  await page.screenshot({ path: resolve(evidence, "ciclo-completo-mobile.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "ciclo-completo-mobile.png"), fullPage: true });
   await page.locator(".ready-card > button").click();
   await expect(page.getByRole("button",{name:"Continuar para Google/YouTube"})).toBeVisible();
-  await page.screenshot({path:resolve(evidence,"consentimento-youtube-mobile.png"),fullPage:true});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"consentimento-youtube-mobile.png"),fullPage:true});
   await page.getByRole("button",{name:"Cancelar criação"}).click();
   // External credentials are intentionally replaced only for this UI export contract.
   let exported = false;
@@ -490,15 +644,50 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.reload(); await expect(page.locator(".ready-card > button")).toHaveText("Criar playlist");
   await page.getByText("Ver os 10 vídeos, autores e horários", { exact: true }).click();
   await expect(page.locator(".cycle-details").getByRole("button", { name: "Criar playlist" })).toHaveCount(0);
-  await page.screenshot({ path: resolve(evidence, "compartilhar-playlist-mobile.png"), fullPage: true });
+  await page.screenshot({animations:"disabled", path: resolve(evidence, "compartilhar-playlist-mobile.png"), fullPage: true });
   await page.locator(".ready-card > button").click();
   await expect(page.getByRole("dialog", {name:"Criação de playlist"})).toBeVisible();
   await page.getByRole("button",{name:"Confirmar criação"}).click();
-  await expect(page.getByRole("link", { name: "Abrir no YouTube" })).toHaveAttribute("href", "https://www.youtube.com/playlist?list=e2e-private-playlist");
-  await expect(page.getByRole("button", { name: "Acompanhar reprodução" })).toBeVisible();
-  await page.getByRole("button", { name: "Acompanhar reprodução" }).click();
-  await expect(page.getByRole("dialog", { name: "Acompanhar reprodução" })).toBeVisible();
-  await expect(page.getByText("0% concluído")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Abrir playlist no YouTube" })).toHaveAttribute("href", "https://www.youtube.com/playlist?list=e2e-private-playlist");
+  // Ao terminar a criação, o app abre o acompanhamento automaticamente.
+  await expect(page.getByRole("dialog", { name: "Acompanhar vídeos da fila" })).toBeVisible();
+  const watchDialog=page.getByRole("dialog",{name:"Acompanhar vídeos da fila"});
+  await expect(watchDialog.getByText("0% concluído",{exact:true})).toBeVisible();
+  await expect(watchDialog.getByText(/0:00 de tempo verificado acumulado/)).toBeVisible();
+  await watchDialog.getByText("Acompanhamento opcional no computador",{exact:true}).click();
+  const companion=watchDialog.locator(".companion-panel");
+  await expect(companion.getByRole("button",{name:"Gerar código de conexão"})).toBeDisabled();
+  await companion.getByRole("checkbox").check();
+  await companion.getByRole("button",{name:"Gerar código de conexão"}).click();
+  const code=await companion.locator(".companion-pairing>strong").innerText();
+  expect(code).toMatch(/^[A-F0-9]{12}$/);
+  const apiUrl=await companion.getByLabel("Servidor do companion").inputValue();
+  // Run the actual Python HTTP client against the isolated test API.
+  const pythonResult=JSON.parse(execFileSync("python3",["-c",[
+    "import json,sys",
+    "sys.path.insert(0,sys.argv[1])",
+    "from sos_companion import CompanionApi,Observation",
+    "data=json.load(sys.stdin)",
+    "client=CompanionApi(data['server'])",
+    "device=client.pair(data['code'])",
+    "observed=client.observe(Observation('ADVANCING',5,120))",
+    "print(json.dumps({'device':device,'observed':observed}))"
+  ].join("\n"),resolve("../../companion")],{input:JSON.stringify({server:apiUrl,code}),encoding:"utf8",timeout:15000}));
+  const device=pythonResult.device;
+  expect(pythonResult.observed.rewards.verifiedSeconds).toBe(0);
+  await expect(companion.getByRole("button",{name:"Desconectar Meu computador"})).toBeVisible({timeout:10000});
+  const download=await request.get("/downloads/sos-companion.py");
+  expect(download.ok()).toBe(true);expect(await download.text()).toContain("class CompanionWindow");
+  await companion.scrollIntoViewIfNeeded();
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"companion-mobile.png")});
+  await page.setViewportSize({width:1440,height:1000});
+  await companion.scrollIntoViewIfNeeded();
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"companion-desktop.png")});
+  await companion.getByRole("button",{name:"Desconectar Meu computador"}).click();
+  await expect(companion.getByText("Desconectado",{exact:true})).toBeVisible();
+  expect((await request.get(apiUrl+"/companion/device",{headers:{authorization:"Bearer "+device.deviceToken}})).status()).toBe(401);
+  await page.setViewportSize({width:390,height:844});
+
   await page.getByRole("button", { name: "Fechar acompanhamento" }).click();
   expect(exported).toBe(true);
   // Simulate the Google round-trip, keeping the real local consent intent and automatic return flow.
@@ -509,10 +698,52 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.route("**/youtube/connect?**",async (route) => { authRound=new URL(route.request().url()).searchParams.get("roundId")!; expect(authRound).toBeTruthy(); oauthConnected=true; await route.fulfill({json:{url:`http://127.0.0.1:17517/?youtube=connected&round=${authRound}`}}); });
   await page.reload(); await page.locator(".ready-card > button").click();
   await page.getByRole("button",{name:"Continuar para Google/YouTube"}).click();
-  await expect(page.getByRole("link",{name:"Abrir no YouTube"})).toBeVisible();
+  await expect(page.getByRole("link",{name:"Abrir playlist no YouTube"})).toBeVisible();
   expect(exported).toBe(true);
   expect(await page.evaluate(() => sessionStorage.getItem("conexao_creation_intent"))).toBeNull();
   expect(page.url()).not.toContain("youtube=connected");
+
+  // Badge ADMIN em uma submissão real da nova fila: deve ficar inteiro dentro
+  // do envelope reservado do avatar, sem depender de bottom negativo.
+  await page.unroute("**/dashboard");
+  const adminParticipantSession=await request.post("http://127.0.0.1:17333/admin/participant-session",{
+    headers:{authorization:`Bearer ${ownerToken}`}
+  });
+  expect(adminParticipantSession.ok()).toBeTruthy();
+  const adminParticipantToken=(await adminParticipantSession.json()).token as string;
+  const adminSaved=await request.post("http://127.0.0.1:17333/rounds/current/submissions",{
+    headers:{authorization:`Bearer ${adminParticipantToken}`},
+    data:{url:"https://youtu.be/E2EADM00001"}
+  });
+  expect(adminSaved.status()).toBe(201);
+  await page.evaluate((token)=>{
+    localStorage.setItem("conexao_token",token);
+    localStorage.setItem("conexao_active_role","user");
+  },adminParticipantToken);
+  await page.reload();
+  await expect(page.getByRole("heading",{name:"Vamos montar a próxima seleção?"})).toBeVisible();
+  const adminQueueContributor=page.locator(".slot-contributor").filter({has:page.locator(".admin-badge")}).first();
+  await expect(adminQueueContributor).toBeVisible();
+  await expect(adminQueueContributor.locator(".admin-badge")).toHaveText("ADMIN");
+  await expect(adminQueueContributor).toContainText("Participação administrativa");
+  await expect(adminQueueContributor).not.toContainText("SOS YOUTUBER #");
+  const badgeGeometry=await adminQueueContributor.evaluate((el:HTMLElement)=>{
+    const shell=el.querySelector(".slot-avatar-shell.has-admin-badge") as HTMLElement;
+    const badge=el.querySelector(".admin-badge") as HTMLElement;
+    const shellBox=shell.getBoundingClientRect(),badgeBox=badge.getBoundingClientRect(),cardBox=el.closest(".slot")!.getBoundingClientRect();
+    return {
+      shellTop:shellBox.top,shellBottom:shellBox.bottom,
+      badgeTop:badgeBox.top,badgeBottom:badgeBox.bottom,
+      badgeLeft:badgeBox.left,badgeRight:badgeBox.right,
+      cardLeft:cardBox.left,cardRight:cardBox.right
+    };
+  });
+  expect(badgeGeometry.badgeTop).toBeGreaterThanOrEqual(badgeGeometry.shellTop-1);
+  expect(badgeGeometry.badgeBottom).toBeLessThanOrEqual(badgeGeometry.shellBottom+1);
+  expect(badgeGeometry.badgeLeft).toBeGreaterThanOrEqual(badgeGeometry.cardLeft-1);
+  expect(badgeGeometry.badgeRight).toBeLessThanOrEqual(badgeGeometry.cardRight+1);
+  await adminQueueContributor.scrollIntoViewIfNeeded();
+  await adminQueueContributor.locator("xpath=ancestor::*[contains(concat(' ',normalize-space(@class),' '),' slot ')]").screenshot({animations:"disabled",path:resolve(evidence,"participante-admin-badge-fila.png")});
 
   expect(errors).toEqual([]);
 });

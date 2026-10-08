@@ -18,6 +18,12 @@ export type PixResult = {
   ticketUrl?: string;
 };
 
+export type PaymentProductCode = "COINS_LAUNCH" | "PASS_SINGLE";
+export const PAYMENT_PRODUCTS: Record<PaymentProductCode,{ amountCents:number; creditsMillis:number; extraPasses:number; description:string; itemReference:string }> = {
+  COINS_LAUNCH:{amountCents:2000,creditsMillis:10000,extraPasses:1,description:"Promoção de lançamento — 10 moedas + 1 passe bônus",itemReference:"coins-launch-10"},
+  PASS_SINGLE:{amountCents:2000,creditsMillis:0,extraPasses:1,description:"Passe SOS YouTuber — 1 passe",itemReference:"pass-single"}
+};
+
 type MercadoPagoPayment = {
   id?: number | string;
   external_reference?: string;
@@ -176,15 +182,16 @@ export async function ensureAsaasWebhook(runtime: PaymentRuntimeConfig): Promise
   return {id:payload.id,created:!existing?.id};
 }
 
-async function createMercadoPagoPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string }): Promise<PixResult> {
+async function createMercadoPagoPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
   if (!runtime.mercadoPagoAccessToken) throw new Error("Mercado Pago ainda não configurado.");
   const nameParts=input.name.trim().split(/\s+/);
+  const product=PAYMENT_PRODUCTS[input.productCode];
   const response=await fetch(`${baseUrl(runtime,"MERCADO_PAGO")}/v1/payments`,{
     method:"POST",signal:AbortSignal.timeout(15_000),
     headers:jsonHeaders({authorization:`Bearer ${runtime.mercadoPagoAccessToken}`,"x-idempotency-key":input.paymentId}),
     body:JSON.stringify({
-      transaction_amount:20,
-      description:"Pacote SOS YouTuber — 20 moedas + 1 passe extra",
+      transaction_amount:product.amountCents/100,
+      description:product.description,
       payment_method_id:"pix",
       external_reference:input.paymentId,
       notification_url:`${runtime.apiPublicUrl}/payments/webhooks/mercado-pago`,
@@ -216,13 +223,14 @@ async function findOrCreateAsaasCustomer(runtime: PaymentRuntimeConfig, input: {
   if (!created.ok || !payload.id) throw new Error("Não foi possível cadastrar o pagador no Asaas.");
   return payload.id;
 }
-async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string }): Promise<PixResult> {
+async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
   const headers=await asaasHeaders(runtime), base=baseUrl(runtime,"ASAAS");
+  const product=PAYMENT_PRODUCTS[input.productCode];
   const customer=await findOrCreateAsaasCustomer(runtime,input);
   const dueDate=new Date(Date.now()+24*60*60_000).toISOString().slice(0,10);
   const created=await fetch(`${base}/payments`,{
     method:"POST",signal:AbortSignal.timeout(15_000),headers,
-    body:JSON.stringify({customer,billingType:"PIX",value:20,dueDate,description:"Pacote SOS YouTuber — 20 moedas + 1 passe extra",externalReference:input.paymentId})
+    body:JSON.stringify({customer,billingType:"PIX",value:product.amountCents/100,dueDate,description:product.description,externalReference:input.paymentId})
   });
   const payment=await created.json().catch(()=>({})) as AsaasPayment;
   if (!created.ok || !payment.id) throw new Error("Não foi possível gerar a cobrança Pix no Asaas.");
@@ -234,8 +242,9 @@ async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:
   return {providerPaymentId:payment.id,status:verified.status,qrCode:qr.payload,qrCodeBase64:qr.encodedImage,ticketUrl:payment.invoiceUrl};
 }
 
-async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string }): Promise<PixResult> {
+async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
   if (!runtime.pagBankToken) throw new Error("PagBank ainda não configurado.");
+  const product=PAYMENT_PRODUCTS[input.productCode];
   const expires=new Date(Date.now()+60*60_000).toISOString();
   const response=await fetch(`${baseUrl(runtime,"PAGBANK")}/orders`,{
     method:"POST",signal:AbortSignal.timeout(15_000),
@@ -243,12 +252,12 @@ async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentI
     body:JSON.stringify({
       reference_id:input.paymentId,
       customer:{name:input.name,email:input.email,tax_id:input.cpf},
-      items:[{reference_id:"coins-20",name:"Pacote SOS YouTuber — 20 moedas + 1 passe extra",quantity:1,unit_amount:2000}],
+      items:[{reference_id:product.itemReference,name:product.description,quantity:1,unit_amount:product.amountCents}],
       notification_urls:[`${runtime.apiPublicUrl}/payments/webhooks/pagbank`],
       charges:[{
         reference_id:input.paymentId,
-        description:"Pacote SOS YouTuber — 20 moedas + 1 passe extra",
-        amount:{value:2000,currency:"BRL"},
+        description:product.description,
+        amount:{value:product.amountCents,currency:"BRL"},
         payment_method:{type:"PIX",pix:{expiration_date:expires}}
       }]
     })
@@ -268,7 +277,7 @@ function assertPackage(result: PaymentConfirmation, paymentId: string) {
   }
 }
 
-export async function createPixPayment(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string }): Promise<PixResult> {
+export async function createPixPayment(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
   if (runtime.provider==="MERCADO_PAGO") return createMercadoPagoPix(runtime,input);
   if (runtime.provider==="ASAAS") return createAsaasPix(runtime,input);
   if (runtime.provider==="PAGBANK") return createPagBankPix(runtime,input);

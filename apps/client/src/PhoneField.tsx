@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
 
 const displayNames = new Intl.DisplayNames(["pt-BR"], { type: "region" });
@@ -34,6 +34,13 @@ const COUNTRIES: CountryItem[] = getCountries()
 
 function normalizeSearch(value:string) {
   return value.normalize("NFD").replace(/\p{M}/gu,"").trim().toLocaleLowerCase("pt-BR");
+}
+
+export function countriesForPhoneSearch(search:string): CountryItem[] {
+  const q=normalizeSearch(search);
+  const digits=search.replace(/\D/g,"");
+  if (digits.length>0) return COUNTRIES.filter((entry)=>entry.callingCode.startsWith(digits));
+  return COUNTRIES.filter((entry)=>!q || normalizeSearch(entry.name).includes(q) || entry.country.toLowerCase().startsWith(q));
 }
 
 function inferCountry(value: string): CountryCode | undefined {
@@ -101,12 +108,42 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   },[]);
 
   useEffect(()=>{
+    if (!countryOpen) {
+      setSearch("");
+      return;
+    }
+    const incremental=(event:KeyboardEvent)=>{
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target=event.target as HTMLElement | null;
+      if (target?.tagName==="INPUT" || target?.tagName==="TEXTAREA") return;
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+        setSearch((current)=>(current.replace(/\D/g,"")+event.key).slice(-3));
+      } else if (/^[a-zA-ZÀ-ÿ]$/.test(event.key)) {
+        event.preventDefault();
+        setSearch((current)=>(current+event.key).slice(-24));
+      } else if (event.key==="Backspace" && search) {
+        event.preventDefault();
+        setSearch((current)=>current.slice(0,-1));
+      }
+    };
+    document.addEventListener("keydown",incremental);
+    return ()=>document.removeEventListener("keydown",incremental);
+  },[countryOpen,search]);
+
+  useEffect(()=>{
+    if (countryOpen) countryListRef.current?.scrollTo({top:0,behavior:"smooth"});
+  },[search,countryOpen]);
+
+  useEffect(()=>{
     if (!dddOpen) {
       setDddSearch("");
       return;
     }
     const incremental=(event:KeyboardEvent)=>{
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target=event.target as HTMLElement | null;
+      if (target?.tagName==="INPUT" || target?.tagName==="TEXTAREA") return;
       if (/^\d$/.test(event.key)) {
         event.preventDefault();
         setDddSearch((current)=>(current+event.key).slice(-2));
@@ -168,11 +205,7 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   const item=country ? COUNTRIES.find((entry)=>entry.country===country) : undefined;
-  const filtered=COUNTRIES.filter((entry)=>{
-    const q=normalizeSearch(search);
-    const digits=search.replace(/\D/g,"");
-    return !q || normalizeSearch(entry.name).includes(q) || entry.country.toLowerCase().includes(q) || (digits.length>0 && entry.callingCode.includes(digits));
-  });
+  const filtered=countriesForPhoneSearch(search);
   const filteredDdds=dddSearch ? BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch)) : BRAZIL_DDDS;
   const dddInfo=BRAZIL_DDDS.find(([code])=>code===ddd);
   const complete=country==="BR"
@@ -209,7 +242,8 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
 
     {countryOpen && <div className="phone-popover country-popover" role="dialog" aria-label="País e DDI">
       <div className="phone-popover-head"><strong>País e DDI</strong><button type="button" onClick={()=>setCountryOpen(false)} aria-label="Fechar lista de países"><X size={17}/></button></div>
-      <label className="phone-search"><Search size={16}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar país ou DDI"/></label>
+      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> mantém Brasil. A escolha só é aplicada quando você toca no país.</p>
+      {search && <div className="phone-incremental-filter" aria-live="polite"><span>Filtro digitado</span><strong>{search}</strong><button type="button" onClick={()=>setSearch("")} aria-label="Limpar filtro">Limpar</button></div>}
       <div className="country-scroll-shell">
         <button type="button" className="popover-scroll-arrow vertical" aria-label="Países anteriores" onClick={()=>scrollCountries(-1)}><ChevronUp size={17}/></button>
         <div className="phone-option-list" ref={countryListRef}>{filtered.map((entry)=><button type="button" key={entry.country} aria-label={`${entry.name} +${entry.callingCode}`} className={entry.country===country ? "selected" : ""} onClick={()=>chooseCountry(entry.country)}>

@@ -21,7 +21,10 @@ export function groupVerificationState(db: AppDatabase, phone: string, groupCode
       .get(proof.provider,groupCode,phone));
     const admin=proof.ownerAdminCount>0;
     anyMember ||= member; anyAdmin ||= admin;
-    if (member && admin) return { required:true,accessReady:true,memberVerified:true,ownerAdminVerified:true,provider:proof.provider };
+    // Membership proof is the real WhatsApp number being present in the
+    // externally verified SOS YOUTUBER group. Some providers do not expose
+    // admin roles consistently, so ownerAdminVerified remains informational.
+    if (member) return { required:true,accessReady:true,memberVerified:true,ownerAdminVerified:admin,provider:proof.provider };
   }
   return { required:true,accessReady:false,memberVerified:anyMember,ownerAdminVerified:anyAdmin,provider:proofs[0]?.provider };
 }
@@ -31,6 +34,8 @@ export function materializeApprovedMembership(db: AppDatabase, phone: string, gr
     | { id:string; status:string; ownerId?: string; ownerName?: string }
     | undefined;
   const state=groupVerificationState(db,phone,groupCode);
+  const ownerApproved=Boolean(approvedBy || request?.status==="APPROVED");
+  if (!ownerApproved) return { accessGranted:false,state };
   if (request && request.status!=="APPROVED") return { accessGranted:false,state };
   if (!state.accessReady) return { accessGranted:false,state };
 

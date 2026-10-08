@@ -28,3 +28,8 @@ apps/client/test-results/
 apps/client/playwright-report/
 
 .playwright-browsers/
+
+# Generated from the canonical companion source
+/apps/client/public/downloads/sos-companion.py
+/apps/client/public/downloads/companion-instrucoes.txt
+/companion/__pycache__/

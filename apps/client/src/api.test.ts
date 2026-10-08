@@ -18,11 +18,11 @@ describe("contrato HTTP do cliente", () => {
     }
   });
   it("ações administrativas usam somente o token Owner", async () => {
-    await ownerApi.decide("request", "APPROVED", "1");
+    await ownerApi.decide("request", "APPROVED");
     const [, options] = fetchMock.mock.calls[0];
     expect(options.headers.authorization).toBe("Bearer owner-token");
     expect(options.headers["content-type"]).toBe("application/json");
-    expect(JSON.parse(options.body)).toEqual({ status: "APPROVED", groupCode: "1" });
+    expect(JSON.parse(options.body)).toEqual({ status: "APPROVED" });
   });
   it("preserva status e mensagem de erro para decisão de sessão", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, json: async () => ({ message: "Acesso revogado" }) });

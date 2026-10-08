@@ -3,6 +3,7 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { parseYouTubeVideoId } from "./youtube.js";
+import { normalizePhone } from "./phone.js";
 
 describe("URLs do YouTube", () => {
   it.each([
@@ -28,12 +29,29 @@ describe("fluxo colaborativo", () => {
   });
   afterEach(async () => { await app.close(); db.close(); });
 
-  async function register(name: string, phone: string, groupCode = "12") {
-    const request = await app.inject({ method: "POST", url: "/auth/request-code", payload: { name, phone, groupCode } });
-    const devCode = request.json().devCode;
-    const verification = await app.inject({ method: "POST", url: "/auth/verify", payload: { phone, code: devCode } });
+  async function register(name:string,phone:string,groupCode="12") {
+    const stamp=new Date().toISOString();
+    const normalizedPhone=normalizePhone(phone);
+    db.prepare("INSERT OR IGNORE INTO groups (code,enabled,membership_mode) VALUES (?,1,'OWNER')").run(groupCode);
+    db.prepare(`INSERT INTO group_memberships (phone,group_code,approved_at,revoked_at,source)
+      VALUES (?,?,?,NULL,'TEST')
+      ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='TEST'`)
+      .run(normalizedPhone,groupCode,stamp);
+    const request=await app.inject({method:"POST",url:"/auth/request-code",payload:{name,phone}});
+    const devCode=request.json().devCode;
+    const verification=await app.inject({method:"POST",url:"/auth/verify",payload:{phone,code:devCode}});
     return verification.json().token as string;
   }
+
+  it("CORS libera os métodos usados pelo cliente web, inclusive avatar PUT", async () => {
+    const response=await app.inject({
+      method:"OPTIONS",url:"/profile/avatar",
+      headers:{origin:"http://localhost:5173","access-control-request-method":"PUT","access-control-request-headers":"content-type,authorization"}
+    });
+    expect(response.statusCode).toBe(204);
+    const methods=String(response.headers["access-control-allow-methods"] ?? "");
+    for (const method of ["GET","POST","PUT","PATCH","DELETE"]) expect(methods).toContain(method);
+  });
 
   it("persiste um link e impede uma segunda contribuição sem passe", async () => {
     const token = await register("Ana Teste", "71999990001");

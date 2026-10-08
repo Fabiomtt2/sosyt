@@ -4,6 +4,7 @@ import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { createPrivatePlaylist, encryptToken } from "./youtube.js";
+import { normalizePhone } from "./phone.js";
 
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 describe("regressões de domínio e segurança", () => {
@@ -25,8 +26,15 @@ describe("regressões de domínio e segurança", () => {
   });
   afterEach(async () => { await app.close(); db.close(); vi.unstubAllGlobals(); });
 
-  async function code(phone: string, groupCode = "12") {
-    const result = await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Pessoa Teste", phone, groupCode } });
+  async function code(phone:string,groupCode="12") {
+    const stamp=new Date().toISOString();
+    const normalizedPhone=normalizePhone(phone);
+    db.prepare("INSERT OR IGNORE INTO groups (code,enabled,membership_mode) VALUES (?,1,'OWNER')").run(groupCode);
+    db.prepare(`INSERT INTO group_memberships (phone,group_code,approved_at,revoked_at,source)
+      VALUES (?,?,?,NULL,'TEST')
+      ON CONFLICT(phone) DO UPDATE SET group_code=excluded.group_code,approved_at=excluded.approved_at,revoked_at=NULL,source='TEST'`)
+      .run(normalizedPhone,groupCode,stamp);
+    const result=await app.inject({method:"POST",url:"/auth/request-code",payload:{name:"Pessoa Teste",phone}});
     expect(result.statusCode).toBe(200);
     return result.json().devCode as string;
   }
@@ -39,7 +47,7 @@ describe("regressões de domínio e segurança", () => {
   const headers = (token: string) => ({ authorization: `Bearer ${token}` });
   async function dashboard(token: string) { return (await app.inject({ method: "GET", url: "/dashboard", headers: headers(token) })).json(); }
   async function submit(token: string, id: string) { return app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(token), payload: { url: `https://youtu.be/${id}` } }); }
-  async function pix(token: string) { return app.inject({ method: "POST", url: "/payments/pix", headers: headers(token), payload: { email: "test@example.com", cpf: "12345678901" } }); }
+  async function pix(token: string, product: "COINS_LAUNCH"|"PASS_SINGLE" = "COINS_LAUNCH") { return app.inject({ method: "POST", url: "/payments/pix", headers: headers(token), payload: { email: "test@example.com", cpf: "12345678901", product } }); }
   function providerResult(paymentId: string, status = "approved", extra: Record<string, unknown> = {}) {
     return { id: 901, external_reference: paymentId, status, transaction_amount: 20, currency_id: "BRL", payment_method_id: "pix", ...extra };
   }
@@ -55,7 +63,7 @@ describe("regressões de domínio e segurança", () => {
         .run(randomUUID(), row.id, slot, userId, `https://youtu.be/vid${String(slot).padStart(8, "0")}`, `vid${String(slot).padStart(8, "0")}`, new Date().toISOString());
     }
     db.prepare("UPDATE rounds SET status = 'READY' WHERE id = ?").run(row.id);
-    db.prepare("INSERT INTO youtube_connections VALUES (?,?,?,?)").run(userId, encryptToken("test-refresh", config), "youtube", new Date().toISOString());
+    db.prepare("INSERT INTO youtube_connections (user_id,refresh_token_cipher,scope,updated_at) VALUES (?,?,?,?)").run(userId,encryptToken("test-refresh",config),"youtube",new Date().toISOString());
     return row.id;
   }
 
@@ -65,6 +73,39 @@ describe("regressões de domínio e segurança", () => {
     const slot = (await dashboard(b.token)).openRound.slots[0];
     expect(slot.groupCode).toBe("12"); expect(slot.userName).toBe("Pessoa Teste"); expect(slot.createdAt).toBeTruthy();
   });
+  it("serializa duas submissões concorrentes em slots distintos sem débito duplo", async () => {
+    const first=await register("71999110001"),second=await register("71999110002");
+    const [a,b]=await Promise.all([
+      submit(first.token,"conc0000001"),
+      submit(second.token,"conc0000002")
+    ]);
+    expect([a.statusCode,b.statusCode]).toEqual([201,201]);
+    const slots=[a.json().slot,b.json().slot].sort((x:number,y:number)=>x-y);
+    expect(slots).toEqual([1,2]);
+    expect((await dashboard(first.token)).wallet.total).toBe(9);
+    expect((await dashboard(second.token)).wallet.total).toBe(9);
+    const rows=db.prepare("SELECT slot,user_id AS userId FROM submissions ORDER BY slot").all() as Array<{slot:number;userId:string}>;
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row)=>row.slot)).size).toBe(2);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE kind='SUBMISSION'").get() as {n:number}).n).toBe(2);
+  });
+
+  it("concorrência do mesmo vídeo aceita só uma submissão e reverte totalmente o perdedor", async () => {
+    const first=await register("71999110003"),second=await register("71999110004");
+    const [a,b]=await Promise.all([
+      submit(first.token,"same0000001"),
+      submit(second.token,"same0000001")
+    ]);
+    const codes=[a.statusCode,b.statusCode].sort();
+    expect(codes).toEqual([201,409]);
+    const winner=a.statusCode===201?first:second;
+    const loser=a.statusCode===201?second:first;
+    expect((await dashboard(winner.token)).wallet.total).toBe(9);
+    expect((await dashboard(loser.token)).wallet.total).toBe(10);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE video_id='same0000001'").get() as {n:number}).n).toBe(1);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE kind='SUBMISSION'").get() as {n:number}).n).toBe(1);
+  });
+
   it("fecha dez contribuições, recompensa uma vez e abre novo ciclo", async () => {
     const users = [];
     for (let index = 1; index <= 10; index++) {
@@ -86,7 +127,59 @@ describe("regressões de domínio e segurança", () => {
     expect(repeated.json().message).toContain("já foi usado");
     expect((await submit(newcomer.token, "next0000001")).statusCode).toBe(201);
   });
-  it("persiste acompanhamento por conta sem permitir regressão de progresso", async () => {
+  it("não joga submissão validada na fila seguinte quando a fila vista pelo usuário já fechou", async () => {
+    const stale=await register("71999770001");
+    const seenRound=db.prepare("SELECT id,sequence FROM rounds WHERE status='OPEN' ORDER BY sequence DESC LIMIT 1").get() as {id:string;sequence:number};
+    expect(seenRound.sequence).toBe(1);
+    for(let index=1;index<=10;index++) {
+      const participant=await register("7199978"+String(index).padStart(4,"0"));
+      expect((await submit(participant.token,"race"+String(index).padStart(7,"0"))).statusCode).toBe(201);
+    }
+    const before=await dashboard(stale.token);
+    expect(before.openRound.sequence).toBe(2);
+    expect(before.wallet.total).toBe(10);
+    const result=await app.inject({
+      method:"POST",url:"/rounds/current/submissions",headers:headers(stale.token),
+      payload:{url:"https://youtu.be/raceSTALE01",expectedRoundId:seenRound.id}
+    });
+    expect(result.statusCode).toBe(409);
+    expect(result.json()).toMatchObject({code:"QUEUE_CHANGED",currentRoundSequence:2});
+    const after=await dashboard(stale.token);
+    expect(after.wallet.total).toBe(10);
+    expect(after.viewer.contributionsInOpenRound).toBe(0);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE user_id=?").get(stale.userId) as {n:number}).n).toBe(0);
+  });
+
+  it("não duplica saldo de curadoria quando o ledger daquela fila já existe", async () => {
+    const users:Array<{token:string;userId:string}>=[];
+    for(let index=1;index<=9;index++) {
+      const user=await register("7199988"+String(index).padStart(4,"0"));
+      users.push(user);
+      const saved=await submit(user.token,"curate"+String(index).padStart(5,"0"));
+      expect(saved.statusCode).toBe(201);
+    }
+    const round=db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence DESC LIMIT 1").get() as {id:string};
+    const stamp=new Date().toISOString();
+    db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at) VALUES (?,?, 'CURATION_REWARD',1000,?,?)")
+      .run(randomUUID(),users[0].userId,round.id,stamp);
+
+    const tenth=await register("71999889999");
+    users.push(tenth);
+    const completed=await submit(tenth.token,"curate00010");
+    expect(completed.statusCode).toBe(201);
+    expect(completed.json().roundCompleted).toBe(true);
+
+    const firstWallet=await dashboard(users[0].token);
+    const secondWallet=await dashboard(users[1].token);
+    const tenthWallet=await dashboard(tenth.token);
+    expect(firstWallet.wallet).toMatchObject({promo:9,reward:0,total:9});
+    expect(secondWallet.wallet).toMatchObject({promo:9,reward:1,total:10});
+    expect(tenthWallet.wallet).toMatchObject({promo:9,reward:1,total:10});
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='CURATION_REWARD' AND reference_id=?")
+      .get(users[0].userId,round.id) as {n:number}).n).toBe(1);
+  });
+
+  it("mantém progresso legado sem regressão, mas sem conceder recompensa insegura", async () => {
     const user = await register();
     const roundId = await readyRound(user.userId);
     db.prepare("INSERT INTO playlist_exports (id, round_id, user_id, youtube_playlist_id, status, added_count, created_at, updated_at) VALUES (?, ?, ?, ?, 'SUCCESS', 10, ?, ?)")
@@ -104,34 +197,38 @@ describe("regressões de domínio e segurança", () => {
       payload: { watchedSeconds: [10,10,10,7,0,0,0,0,0,0], durations: [10,10,10,10,10,10,10,10,10,10] }
     });
     expect(progress37.statusCode).toBe(200);
-    expect(progress37.json()).toMatchObject({ percent: 37, rewardCoins: 3, rewardDeltaCoins: 3, walletTotal: 13 });
+    expect(progress37.json()).toMatchObject({ percent: 37, rewardCoins: 0, rewardDeltaCoins: 0, walletTotal: 10, protocol:"LEGACY_NO_REWARD_NO_FINALIZE" });
 
     const lower = await app.inject({
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(user.token),
       payload: { watchedSeconds: [1,0,0,0,0,0,0,0,0,0], durations: [10,10,10,10,10,10,10,10,10,10] }
     });
     expect(lower.statusCode).toBe(200);
-    expect(lower.json()).toMatchObject({ percent: 37, rewardCoins: 3, rewardDeltaCoins: 0, walletTotal: 13 });
+    expect(lower.json()).toMatchObject({ percent: 37, rewardCoins: 0, rewardDeltaCoins: 0, walletTotal: 10 });
     const view = await dashboard(user.token);
-    expect(view.readyRounds[0].export.watchProgress).toMatchObject({ percent: 37, rewardCoins: 3 });
-    expect(view.wallet.reward).toBe(3);
+    expect(view.readyRounds[0].export.watchProgress).toMatchObject({ percent: 37, rewardCoins: 0 });
+    expect(view.wallet.reward).toBe(0);
 
     const full = await app.inject({
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(user.token),
       payload: { watchedSeconds: Array(10).fill(10), durations: Array(10).fill(10) }
     });
     expect(full.statusCode).toBe(200);
-    expect(full.json()).toMatchObject({ percent: 100, rewardCoins: 10, rewardDeltaCoins: 7, walletTotal: 20, secondsRemaining: 1800 });
-    expect(full.json().cooldownUntil).toBeTruthy();
+    expect(full.json()).toMatchObject({ percent: 100, rewardCoins: 0, rewardDeltaCoins: 0, walletTotal: 10, protocol:"LEGACY_NO_REWARD_NO_FINALIZE" });
+    expect(full.json().cooldownUntil).toBeUndefined();
+    expect((db.prepare("SELECT finalized_at AS finalizedAt FROM playlist_watch_progress WHERE round_id=? AND user_id=?").get(roundId,user.userId) as {finalizedAt?:string}).finalizedAt).toBeFalsy();
     const duplicateFull = await app.inject({
       method: "PUT", url: `/rounds/${roundId}/watch-progress`, headers: headers(user.token),
       payload: { watchedSeconds: Array(10).fill(10), durations: Array(10).fill(10) }
     });
-    expect(duplicateFull.statusCode).toBe(423);
-    expect(duplicateFull.json().code).toBe("COOLDOWN_ACTIVE");
+    expect(duplicateFull.statusCode).toBe(200);
+    expect(duplicateFull.json()).toMatchObject({percent:100,protocol:"LEGACY_NO_REWARD_NO_FINALIZE"});
     const relogin = await app.inject({ method:"POST", url:"/auth/login", payload:{ name:"Pessoa Teste", phone:"71999999001", groupCode:"12" } });
-    expect(relogin.statusCode).toBe(423);
-    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(10);
+    expect(relogin.statusCode).toBe(200);
+    const blockedNext=await submit(user.token,"legNEXT0001");
+    expect(blockedNext.statusCode).toBe(409);
+    expect(blockedNext.json().message).toContain("Finalize sua tarefa");
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
 
     const outsider = await register("71999999002");
     expect((await app.inject({
@@ -152,7 +249,7 @@ describe("regressões de domínio e segurança", () => {
       payload:{ watchedSeconds:[10,10,10,7,0,0,0,0,0,0], durations:Array(10).fill(10) }
     });
     expect(progress.statusCode).toBe(200);
-    expect(progress.json()).toMatchObject({ percent:37, rewardCoins:3, walletTotal:13 });
+    expect(progress.json()).toMatchObject({ percent:37, rewardCoins:0, rewardDeltaCoins:0, walletTotal:10 });
 
     const finish = await app.inject({ method:"POST", url:`/rounds/${roundId}/watch-progress/finalize`, headers:headers(user.token) });
     expect(finish.statusCode).toBe(200);
@@ -161,7 +258,7 @@ describe("regressões de domínio e segurança", () => {
       .get(roundId,user.userId) as { percent:number; finalizedAt:string; reason:string };
     expect(saved).toMatchObject({ percent:37, reason:"MANUAL" });
     expect(saved.finalizedAt).toBeTruthy();
-    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(3);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
 
     const during = await app.inject({ method:"POST",url:"/auth/login",payload:{ name:"Pessoa Teste",phone:"71999999012",groupCode:"12" } });
     expect(during.statusCode).toBe(423);
@@ -170,25 +267,93 @@ describe("regressões de domínio e segurança", () => {
     expect(after.statusCode).toBe(200);
   });
 
-  it("rejeita grupo zero e URL falsa sem débito", async () => {
-    expect((await app.inject({ method: "POST", url: "/auth/request-code", payload: { name: "Teste", phone: "71999999001", groupCode: "0" } })).statusCode).toBe(400);
+  it("abandonar tarefa preserva percentual e moedas, não cria cooldown e libera a fila seguinte", async () => {
+    const user=await register("71999999013");
+    const roundId=await readyRound(user.userId);
+    const stamp=new Date().toISOString();
+    db.prepare("INSERT INTO playlist_exports (id,round_id,user_id,youtube_playlist_id,status,added_count,created_at,updated_at) VALUES (?,?,?,?, 'SUCCESS',10,?,?)")
+      .run(randomUUID(),roundId,user.userId,"playlist-abandon-test",stamp,stamp);
+    // O dashboard garante uma nova fila aberta após a anterior ter sido marcada READY.
+    const before=await dashboard(user.token);
+    expect(before.openRound.sequence).toBe(2);
+    const progress=await app.inject({
+      method:"PUT",url:`/rounds/${roundId}/watch-progress`,headers:headers(user.token),
+      payload:{watchedSeconds:[10,10,10,7,0,0,0,0,0,0],durations:Array(10).fill(10)}
+    });
+    expect(progress.json()).toMatchObject({percent:37,rewardCoins:0,rewardDeltaCoins:0,walletTotal:10});
+    const abandoned=await app.inject({method:"POST",url:`/rounds/${roundId}/watch-progress/abandon`,headers:headers(user.token)});
+    expect(abandoned.statusCode).toBe(200);
+    expect(abandoned.json()).toMatchObject({percent:37,abandoned:true,nextOpenRound:{sequence:2}});
+    expect(abandoned.json().cooldownUntil).toBeUndefined();
+    const saved=db.prepare("SELECT percent,finalized_at AS finalizedAt,finalize_reason AS reason FROM playlist_watch_progress WHERE round_id=? AND user_id=?")
+      .get(roundId,user.userId) as {percent:number;finalizedAt:string;reason:string};
+    expect(saved).toMatchObject({percent:37,reason:"ABANDONED"});
+    expect(saved.finalizedAt).toBeTruthy();
+    const userRow=db.prepare("SELECT cooldown_until AS cooldownUntil FROM users WHERE id=?").get(user.userId) as {cooldownUntil?:string};
+    expect(userRow.cooldownUntil ?? null).toBeNull();
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
+    const after=await dashboard(user.token);
+    expect(after.readyRounds).toHaveLength(0);
+    expect(after.openRound.sequence).toBe(2);
+  });
+
+  it("avatar preset fica persistido no servidor e volta no dashboard", async () => {
+    const user=await register();
+    const saved=await app.inject({method:"PUT",url:"/profile/avatar",headers:headers(user.token),payload:{kind:"PRESET",presetId:"avatar-17"}});
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().avatar).toEqual({kind:"PRESET",presetId:"avatar-17"});
+    expect((await dashboard(user.token)).user.avatar).toEqual({kind:"PRESET",presetId:"avatar-17"});
+  });
+
+  it("exclusão da própria conta invalida sessão e preserva tombstone de auditoria", async () => {
+    const user=await register();
+    const deleted=await app.inject({method:"DELETE",url:"/profile/account",headers:headers(user.token),payload:{confirmation:"DELETE_MY_ACCOUNT"}});
+    expect(deleted.statusCode,deleted.body).toBe(200);
+    expect(deleted.json()).toMatchObject({ok:true,userId:user.userId});
+    expect((await app.inject({method:"GET",url:"/dashboard",headers:headers(user.token)})).statusCode).toBe(401);
+    const row=db.prepare("SELECT user_id AS userId,source,deleted_at AS deletedAt FROM account_deletions WHERE user_id=?").get(user.userId);
+    expect(row).toMatchObject({userId:user.userId,source:"USER_SELF_SERVICE"});
+    expect((db.prepare("SELECT phone,name,deleted_at AS deletedAt FROM users WHERE id=?").get(user.userId) as {phone:string;name:string;deletedAt:string})).toMatchObject({name:"Conta removida"});
+    expect((db.prepare("SELECT COUNT(*) AS n FROM group_memberships WHERE phone='71999999001'").get() as {n:number}).n).toBe(0);
+  });
+
+  it("rejeita URL falsa sem débito", async () => {
     const user = await register();
     expect((await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(user.token), payload: { url: "https://youtube.example/watch?v=dQw4w9WgXcQ" } })).statusCode).toBe(400);
     expect((await dashboard(user.token)).wallet.total).toBe(10);
   });
-  it("passe comprado libera uma única contribuição extra e falha não o consome", async () => {
+  it("pacote de lançamento credita 10 moedas + 1 passe bônus e o passe libera uma única contribuição extra", async () => {
     const user = await register();
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(201);
     const payment = await pix(user.token);
     const approve = () => app.inject({ method: "POST", url: `/payments/${payment.json().id}/demo-approve`, headers: headers(user.token) });
     expect((await approve()).statusCode).toBe(200); await approve();
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, extraPasses: 1 });
+    const purchasedView=await dashboard(user.token);
+    expect(purchasedView.wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
+    expect(purchasedView.profile).toMatchObject({
+      purchases:{coinsPurchased:10,passesPurchased:0,bonusPasses:1,approvedSpendCents:2000},
+      activity:{submissions:1,rounds:1}
+    });
+    expect(purchasedView.profile.purchases.history[0]).toMatchObject({productCode:"COINS_LAUNCH",amountCents:2000,creditsMillis:10000,extraPasses:1});
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409);
     expect((await dashboard(user.token)).wallet.extraPasses).toBe(1);
     expect((await submit(user.token, "9bZkp7q19f0")).statusCode).toBe(201);
     expect((await submit(user.token, "next0000001")).statusCode).toBe(409);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, promo: 8, extraPasses: 0 });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, promo: 8, extraPasses: 0 });
   });
+  it("compra avulsa de passe credita 1 passe sem adicionar moedas", async () => {
+    const user=await register();
+    const before=await dashboard(user.token);
+    const payment=await pix(user.token,"PASS_SINGLE");
+    expect(payment.statusCode).toBe(201);
+    expect(payment.json()).toMatchObject({product:"PASS_SINGLE",credits:0,extraPasses:1});
+    expect((await app.inject({method:"POST",url:`/payments/${payment.json().id}/demo-approve`,headers:headers(user.token)})).statusCode).toBe(200);
+    const after=await dashboard(user.token);
+    expect(after.wallet).toMatchObject({purchased:before.wallet.purchased,extraPasses:before.wallet.extraPasses+1});
+    const stored=db.prepare("SELECT product_code AS productCode,credits_millis AS creditsMillis,extra_passes AS extraPasses FROM payments WHERE id=?").get(payment.json().id);
+    expect(stored).toEqual({productCode:"PASS_SINGLE",creditsMillis:0,extraPasses:1});
+  });
+
   it("créditos naturais não liberam passe", async () => {
     const user = await register();
     db.prepare("UPDATE wallets SET reward_millis = 100000 WHERE user_id = ?").run(user.userId);
@@ -222,7 +387,7 @@ describe("regressões de domínio e segurança", () => {
     const callbackUrl = `/youtube/callback?code=test-code&state=${encodeURIComponent(state)}`;
     expect((await app.inject({ method: "GET", url: callbackUrl })).statusCode).toBe(302);
     expect((await app.inject({ method: "GET", url: callbackUrl })).statusCode).toBe(400);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
   it("OAuth mantém o ciclo escolhido e impede intenção de não participante", async () => {
     const user=await register(), other=await register("71999999002"); const roundId=await readyRound(user.userId);
@@ -249,10 +414,10 @@ describe("regressões de domínio e segurança", () => {
     });
     const payment = await pix(user.token);
     expect(payment.statusCode).toBe(201);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, extraPasses: 1 });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
     const webhook = () => app.inject({ method: "POST", url: "/payments/webhooks/mercado-pago?data.id=901", headers: webhookHeaders(), payload: { data: { id: "901" } } });
     expect((await webhook()).statusCode).toBe(200); await webhook();
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, extraPasses: 1 });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
   });
   it("consulta Pix confirma pendente; outro usuário não acessa pagamento", async () => {
     const user = await register(), other = await register("71999999002"); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";
@@ -265,7 +430,7 @@ describe("regressões de domínio e segurança", () => {
     const url = `/payments/${payment.json().id}`;
     expect((await app.inject({ method: "GET", url, headers: headers(other.token) })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url, headers: headers(user.token) })).json().status).toBe("APPROVED");
-    expect((await dashboard(user.token)).wallet.purchased).toBe(20);
+    expect((await dashboard(user.token)).wallet.purchased).toBe(10);
   });
   it.each([{ transaction_amount: 1 }, { currency_id: "USD" }, { payment_method_id: "credit_card" }, { external_reference: "wrong" }])("recusa confirmação divergente %j", async (extra) => {
     const user = await register(); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";
@@ -293,7 +458,7 @@ describe("regressões de domínio e segurança", () => {
     await pix(user.token); refunded = true;
     const webhook = await app.inject({ method: "POST", url: "/payments/webhooks/mercado-pago?data.id=901", headers: webhookHeaders(), payload: { data: { id: "901" } } });
     expect(webhook.statusCode).toBe(200);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, paymentHold: true });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, paymentHold: true });
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409);
   });
   it("serializa exportação por usuário/ciclo e libera trava ao concluir", async () => {

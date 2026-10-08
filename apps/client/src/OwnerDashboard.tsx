@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, LogOut, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
+import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, Menu, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
+import { GoogleIdentityRequests } from "./GoogleIdentityRequests";
 import { ApiError, ownerApi, type OwnerOverview } from "./api";
 import { WhatsAppIntegrationModal } from "./WhatsAppIntegrationModal";
 import { ParticipantAdminModal } from "./ParticipantAdminModal";
 import { PaymentIntegrationModal } from "./PaymentIntegrationModal";
 import { PhoneField, isCompletePhoneField } from "./PhoneField";
+import { OwnerDeskMenu, type OwnerMenuTarget } from "./OwnerDeskMenu";
+import { AvatarModal, UserAvatarView } from "./AvatarModal";
+import { OwnerTeamModal } from "./OwnerTeamModal";
+import { useModalLifecycle } from "./useModalLifecycle";
 
 function localMonth() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bahia", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -20,6 +25,7 @@ const monthLabel = (value:string) => {
 const money = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const coins = (millis: number) => (millis / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 const paymentProviderName = (provider:string) => provider==="MERCADO_PAGO" ? "Mercado Pago" : provider==="ASAAS" ? "Asaas" : provider==="PAGBANK" ? "PagBank" : provider==="DEMO" ? "Simulação" : "Desativado";
+const paymentProductName = (code:string) => code==="COINS_LAUNCH" ? "10 moedas + 1 passe bônus" : code==="PASS_SINGLE" ? "1 passe" : "Compra anterior";
 const GROUP_PAGE_SIZE=12;
 const MANUAL_GROUP_PAGE_SIZE=12;
 const ALL_GROUP_CODES=Array.from({length:999},(_,index)=>String(index+1));
@@ -32,14 +38,10 @@ function GroupAdminModal({ group, busy, onClose, onToggle, onSaveLink }: {
   onSaveLink: (joinUrl: string) => Promise<void>;
 }) {
   const [joinUrl,setJoinUrl]=useState(group.joinUrl ?? "");
-  useEffect(()=>{
-    const previous=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return ()=>{ document.body.style.overflow=previous; };
-  },[]);
+  const modalRef=useModalLifecycle(onClose);
   const externallyConfirmed=Boolean(group.whatsappGroupId || group.verificationProvider);
   return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section className="modal group-admin-modal" role="dialog" aria-modal="true" aria-label={`Gerenciar SOS YOUTUBER ${group.code}`} onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="modal group-admin-modal" role="dialog" aria-modal="true" aria-label={`Gerenciar SOS YOUTUBER ${group.code}`} onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar gerenciamento do grupo" onClick={onClose}>×</button>
       <p className="eyebrow dark">GRUPO SOS YOUTUBER {group.code}</p>
       <h2>Estado real do grupo</h2>
@@ -66,11 +68,7 @@ function GroupAdminModal({ group, busy, onClose, onToggle, onSaveLink }: {
 type AdminHelpTopic = "groups" | "manual" | "bot" | "version" | "payments";
 
 function AdminHelpModal({ topic, onClose }: { topic: AdminHelpTopic; onClose: () => void }) {
-  useEffect(()=>{
-    const previous=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return ()=>{ document.body.style.overflow=previous; };
-  },[]);
+  const modalRef=useModalLifecycle(onClose);
   const labels: Record<AdminHelpTopic,string> = {
     groups:"Ajuda sobre grupos e acesso",
     manual:"Ajuda sobre autorização manual",
@@ -79,7 +77,7 @@ function AdminHelpModal({ topic, onClose }: { topic: AdminHelpTopic; onClose: ()
     payments:"Ajuda sobre pagamentos e moedas"
   };
   return <div className="modal-backdrop admin-help-backdrop" onMouseDown={onClose}>
-    <section className="modal admin-help-modal" role="dialog" aria-modal="true" aria-label={labels[topic]} onMouseDown={(e)=>e.stopPropagation()}>
+    <section ref={modalRef} className="modal admin-help-modal" role="dialog" aria-modal="true" aria-label={labels[topic]} onMouseDown={(e)=>e.stopPropagation()}>
       <button className="close" aria-label="Fechar ajuda" onClick={onClose}>×</button>
       <p className="eyebrow dark">AJUDA ADMINISTRATIVA</p>
       {topic === "groups" ? <>
@@ -129,17 +127,16 @@ function AdminHelpModal({ topic, onClose }: { topic: AdminHelpTopic; onClose: ()
   </div>;
 }
 
-export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
+export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;onParticipate:()=>Promise<void> }) {
   const [month, setMonth] = useState(localMonth);
   const [data, setData] = useState<OwnerOverview>();
-  const [tab, setTab] = useState<"requests" | "users" | "purchases" | "groups">("requests");
+  const [tab, setTab] = useState<OwnerMenuTarget>("requests");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [manualName,setManualName] = useState("");
   const [phone, setPhone] = useState("");
   const [group, setGroup] = useState("1");
-  const [selections, setSelections] = useState<Record<string, string>>({});
   const [showWhatsAppConfig,setShowWhatsAppConfig] = useState(false);
   const [showPaymentConfig,setShowPaymentConfig] = useState(false);
   const [participantPhone,setParticipantPhone] = useState<string>();
@@ -148,12 +145,22 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   const [groupJump,setGroupJump]=useState("");
   const [manualGroupPage,setManualGroupPage]=useState(0);
   const [managedGroupCode,setManagedGroupCode]=useState<string>();
+  const [showOwnerMenu,setShowOwnerMenu]=useState(false);
+  const [showOwnerAvatar,setShowOwnerAvatar]=useState(false);
+  const [showOwnerTeam,setShowOwnerTeam]=useState(false);
 
   const load = useCallback(async () => {
     try { setData(await ownerApi.overview(month)); setError(""); }
     catch (cause) { if (cause instanceof ApiError && cause.status === 401) onLogout(); else setError(cause instanceof Error ? cause.message : "Falha ao carregar painel."); }
   }, [month, onLogout]);
   useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 10_000); return () => window.clearInterval(timer); }, [load]);
+
+  async function participate(){
+    setBusy(true);setError("");setNotice("");
+    try{await onParticipate();}
+    catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível abrir a fila como administrador.");}
+    finally{setBusy(false);}
+  }
 
   async function act(work: () => Promise<unknown>, message: string) {
     setBusy(true); setError(""); setNotice("");
@@ -188,7 +195,6 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
 
   if (!data) return <main className="loading"><ShieldCheck /><span>Carregando painel do Owner…</span>{error && <p className="error">{error}</p>}</main>;
   const m = data.metrics;
-  const activeGroups = data.groups.filter((item) => item.enabled);
   const groupMap=new Map(data.groups.map((item)=>[item.code,item]));
   const managedGroup=managedGroupCode ? groupMap.get(managedGroupCode) : undefined;
   const groupPageCount=Math.ceil(ALL_GROUP_CODES.length/GROUP_PAGE_SIZE);
@@ -199,7 +205,7 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
   const manualGroupCodes=ALL_GROUP_CODES.slice(manualStart,manualStart+MANUAL_GROUP_PAGE_SIZE);
 
   return <div className="app-shell owner-shell">
-    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>Conexão <strong>Youtube</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} aria-label="Atualizar painel"><RefreshCw size={18} /></button><button className="profile" onClick={onLogout} aria-label={`Sair da conta de ${data.owner.name}`}><span><ShieldCheck size={19} /></span><div><strong>{data.owner.name}</strong><small>Painel administrativo</small></div><LogOut size={16} /></button></div></header>
+    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} aria-label="Atualizar painel" title="Atualizar"><RefreshCw size={18} /></button><button className="icon-button" onClick={()=>setShowOwnerMenu(true)} aria-label="Abrir menu do Owner" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowOwnerAvatar(true)} aria-label={`Trocar avatar de ${data.owner.name}`} title="Trocar avatar"><UserAvatarView avatar={data.owner.avatar} name={data.owner.name} className="header-avatar"/><span className="header-admin-badge">{data.owner.role==="ROOT_OWNER"?"OWNER":"ADMIN"}</span></button><button className="profile profile-text-only" onClick={()=>setShowOwnerMenu(true)} aria-label={`Abrir menu do Owner ${data.owner.name}`}><div><strong>{data.owner.name}</strong><small>Painel administrativo</small></div></button></div></header>
     <main className="dashboard">
       <section className="owner-heading"><div><p className="eyebrow dark">GESTÃO DA COMUNIDADE</p><h1>Sua conexão, em números.</h1><p className="muted">Acompanhe adesões, aprove participantes e confira a atividade da plataforma.</p></div><label className="owner-month-label">Mês de referência<div className="owner-month-picker"><span>{monthLabel(month)}</span><input aria-label="Selecionar mês de referência" type="month" value={month} onChange={(e) => { if (e.target.value) setMonth(e.target.value); }} /></div></label></section>
       <section className="metrics-grid" aria-label="Indicadores">
@@ -207,19 +213,21 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
         <article><Check /><span>Ativos nos últimos 30 dias</span><strong>{m.activeUsers30d}</strong><small>Números com acesso autenticado</small></article>
         <article><Users /><span>Solicitações no mês</span><strong>{m.requestsMonth}</strong><small>{m.requestsTotal} pessoas solicitaram · {m.pendingRequests} pendentes</small></article>
         <article><Youtube /><span>Playlists criadas no mês</span><strong>{m.playlistsCreatedMonth}</strong><small>{m.completedCyclesMonth} ciclos concluídos</small></article>
-        <article><Check /><span>Pacotes Pix aprovados</span><strong>{m.approvedPurchasesMonth}</strong><small>{m.demoPurchasesMonth} simulações, contadas separadamente</small></article>
-        <article><ShieldCheck /><span>Receita Pix do mês</span><strong>{money(m.revenueCentsMonth)}</strong><small>Aprovados; simulações excluídas</small></article>
+        {data.owner.permissions.canViewSensitive&&<>
+          <article><Check /><span>Compras Pix aprovadas</span><strong>{m.approvedPurchasesMonth}</strong><small>{m.coinsPackagePurchasesMonth} pacote(s) de moedas · {m.passPurchasesMonth} passe(s) · {m.demoPurchasesMonth} simulações</small></article>
+          <article><ShieldCheck /><span>Receita Pix do mês</span><strong>{money(m.revenueCentsMonth)}</strong><small>Moedas {money(m.coinsPackageRevenueCentsMonth)} · Passes {money(m.passRevenueCentsMonth)}{m.legacyRevenueCentsMonth ? ` · Legado ${money(m.legacyRevenueCentsMonth)}` : ""}</small></article>
+        </>}
       </section>
 
       <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
-        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><div className="heading-with-help"><h2 className="bot-config-title"><Bot size={22}/>Configurar bot SOS YouTuber</h2><button className="help-icon" aria-label="Explicar o painel do bot" onClick={()=>setHelpTopic("bot")}><HelpCircle size={18}/></button></div></div><button className="primary compact integration-config-button" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured || data.whatsapp.integration.evolutionUrl || data.whatsapp.integration.evolutionApiKeyConfigured ? "Modificar integração" : "Configurar integração"}</button></div>
+        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><div className="heading-with-help"><h2 className="bot-config-title"><Bot size={22}/>{data.owner.permissions.canConfigure?"Configurar bot SOS YouTuber":"Bot SOS YouTuber"}</h2><button className="help-icon" aria-label="Explicar o painel do bot" onClick={()=>setHelpTopic("bot")}><HelpCircle size={18}/></button></div></div>{data.owner.permissions.canConfigure&&<button className="primary compact integration-config-button" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured || data.whatsapp.integration.evolutionUrl || data.whatsapp.integration.evolutionApiKeyConfigured ? "Modificar integração" : "Configurar integração"}</button>}</div>
         <div className="integration-summary-grid">
           <div className={`integration-mode-card mode-${data.whatsapp.integration.mode.toLowerCase()}`}><span>Modo escolhido para o bot</span><strong>{data.whatsapp.integration.mode === "META_GROUPS" ? <><b className="summary-mode-symbol summary-hybrid-icons" aria-hidden="true"><span>∞</span><Youtube size={14} fill="currentColor"/></b> Meta + Grupos</> : data.whatsapp.integration.mode === "EVOLUTION" ? <><b className="summary-mode-symbol">E</b> Evolution Gateway</> : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : <><b className="summary-mode-symbol">∞</b> Meta oficial</>}</strong><small>{data.whatsapp.integration.mode === "META_GROUPS" ? "Meta envia mensagens; o complemento ajuda a conferir grupos." : data.whatsapp.integration.mode === "EVOLUTION" ? "Usa o gateway Evolution configurado pelo Owner." : data.whatsapp.integration.mode === "DISABLED" ? "Envios externos pausados; administração manual continua disponível." : "Usa o WhatsApp oficial da Meta para mensagens."}</small></div>
           <div><span>{data.whatsapp.integration.mode === "EVOLUTION" ? "Chaves do Evolution" : "Chave de acesso"}</span><strong>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionUrl && data.whatsapp.integration.evolutionInstance && data.whatsapp.integration.evolutionApiKeyConfigured ? "PRONTA" : "FALTAM DADOS") : data.whatsapp.integration.tokenValidatedAt ? "PRONTA" : data.whatsapp.integration.accessTokenConfigured ? "SALVA · FALTA VALIDAR" : "FALTA CONFIGURAR"}</strong><small>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionApiKeyConfigured ? "Credenciais protegidas e salvas no servidor." : "Abra “Configurar integração” e preencha os dados do Evolution.") : data.whatsapp.integration.tokenValidatedAt ? `Credencial confirmada pela Meta em ${date(data.whatsapp.integration.tokenValidatedAt)}.` : data.whatsapp.integration.accessTokenConfigured ? "A chave foi salva, mas ainda precisa ser validada com a Meta." : "Abra “Configurar integração” e informe a chave fornecida pela Meta."}</small></div>
           <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Envio automático</span><strong>{data.whatsapp.configured ? "FUNCIONANDO" : "PARADO"}</strong><small>{data.whatsapp.queued} aguardando · {data.whatsapp.failed} com erro · {data.whatsapp.sent} aceitas pelo serviço escolhido.</small></div>
         </div>
         <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) confirmado(s) pela integração · ${data.whatsapp.automaticMemberships} associação(ões) feitas automaticamente.` : "Nenhum grupo externo foi confirmado pela integração ainda. Os Owners continuam podendo conferir e administrar os grupos pelo painel."}</p>
-        <div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Consulta dos grupos concluída.")}>Atualizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens com erro foram recolocadas na fila.")}>Tentar novamente mensagens com erro</button>}</div>
+        {data.owner.permissions.canConfigure&&<div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Consulta dos grupos concluída.")}>Atualizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens com erro foram recolocadas na fila.")}>Tentar novamente mensagens com erro</button>}</div>}
       </section>
 
       <div className="owner-version"><span><strong>Painel sincronizado com o servidor</strong> · dados desta tela atualizados a cada 10 s{data.version.dirty ? " · há mudanças locais ainda não publicadas" : ""}</span><button className="field-help-button owner-version-help" aria-label="Explicar versão e sincronização do painel" onClick={()=>setHelpTopic("version")}><HelpCircle size={14}/></button><button className="text-button" disabled={busy} onClick={()=>void checkVersion()}><RefreshCw size={14}/>Conferir versão online</button></div>
@@ -227,9 +235,10 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
       {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
 
       <nav className="owner-tabs" aria-label="Seções administrativas">
-        {([["requests", `Solicitações (${m.pendingRequests})`], ["users", "Participantes"], ["purchases", "Compras"], ["groups", "Grupos e acesso"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
+        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
       </nav>
 
+      {tab==="requests" && data.owner.permissions.canManageOwners && <GoogleIdentityRequests/>}
       {tab === "requests" && <section className="owner-panel">
         <h2>Solicitações de cadastro</h2>
         <p className="muted">A decisão do Owner é preservada com data e autoria. Registros aprovados permanecem visíveis, mas deixam de mostrar qualquer texto de pendência.</p>
@@ -240,31 +249,43 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
             <span>{item.phone} · {date(item.createdAt)} · {item.source === "WHATSAPP" ? "Recebido pelo WhatsApp" : item.source === "OWNER_MANUAL" ? "Cadastro manual Owner" : "Solicitação web"}</span>
             {item.status === "APPROVED" && <small>Aprovado em {date(item.approvedAt)} por {item.approvedByOwnerName ?? "Owner não identificado (registro legado)"}</small>}
           </div>
-          {item.status === "PENDING" && <div className="request-actions"><label>Grupo<select aria-label={`Grupo para ${item.name}`} value={selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code ?? ""} onChange={(e) => setSelections({ ...selections, [item.id]: e.target.value })}>{activeGroups.map((g) => <option key={g.code} value={g.code}>SOS YOUTUBER {g.code}</option>)}</select></label><button className="primary compact" disabled={busy || !activeGroups.length} onClick={() => void act(() => ownerApi.decide(item.id, "APPROVED", selections[item.id] ?? item.preferredGroup ?? activeGroups[0]?.code), "Aprovação do Owner registrada.")}>Aprovar</button><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.decide(item.id, "DECLINED"), "Solicitação marcada como não aprovada.")}>Recusar</button></div>}
+          {item.status === "PENDING" && <div className="request-actions auto-group-actions">
+            <div className={item.preferredGroup ? "detected-group ok":"detected-group pending"}><ShieldCheck size={16}/><div><strong>{item.preferredGroup ? `SOS YOUTUBER ${item.preferredGroup}` : "Grupo ainda não confirmado"}</strong><span>{item.preferredGroup ? "Detectado pelo vínculo/verificação do número." : "Sincronize a integração para localizar este WhatsApp no grupo correto."}</span></div></div>
+            <button className="primary compact" disabled={busy || !item.preferredGroup} onClick={() => void act(() => ownerApi.decide(item.id, "APPROVED"), "Aprovação do Owner registrada.")}>Aprovar</button>
+            <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.decide(item.id, "DECLINED"), "Solicitação marcada como não aprovada.")}>Recusar</button>
+            {!item.preferredGroup && <button className="text-button request-sync-button" disabled={busy} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(), "Grupos e participantes sincronizados; a solicitação será reavaliada.")}><RefreshCw size={15}/>Sincronizar grupos</button>}
+          </div>}
         </article>)}</div>}
       </section>}
 
       {tab === "users" && <section className="owner-panel">
-        <div className="section-title"><div><h2>Participantes</h2><p className="muted">Clique no nome para abrir o painel administrativo individual.</p></div><button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.exportUsers(), "Exportação de usuários concluída.")}><Download size={16} /> Exportar CSV</button></div>
+        <div className="section-title"><div><h2>Participantes</h2><p className="muted">Clique no nome para abrir o painel administrativo individual.</p></div>{data.owner.permissions.canExport&&<button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.exportUsers(), "Exportação de usuários concluída.")}><Download size={16} /> Exportar CSV</button>}</div>
         <div className="table-scroll"><table><thead><tr><th>Nome / WhatsApp</th><th>Grupo</th><th>Aprovação</th><th>Último acesso</th><th>Saldo</th><th>Estado</th></tr></thead><tbody>
-          {data.users.map((u) => <tr key={u.id}><td><button className="participant-link" onClick={()=>setParticipantPhone(u.phone)}>{u.name}</button><small>{u.phone}</small></td><td>SOS {u.groupCode}</td><td><strong>{date(u.approvedAt)}</strong><small>por {u.approvedByOwnerName ?? "Owner não identificado"}</small></td><td>{u.lastSeenAt ? date(u.lastSeenAt) : "Ainda não acessou"}</td><td><strong>{coins(u.balanceMillis)} moedas</strong><small>{u.extraPasses} passe{u.extraPasses===1?"":"s"}</small></td><td>{u.revokedAt ? <span className="table-status off">Revogado</span> : u.paymentHold ? <span className="table-status warn">Em revisão</span> : <span className="table-status on">Ativo</span>}</td></tr>)}
+          {data.users.map((u) => <tr key={u.id}><td><div className="owner-user-cell"><button className="participant-link" onClick={()=>setParticipantPhone(u.phone)}>{u.name}</button>{u.youtubeChannelTitle&&<span className="owner-channel-identity">{u.youtubeChannelThumbnailUrl?<img src={u.youtubeChannelThumbnailUrl} alt=""/>:<Youtube size={15}/>}<b>{u.youtubeChannelTitle}</b></span>}<small>{u.phone}</small></div></td><td>SOS {u.groupCode}</td><td><strong>{date(u.approvedAt)}</strong><small>por {u.approvedByOwnerName ?? "Owner não identificado"}</small></td><td>{u.lastSeenAt ? date(u.lastSeenAt) : "Ainda não acessou"}</td><td><strong>{coins(u.balanceMillis)} moedas</strong><small>{u.extraPasses} passe{u.extraPasses===1?"":"s"}</small></td><td>{u.revokedAt ? <span className="table-status off">Revogado</span> : u.paymentHold ? <span className="table-status warn">Em revisão</span> : <span className="table-status on">Ativo</span>}</td></tr>)}
         </tbody></table>{!data.users.length && <p className="muted">Nenhum participante aprovado ainda.</p>}</div>
+        <div className="deleted-accounts-section">
+          <div className="section-title admin-subtitle"><div><p className="eyebrow dark">CONTAS REMOVIDAS</p><h3>Histórico mínimo de auditoria</h3></div><span>{m.deletedUsers} remoção(ões)</span></div>
+          <p className="muted">Quando uma pessoa exclui a própria conta, dados pessoais e acessos são removidos. Mantemos apenas o ID e totais mínimos necessários para integridade financeira e auditoria.</p>
+          {!data.deletedAccounts.length ? <p className="muted">Nenhuma conta removida.</p> : <div className="table-scroll"><table><thead><tr><th>ID removido</th><th>Grupo</th><th>Data</th><th>Atividade anterior</th><th>Compras preservadas</th></tr></thead><tbody>
+            {data.deletedAccounts.map((item)=><tr key={item.userId}><td><code>{item.userId}</code></td><td>SOS {item.groupCode ?? "—"}</td><td>{date(item.deletedAt)}</td><td>{item.submissionsCount} URL(s) · {item.roundsCount} fila(s)</td><td>{money(item.approvedPaymentCents)} · {coins(item.coinsPurchasedMillis)} moedas · {item.passesPurchased} passe(s)</td></tr>)}
+          </tbody></table></div>}
+        </div>
       </section>}
 
-      {tab === "purchases" && <section className="owner-panel purchases-admin-panel">
-        <div className="section-title"><div><div className="heading-with-help"><h2>Pacotes de moedas e pagamentos</h2><button className="help-icon" aria-label="Explicar pagamentos e moedas" onClick={()=>setHelpTopic("payments")}><HelpCircle size={18}/></button></div><p className="muted">As moedas e passes continuam na carteira do usuário. Aqui você escolhe quem processa novas compras e acompanha a trilha financeira.</p></div><button className="primary compact" onClick={()=>setShowPaymentConfig(true)}><Settings2 size={17}/>Configurar pagamentos</button></div>
+      {tab === "purchases" && data.owner.permissions.canViewSensitive && <section className="owner-panel purchases-admin-panel">
+        <div className="section-title"><div><div className="heading-with-help"><h2>Pacotes de moedas e pagamentos</h2><button className="help-icon" aria-label="Explicar pagamentos e moedas" onClick={()=>setHelpTopic("payments")}><HelpCircle size={18}/></button></div><p className="muted">As moedas e passes continuam na carteira do usuário. {data.owner.permissions.canConfigure?"Aqui você escolhe quem processa novas compras e acompanha a trilha financeira.":"Você pode acompanhar compras e receita; a configuração do provedor fica protegida para o Owner principal."}</p></div>{data.owner.permissions.canConfigure&&<button className="primary compact" onClick={()=>setShowPaymentConfig(true)}><Settings2 size={17}/>Configurar pagamentos</button>}</div>
         <div className="payment-owner-summary">
           <article><span>Provedor ativo</span><strong>{paymentProviderName(data.payments.provider)}</strong><small>{data.payments.provider==="DISABLED" ? "Novas compras reais estão desativadas." : "Usado para novas compras de pacotes."}</small></article>
           <article><span>Conta do provedor</span><strong>{data.payments.provider==="DISABLED" ? "—" : data.payments.environment==="PRODUCTION" ? "PRODUÇÃO" : "TESTE"}</strong><small>{data.payments.provider==="DISABLED" ? "Escolha um provedor para definir teste ou produção." : data.payments.environment==="PRODUCTION" ? "Pode receber pagamentos reais com credenciais válidas." : "Usa credenciais de teste do provedor."}</small></article>
           <article><span>Pronto para receber Pix?</span><strong>{data.payments.provider==="DISABLED" ? "DESLIGADO" : data.payments.ready ? "SIM" : "AINDA NÃO"}</strong><small>{data.payments.provider==="DISABLED" ? "Novas compras reais estão bloqueadas." : data.payments.ready ? "Os dados mínimos necessários estão salvos." : "Abra a configuração para concluir os dados."}</small></article>
         </div>
         <p className="muted">Trocar o provedor ativo afeta somente novas compras. Pagamentos antigos continuam associados ao provedor que os criou e podem ser conciliados normalmente.</p>
-        <div className="table-scroll"><table><thead><tr><th>Participante</th><th>Valor</th><th>Provedor</th><th>Status</th><th>Criado em</th></tr></thead><tbody>{data.purchases.map((p) => <tr key={p.id}><td><button className="participant-link" onClick={()=>setParticipantPhone(p.phone)}>{p.name}</button><small>{p.phone}</small></td><td>{money(p.amountCents)}</td><td>{paymentProviderName(p.provider)}</td><td>{p.status}</td><td>{date(p.createdAt)}</td></tr>)}</tbody></table>{!data.purchases.length && <p className="muted">Nenhum pacote solicitado.</p>}</div>
+        <div className="table-scroll"><table><thead><tr><th>Participante</th><th>Produto</th><th>Valor</th><th>Provedor</th><th>Status</th><th>Data</th></tr></thead><tbody>{data.purchases.map((p) => <tr key={p.id}><td>{p.userDeletedAt ? <><strong>Conta removida</strong><small>ID {p.userId}</small></> : <><button className="participant-link" onClick={()=>setParticipantPhone(p.phone)}>{p.name}</button><small>{p.phone}</small></>}</td><td><strong>{paymentProductName(p.productCode)}</strong><small>{p.creditsMillis/1000} moeda(s) · {p.extraPasses} passe(s)</small></td><td>{money(p.amountCents)}</td><td>{paymentProviderName(p.provider)}</td><td>{p.status}</td><td>{date(p.approvedAt ?? p.createdAt)}</td></tr>)}</tbody></table>{!data.purchases.length && <p className="muted">Nenhuma compra registrada.</p>}</div>
       </section>}
 
       {tab === "groups" && <section className="owner-panel groups-admin-panel">
-        <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">Controle habilitação interna, vínculo externo confirmado, verificação e link de entrada de cada grupo.</p></div><span className="live-chip"><RefreshCw size={13}/>Painel sincroniza a cada 10 s</span></div>
-        <div className="group-carousel-meta"><strong>Grupos {groupStart+1}–{Math.min(groupStart+GROUP_PAGE_SIZE,999)} de 999</strong><span>Todos os números podem ser ativados e administrados.</span></div>
+        <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">{data.owner.permissions.canConfigure?"Controle habilitação interna, vínculo externo confirmado, verificação e link de entrada de cada grupo.":"Visualização operacional dos grupos. Alterações de vínculo, ativação e configuração são exclusivas de um Owner principal."}</p></div><span className="live-chip"><RefreshCw size={13}/>Painel sincroniza a cada 10 s</span></div>
+        <div className="group-carousel-meta"><strong>Grupos {groupStart+1}–{Math.min(groupStart+GROUP_PAGE_SIZE,999)} de 999</strong><span>{data.owner.permissions.canConfigure?"Todos os números podem ser ativados e administrados.":"Modo somente leitura para Administrador delegado."}</span></div>
         <div className="group-carousel-shell">
           <button className="carousel-arrow" aria-label="Grupos anteriores" disabled={groupPage===0} onClick={()=>setGroupPage((page)=>Math.max(0,page-1))}><ChevronLeft/></button>
           <div className="group-carousel">{visibleGroupCodes.map((code) => {
@@ -276,10 +297,12 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
               <strong>{members} participante{members===1?"":"s"} com acesso</strong>
               <small>Vínculo externo: {stored?.whatsappGroupId || stored?.verificationProvider ? "confirmado por integração" : "não confirmado"}</small>
               <small>Verificação: {stored?.verificationProvider ?? (stored?.membershipMode === "META_GROUPS_API" ? "Meta / prova externa" : "Owner / interna")}</small>
-              <div className="group-card-actions">
-                <button className="secondary" disabled={busy} onClick={()=>setManagedGroupCode(code)}>Gerenciar</button>
-                <button className={enabled ? "secondary":"primary compact"} disabled={busy} onClick={() => void act(() => ownerApi.group(code,!enabled), enabled ? `SOS YOUTUBER ${code} pausado; dados preservados.` : `SOS YOUTUBER ${code} habilitado no SOS.`)}>{enabled ? "Pausar":"Habilitar"}</button>
-              </div>
+              {data.owner.permissions.canConfigure
+                ? <div className="group-card-actions">
+                    <button className="secondary" disabled={busy} onClick={()=>setManagedGroupCode(code)}>Gerenciar</button>
+                    <button className={enabled ? "secondary":"primary compact"} disabled={busy} onClick={() => void act(() => ownerApi.group(code,!enabled), enabled ? `SOS YOUTUBER ${code} pausado; dados preservados.` : `SOS YOUTUBER ${code} habilitado no SOS.`)}>{enabled ? "Pausar":"Habilitar"}</button>
+                  </div>
+                : <small className="group-readonly-note"><ShieldCheck size={13}/>Configuração protegida</small>}
             </article>;
           })}</div>
           <button className="carousel-arrow" aria-label="Próximos grupos" disabled={groupPage>=groupPageCount-1} onClick={()=>setGroupPage((page)=>Math.min(groupPageCount-1,page+1))}><ChevronRight/></button>
@@ -309,9 +332,19 @@ export function OwnerDashboard({ onLogout }: { onLogout: () => void }) {
         <div className="table-scroll compact-access-table"><table><thead><tr><th>WhatsApp</th><th>Grupo</th><th>Aprovado em</th><th>Owner</th><th>Estado</th></tr></thead><tbody>{data.members.map((m) => <tr key={m.phone}><td><button className="participant-link" onClick={()=>setParticipantPhone(m.phone)}>{m.phone}</button></td><td>SOS {m.groupCode}</td><td>{date(m.approvedAt)}</td><td>{m.approvedByOwnerName ?? "Registro legado"}</td><td>{m.revokedAt ? "Revogado" : "Autorizado"}</td></tr>)}</tbody></table></div>
       </section>}
 
+      {tab === "removed" && <section className="owner-panel removed-accounts-panel">
+        <div className="section-title"><div><h2>Contas removidas</h2><p className="muted">Quando o próprio usuário apaga a conta, o SOS remove os dados operacionais e mantém somente um tombstone anônimo para auditoria e integridade financeira.</p></div><span>{data.deletedAccounts.length} registro{data.deletedAccounts.length===1?"":"s"}</span></div>
+        <div className="table-scroll"><table><thead><tr><th>ID removido</th><th>Grupo anterior</th><th>Removido em</th><th>Atividade histórica</th><th>Compras confirmadas</th></tr></thead><tbody>
+          {data.deletedAccounts.map((item)=><tr key={item.userId}><td><code>{item.userId}</code><small>{item.source==="USER_SELF_SERVICE"?"Exclusão solicitada pelo usuário":item.source}</small></td><td>{item.groupCode ? "SOS "+item.groupCode : "—"}</td><td>{date(item.deletedAt)}</td><td><strong>{item.submissionsCount} URLs</strong><small>{item.roundsCount} fila{item.roundsCount===1?"":"s"}</small></td><td><strong>{money(item.approvedPaymentCents)}</strong><small>{item.coinsPurchasedMillis/1000} moedas · {item.passesPurchased} passe{item.passesPurchased===1?"":"s"}</small></td></tr>)}
+        </tbody></table>{!data.deletedAccounts.length&&<p className="muted">Nenhuma conta foi removida até agora.</p>}</div>
+      </section>}
+
       <footer><ShieldCheck size={17} /><span>Dados de contato e controles desta área são exclusivos do Owner. Indicadores mensais usam o fuso de Salvador.</span></footer>
     </main>
 
+    {showOwnerMenu && <OwnerDeskMenu data={data} onClose={()=>setShowOwnerMenu(false)} onNavigate={(target:OwnerMenuTarget)=>setTab(target)} onWhatsApp={()=>setShowWhatsAppConfig(true)} onPayments={()=>setShowPaymentConfig(true)} onRefresh={()=>void load()} onVersion={()=>void checkVersion()} onLogout={onLogout} onParticipate={()=>void participate()} onManageOwners={()=>setShowOwnerTeam(true)} onAvatarChanged={(avatar)=>{setData((current)=>current?{...current,owner:{...current.owner,avatar}}:current);void load();}}/>}
+    {showOwnerTeam&&<OwnerTeamModal onClose={()=>setShowOwnerTeam(false)}/>}
+    {showOwnerAvatar && <AvatarModal name={data.owner.name} current={data.owner.avatar} onClose={()=>setShowOwnerAvatar(false)} onChanged={(avatar)=>{setData((current)=>current?{...current,owner:{...current.owner,avatar}}:current);void load();}} saveAvatar={ownerApi.saveAvatar} title="Escolha seu avatar"/>}
     {showWhatsAppConfig && <WhatsAppIntegrationModal initial={data.whatsapp.integration} onClose={()=>setShowWhatsAppConfig(false)} onSaved={(_state,message)=>{ setNotice(message); void load(); }} />}
     {showPaymentConfig && <PaymentIntegrationModal initial={data.payments} onClose={()=>setShowPaymentConfig(false)} onSaved={(_state,message)=>{ setNotice(message); void load(); }} />}
     {participantPhone && <ParticipantAdminModal phone={participantPhone} groups={data.groups} onClose={()=>setParticipantPhone(undefined)} onChanged={(next)=>{ if(next) setParticipantPhone(next); void load(); }} />}

@@ -27,20 +27,46 @@ export function parseYouTubeVideoId(input: string): string | null {
   }
 }
 
-export async function verifyYouTubeVideo(input: string, apiKey?: string): Promise<{ videoId: string; canonicalUrl: string }> {
+export type YouTubeVideoInfo = {
+  videoId: string;
+  canonicalUrl: string;
+  title?: string;
+  channelTitle?: string;
+  thumbnailUrl?: string;
+};
+
+export async function verifyYouTubeVideo(input: string, apiKey?: string): Promise<YouTubeVideoInfo> {
   const videoId = parseYouTubeVideoId(input);
   if (!videoId) throw new Error("URL não aceita. Cole um link de vídeo do YouTube.");
+  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const fallbackThumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
   if (apiKey) {
     const endpoint = new URL("https://www.googleapis.com/youtube/v3/videos");
-    endpoint.search = new URLSearchParams({ part: "id,status", id: videoId, key: apiKey }).toString();
+    endpoint.search = new URLSearchParams({ part: "id,status,snippet", id: videoId, key: apiKey }).toString();
     const response = await fetch(endpoint, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error("Não foi possível validar o vídeo no YouTube.");
-    const payload = (await response.json()) as { items?: Array<{ status?: { embeddable?: boolean } }> };
-    if (!payload.items?.length) throw new Error("O vídeo não existe ou não está acessível.");
+    const payload = (await response.json()) as { items?: Array<{ status?: { embeddable?: boolean }; snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; high?: { url?: string } } } }> };
+    const item=payload.items?.[0];
+    if (!item) throw new Error("O vídeo não existe ou não está acessível.");
+    return {
+      videoId,canonicalUrl,
+      title:item.snippet?.title,
+      channelTitle:item.snippet?.channelTitle,
+      thumbnailUrl:item.snippet?.thumbnails?.high?.url ?? item.snippet?.thumbnails?.medium?.url ?? fallbackThumbnail
+    };
   }
 
-  return { videoId, canonicalUrl: `https://www.youtube.com/watch?v=${videoId}` };
+  try {
+    const endpoint=new URL("https://www.youtube.com/oembed");
+    endpoint.search=new URLSearchParams({url:canonicalUrl,format:"json"}).toString();
+    const response=await fetch(endpoint,{signal:AbortSignal.timeout(2_500)});
+    if (response.ok) {
+      const payload=await response.json() as { title?:string; author_name?:string; thumbnail_url?:string };
+      return {videoId,canonicalUrl,title:payload.title,channelTitle:payload.author_name,thumbnailUrl:payload.thumbnail_url ?? fallbackThumbnail};
+    }
+  } catch { /* Metadata enrichment is optional when no API key is configured. */ }
+  return {videoId,canonicalUrl,thumbnailUrl:fallbackThumbnail};
 }
 
 function encryptionKey(config: Config): Buffer {
@@ -136,6 +162,17 @@ async function youtubeGet<T>(path: string, token: string): Promise<T> {
   });
   if (!response.ok) throw new Error("Não foi possível conferir a playlist no YouTube.");
   return await response.json() as T;
+}
+
+export async function fetchOwnYouTubeChannel(config: Config, refreshToken: string): Promise<{ id?: string; title?: string; thumbnailUrl?: string }> {
+  const token=await accessToken(config,refreshToken);
+  const result=await youtubeGet<{items?:Array<{id?:string;snippet?:{title?:string;thumbnails?:{default?:{url?:string};medium?:{url?:string};high?:{url?:string}}}}>}>("channels?part=snippet&mine=true&maxResults=1",token);
+  const item=result.items?.[0];
+  return {
+    id:item?.id,
+    title:item?.snippet?.title,
+    thumbnailUrl:item?.snippet?.thumbnails?.high?.url ?? item?.snippet?.thumbnails?.medium?.url ?? item?.snippet?.thumbnails?.default?.url
+  };
 }
 
 export async function createPrivatePlaylist(

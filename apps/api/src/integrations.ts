@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
+import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 
@@ -11,11 +12,15 @@ const metaSettingsSchema = z.object({
   mode: whatsappModeSchema.default("OFFICIAL"),
   businessAccountId: z.string().trim().regex(/^\d{5,40}$/).optional(),
   phoneNumberId: z.string().trim().regex(/^\d{5,40}$/).optional(),
-  businessPhone: z.string().trim().max(30).optional(),
+  businessPhone: z.string().trim().max(30).transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o número Business com DDI, DDD e telefone.")).optional(),
   graphVersion: z.string().trim().regex(/^v\d{2,3}\.\d$/).default("v23.0"),
   accessToken: z.string().trim().min(20).max(4096).optional(),
   appSecret: z.string().trim().min(8).max(512).optional(),
   verifyToken: z.string().trim().min(12).max(256).optional(),
+  otpTemplate: z.string().trim().regex(/^[a-z0-9_]+$/).optional(),
+  ownerAlertTemplate: z.string().trim().regex(/^[a-z0-9_]+$/).optional(),
+  decisionTemplate: z.string().trim().regex(/^[a-z0-9_]+$/).optional(),
+  templateLanguage: z.string().trim().regex(/^[A-Za-z]{2}(?:_[A-Za-z]{2})?$/).default("pt_BR"),
   wppUrl: z.string().url().optional(),
   wppSession: z.string().trim().regex(/^[A-Za-z0-9_-]{2,64}$/).optional(),
   wppToken: z.string().trim().min(8).max(4096).optional(),
@@ -34,8 +39,13 @@ const keyNames = {
   accessToken: "whatsapp.meta.access_token",
   appSecret: "whatsapp.meta.app_secret",
   verifyToken: "whatsapp.meta.verify_token",
+  otpTemplate: "whatsapp.meta.otp_template",
+  ownerAlertTemplate: "whatsapp.meta.owner_alert_template",
+  decisionTemplate: "whatsapp.meta.decision_template",
+  templateLanguage: "whatsapp.meta.template_language",
   tokenValidatedAt: "whatsapp.meta.token_validated_at",
   validatedDisplayPhone: "whatsapp.meta.validated_display_phone",
+  senderValidationRequired: "whatsapp.meta.sender_validation_required",
   wppUrl: "whatsapp.wpp.url",
   wppSession: "whatsapp.wpp.session",
   wppToken: "whatsapp.wpp.token",
@@ -74,13 +84,23 @@ function configuredSecret(db: AppDatabase, config: Config, key: string, envValue
   return Boolean(unseal(config,get(db,key)) || envValue);
 }
 
+export function initializeWhatsAppIntegration(db:AppDatabase,config:Config) {
+  const current=get(db,keyNames.businessPhone);
+  if(!current) set(db,keyNames.businessPhone,config.WHATSAPP_BUSINESS_PHONE);
+}
+
 export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
   const storedMode = get(db,keyNames.mode) ?? "OFFICIAL";
   const mode = whatsappModeSchema.catch("OFFICIAL").parse(storedMode === "HYBRID" ? "META_GROUPS" : storedMode);
   const businessAccountId = get(db,keyNames.businessAccountId) ?? config.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const phoneNumberId = get(db,keyNames.phoneNumberId) ?? config.WHATSAPP_PHONE_NUMBER_ID;
-  const businessPhone = get(db,keyNames.businessPhone);
+  const businessPhone = get(db,keyNames.businessPhone) || config.WHATSAPP_BUSINESS_PHONE;
+  const senderValidationRequired=get(db,keyNames.senderValidationRequired)==="1";
   const graphVersion = get(db,keyNames.graphVersion) ?? config.WHATSAPP_GRAPH_VERSION;
+  const otpTemplate = get(db,keyNames.otpTemplate) ?? config.WHATSAPP_OTP_TEMPLATE ?? "";
+  const ownerAlertTemplate = get(db,keyNames.ownerAlertTemplate) ?? config.WHATSAPP_OWNER_ALERT_TEMPLATE ?? "";
+  const decisionTemplate = get(db,keyNames.decisionTemplate) ?? config.WHATSAPP_DECISION_TEMPLATE ?? "";
+  const templateLanguage = get(db,keyNames.templateLanguage) ?? config.WHATSAPP_TEMPLATE_LANGUAGE;
   const wppUrl = get(db,keyNames.wppUrl) ?? config.WPP_CONNECT_URL;
   const wppSession = get(db,keyNames.wppSession) ?? config.WPP_CONNECT_SESSION;
   const evolutionUrl = get(db,keyNames.evolutionUrl) ?? "";
@@ -89,8 +109,13 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
     mode,
     businessAccountId: businessAccountId ?? "",
     phoneNumberId: phoneNumberId ?? "",
-    businessPhone: businessPhone ?? "",
+    businessPhone,
+    senderValidationRequired,
     graphVersion,
+    otpTemplate,
+    ownerAlertTemplate,
+    decisionTemplate,
+    templateLanguage,
     accessTokenConfigured: configuredSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN),
     appSecretConfigured: configuredSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET),
     verifyTokenConfigured: configuredSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN),
@@ -102,18 +127,32 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
     evolutionUrl,
     evolutionInstance,
     evolutionApiKeyConfigured: configuredSecret(db,config,keyNames.evolutionApiKey),
-    officialReady: Boolean(businessAccountId && phoneNumberId && configuredSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN) && configuredSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET) && configuredSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN)),
+    officialReady: !senderValidationRequired && Boolean(businessAccountId && phoneNumberId && configuredSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN) && configuredSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET) && configuredSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN)),
     webhookUrl: new URL("/webhooks/whatsapp",config.API_PUBLIC_URL).toString()
   };
 }
 
 export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: unknown) {
   const body=metaSettingsSchema.parse(raw);
+  const previous=readWhatsAppIntegration(db,config);
+  const identityChanged=(body.businessPhone!==undefined&&body.businessPhone!==previous.businessPhone)
+    ||(body.phoneNumberId!==undefined&&body.phoneNumberId!==previous.phoneNumberId)
+    ||(body.businessAccountId!==undefined&&body.businessAccountId!==previous.businessAccountId)
+    ||Boolean(body.accessToken);
+  db.transaction(()=>{
+  if(identityChanged) {
+    db.prepare("DELETE FROM integration_settings WHERE key IN (?,?)").run(keyNames.tokenValidatedAt,keyNames.validatedDisplayPhone);
+    if(previous.phoneNumberId||body.phoneNumberId||previous.accessTokenConfigured||body.accessToken) set(db,keyNames.senderValidationRequired,"1");
+  }
   set(db,keyNames.mode,body.mode);
   if (body.businessAccountId!==undefined) set(db,keyNames.businessAccountId,body.businessAccountId);
   if (body.phoneNumberId!==undefined) set(db,keyNames.phoneNumberId,body.phoneNumberId);
   if (body.businessPhone!==undefined) set(db,keyNames.businessPhone,body.businessPhone);
   set(db,keyNames.graphVersion,body.graphVersion);
+  if (body.otpTemplate!==undefined) set(db,keyNames.otpTemplate,body.otpTemplate);
+  if (body.ownerAlertTemplate!==undefined) set(db,keyNames.ownerAlertTemplate,body.ownerAlertTemplate);
+  if (body.decisionTemplate!==undefined) set(db,keyNames.decisionTemplate,body.decisionTemplate);
+  set(db,keyNames.templateLanguage,body.templateLanguage);
   if (body.wppUrl!==undefined) set(db,keyNames.wppUrl,body.wppUrl);
   if (body.wppSession!==undefined) set(db,keyNames.wppSession,body.wppSession);
   if (body.evolutionUrl!==undefined) set(db,keyNames.evolutionUrl,body.evolutionUrl);
@@ -123,6 +162,7 @@ export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: un
   if (body.verifyToken) set(db,keyNames.verifyToken,seal(config,body.verifyToken));
   if (body.wppToken) set(db,keyNames.wppToken,seal(config,body.wppToken));
   if (body.evolutionApiKey) set(db,keyNames.evolutionApiKey,seal(config,body.evolutionApiKey));
+  })();
   return readWhatsAppIntegration(db,config);
 }
 
@@ -142,15 +182,23 @@ export async function validateMetaWhatsApp(db: AppDatabase, config: Config) {
   if (!accessToken) throw Object.assign(new Error("Ainda precisamos do System User Access Token para validar a integração oficial."),{statusCode:409});
   if (!state.businessAccountId) throw Object.assign(new Error("Informe o WABA ID antes de validar."),{statusCode:409});
   const url=`https://graph.facebook.com/${encodeURIComponent(state.graphVersion)}/${encodeURIComponent(state.businessAccountId)}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating`;
-  const response=await fetch(url,{headers:{authorization:`Bearer ${accessToken}`}});
+  const response=await fetch(url,{headers:{authorization:`Bearer ${accessToken}`},signal:AbortSignal.timeout(15_000)});
   const payload=await response.json().catch(()=>({})) as { data?: Array<{ id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string }>; error?: { message?: string } };
   if (!response.ok) throw Object.assign(new Error(payload.error?.message ? `A Meta recusou o token/API: ${payload.error.message}` : "A Meta recusou o token/API informado."),{statusCode:400});
   const phones=payload.data ?? [];
-  const selected=state.phoneNumberId ? phones.find((item)=>item.id===state.phoneNumberId) : phones[0];
+  const selected=state.phoneNumberId ? phones.find((item)=>item.id===state.phoneNumberId) : phones.find((item)=>normalizePhone(item.display_phone_number??"")===state.businessPhone);
   if (!selected) throw Object.assign(new Error("Token válido, mas o Phone Number ID informado não apareceu neste WABA."),{statusCode:409});
+  if(!selected.id || normalizePhone(selected.display_phone_number??"")!==state.businessPhone) throw Object.assign(new Error("O número confirmado pela Meta é diferente do número Business salvo. Confira o telefone e o ID do número antes de ativar os envios."),{statusCode:409});
+  // The network request may overlap a second Owner edit. Never validate stale settings.
+  const current=readWhatsAppIntegration(db,config);
+  if(current.businessPhone!==state.businessPhone||current.phoneNumberId!==state.phoneNumberId||current.businessAccountId!==state.businessAccountId||effectiveSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN)!==accessToken) throw Object.assign(new Error("A configuração mudou durante a conferência. Valide novamente os dados atuais."),{statusCode:409});
   const stamp=new Date().toISOString();
+  db.transaction(()=>{
+  set(db,keyNames.phoneNumberId,selected.id!);
+  set(db,keyNames.senderValidationRequired,"0");
   set(db,keyNames.tokenValidatedAt,stamp);
   if (selected.display_phone_number) set(db,keyNames.validatedDisplayPhone,selected.display_phone_number);
+  })();
   return { ok:true, validatedAt:stamp, phone:selected };
 }
 
@@ -158,9 +206,15 @@ export function effectiveWhatsAppConfig(db: AppDatabase, config: Config): Config
   const state=readWhatsAppIntegration(db,config);
   return {
     ...config,
+    WHATSAPP_BUSINESS_PHONE:state.businessPhone,
+    WHATSAPP_SENDER_VALIDATION_REQUIRED:state.senderValidationRequired,
     WHATSAPP_BUSINESS_ACCOUNT_ID: state.businessAccountId || config.WHATSAPP_BUSINESS_ACCOUNT_ID,
     WHATSAPP_PHONE_NUMBER_ID: state.phoneNumberId || config.WHATSAPP_PHONE_NUMBER_ID,
     WHATSAPP_GRAPH_VERSION: state.graphVersion || config.WHATSAPP_GRAPH_VERSION,
+    WHATSAPP_OTP_TEMPLATE: state.otpTemplate || config.WHATSAPP_OTP_TEMPLATE,
+    WHATSAPP_OWNER_ALERT_TEMPLATE: state.ownerAlertTemplate || config.WHATSAPP_OWNER_ALERT_TEMPLATE,
+    WHATSAPP_DECISION_TEMPLATE: state.decisionTemplate || config.WHATSAPP_DECISION_TEMPLATE,
+    WHATSAPP_TEMPLATE_LANGUAGE: state.templateLanguage || config.WHATSAPP_TEMPLATE_LANGUAGE,
     WHATSAPP_ACCESS_TOKEN: effectiveSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN),
     WHATSAPP_APP_SECRET: effectiveSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET),
     WHATSAPP_VERIFY_TOKEN: effectiveSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN),
