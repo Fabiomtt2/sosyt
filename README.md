@@ -1,22 +1,33 @@
 # SOS YouTuber
 
-Webapp/PWA para participantes aprovados dos grupos SOS YOUTUBER montarem Filas globais de 10 vídeos e criarem, voluntariamente, uma playlist privada na própria conta Google. Android/Capacitor está preservado; APK permanece fora desta consolidação.
+Webapp/PWA para a comunidade SOS YOUTUBER montar filas compartilhadas de 10 vídeos e criar playlists privadas na própria conta YouTube. A versão Android permanece preservada; gerar APK está fora desta rodada.
 
-## Fluxo implementado
+## Produto atual
 
-- Uma única tela de login usa nome, WhatsApp internacional com país/DDI + bandeira, DDD brasileiro quando aplicável e grupo SOS YOUTUBER de 1 a 999. O seletor de países permanece contido no layout com rolagem ↑/↓; o DDD brasileiro usa trilho horizontal ‹/› e aceita busca incremental por digitação sem uma caixa extra. O backend identifica automaticamente se o cadastro corresponde a participante ou Owner; erro de credencial Owner permanece na etapa administrativa e nunca abre solicitação/cooldown de participante. `#` permanece apenas como detalhe interno da API e nunca é exibido na interface.
-- `Quero participar` registra uma solicitação persistente e mantém uma tela de acompanhamento até a decisão. Reenvios do mesmo WhatsApp ficam protegidos por 120 minutos **apenas contra cadastro duplicado**; isso é separado do cooldown de 30 minutos após concluir uma Fila. A aprovação aparece nessa mesma tela antes do retorno ao login. O contato público usa `OWNER_WHATSAPP` quando definido ou Rafael como fallback. A automação oficial usa Meta Cloud API quando conectada; WPPConnect é o complemento self-hosted planejado para grupos tradicionais, com ativação explícita no painel Owner.
-- A associação ao grupo SOS YOUTUBER é automatizada quando a Groups API oficial expõe grupos elegíveis: o worker reconhece `SOS YOUTUBER N`, sincroniza participantes e webhooks de entrada/saída atualizam o acesso. Grupos que a Meta não expõe permanecem disponíveis para conferência Owner.
-- Todos os grupos veem o mesmo quadro persistente, com URL, autor, grupo e horário de cada contribuição. Apenas o próximo espaço pode ser preenchido; URL e autoria histórica ficam permanentes em cada Fila. O mesmo vídeo não pode ser reutilizado em Fila posterior.
-- Só URLs estruturais do YouTube são aceitas. Com `YOUTUBE_API_KEY`, o servidor também consulta a API para confirmar existência/acessibilidade.
-- Cada usuário começa com 10 moedas internas. Salvar custa 1; a primeira contribuição de cada Fila usa o direito-base. Uma compra confirmada de R$20 concede 20 moedas compradas e 1 passe adicional. Moedas promocionais/recompensas não geram passes.
-- Ao completar 10 links, a Fila fica pronta e uma nova Fila abre. Quem participou permanece na tarefa da Fila concluída até atingir 100% ou escolher `Concluir tarefa`; só depois do cooldown persistente de 30 minutos volta ao fluxo comum. Depois da criação da playlist, o acompanhamento consolida 1 moeda interna a cada 10% de progresso, até 10 por usuário/Fila, sem duplicar marcos já creditados.
-- Antes do OAuth, um modal informa que o usuário será levado à autenticação oficial Google/YouTube e que a playlist será criada como privada. A criação é explícita e voluntária. Cada participante elegível vê um único botão `Criar playlist` por Fila, mesmo que tenha salvo mais de uma URL usando passes extras.
-- Painel Owner é um **control plane real**, não ilustrativo: registra decisão com data/Owner responsável, administra virtualmente grupos SOS YOUTUBER 1–999, separa “habilitado no SOS” de “confirmado externamente”, salva link de entrada, possui autorização manual excepcional, popup administrativo de participante, saldos por origem, exportação CSV, configuração persistente do bot WhatsApp (**Meta Oficial / Meta + Grupos / Evolution Gateway / Desativado**) e configuração Pix (**Mercado Pago / Asaas / PagBank / Desativado**). Configurações salvas ficam server-side e passam a valer para novas operações; transações/histórico anteriores preservam sua origem.
+- **Identidade:** nome e WhatsApp internacional com DDI/DDD. Em produção, chave WhatsApp de seis dígitos, válida por cinco minutos e uso único, ou Google como alternativa. A associação Google a um telefone existente exige conferência explícita do Owner; ela reutiliza conta, carteira e histórico. Conectar o canal YouTube é uma autorização separada.
+- **Grupo:** o participante não digita grupo. O backend consulta autorização persistida e, nos modos externos, a evidência de pertencimento. Owner pode cadastrar e autorizar manualmente. Aprovação Owner não equivale a verificação externa em tempo real.
+- **Owners:** Fábio e Rafael são ROOT_OWNER, ambos com acesso total. ADMIN_OWNER tem permissões operacionais delegadas, controladas no servidor. A participação administrativa usa sessão própria revogável.
+- **Fila:** dez posições sequenciais, URL e autoria persistentes. Cada contribuição custa uma moeda; contribuição adicional do participante na mesma fila exige passe. A confirmação ocorre em transação para impedir disputa pelo mesmo slot, saldo negativo ou débito após troca de fila. O mesmo vídeo não pode ser reutilizado em outra fila.
+- **YouTube:** URLs são validadas estruturalmente; com YOUTUBE_API_KEY, o servidor também consulta existência/acessibilidade e metadados. Ao completar a fila, cada colaborador pode autorizar a criação de uma playlist privada. Canal do participante e canal que publicou o vídeo aparecem separadamente.
+- **Tempo e moedas:** dez moedas iniciais; bônus de curadoria ao fechar a fila; uma moeda interna a cada 20 minutos novos aceitos pelo motor de reprodução. O tempo acumula entre sessões e filas, com deduplicação e ledger. Perfil e painel Owner consultam o mesmo total. Créditos antigos WATCH_PROGRESS são preservados, mas o protocolo legado de percentual não gera recompensas novas.
+- **Loja:** COINS_LAUNCH custa R$20 e concede dez moedas compradas e um passe bônus; PASS_SINGLE custa R$20 e concede um passe, sem moedas. Crédito somente após confirmação server-side/idempotente do pagamento. Moedas são capacidade interna de contribuição, sem saque/conversão monetária.
+- **Experiência:** login sem carrossel/fundo ilustrado; banners informativos na área do participante; loja com ilustrações transparentes; avatar persistente, modais com foco, Escape, rolagem interna e bloqueio do fundo.
 
-## Executar no computador
+## WhatsApp Business
 
-Requer Node 22 ou superior. Dentro desta pasta:
+O número público inicial autorizado é **+5571993978956**, definido em `apps/api/src/project-defaults.ts`. A inicialização salva o padrão uma vez; a edição ROOT_OWNER no painel persiste no SQLite e prevalece após reinício. Links públicos consultam esse mesmo valor, atualizado nas telas abertas por polling/foco. Contatos pessoais dos Owners continuam separados.
+
+O telefone público não substitui WABA ID, Phone Number ID, token ou templates aprovados pela Meta. Após alterar a identidade do remetente, o servidor exige conferência de que o número Meta corresponde ao telefone salvo. Templates de chave, alerta e decisão podem ser configurados no painel; novas operações leem a configuração persistida. Um link wa.me abre uma mensagem preenchida: a pessoa ainda precisa enviá-la.
+
+## Companion opcional
+
+`companion/sos_companion.py` é uma implementação nova em Python/Tkinter. A busca histórica não recuperou um runtime IFtp; `.local-tmp/update-watch.py` era um gerador de JSX.
+
+O participante baixa e executa o programa no próprio computador, consente e escolhe uma região da tela. O Tesseract lê o contador localmente; apenas metadados são enviados mediante pareamento revogável. Não são enviados screenshots. O companion não controla o player, não comprova atenção humana e não credita moedas independentemente. Leia `companion/README.md` para instalação e limites.
+
+## Desenvolvimento
+
+Requer Node 22+. Dentro desta pasta:
 
 ```sh
 npm install --legacy-peer-deps --cache .npm-cache
@@ -24,47 +35,34 @@ node scripts/setup-local.mjs
 npm run dev
 ```
 
-Abra http://localhost:5173. No Xubuntu, `scripts/launch-xubuntu.sh` inicia os serviços quando necessário e abre uma janela Firefox nova com cache-bust; o atalho de desktop deve apontar para esse script versionado. Os nomes padrão de Owner são `Fabio0` e `Rafael0`, com aliases sem o sufixo zero. O telefone configurado para cada Owner faz parte da identificação; o marcador `#` existe apenas internamente na API e nunca é solicitado na interface. Dados reais de Owner permanecem somente no `.env` local. Nunca publique o `.env`.
+Web: http://localhost:5173. API padrão: http://localhost:3333. O `.env` da raiz é local/ignorado. O banco de desenvolvimento fica em `apps/api/data/conexao-youtube.db`; os testes usam bancos próprios, separados. Nunca publicar `.env` ou credenciais.
 
-Em desenvolvimento, `AUTH_DEV_MODE=true` habilita a credencial administrativa local definida para teste; o participante aprovado entra diretamente por nome + WhatsApp + grupo. O mecanismo OTP permanece apenas como compatibilidade/legado no backend. `PAYMENTS_DEV_MODE=true` permite Pix DEMO sem movimentação financeira. Em produção os modos de demonstração são recusados pelo carregador de configuração.
-
-A API lê o `.env` da raiz e mantém o banco em `apps/api/data/conexao-youtube.db`. O cliente usa `VITE_API_URL=http://localhost:3333` por padrão.
+AUTH_DEV_MODE permite testes locais sem entrega externa; nome+telefone sem prova é exclusivo desse modo. PAYMENTS_DEV_MODE permite Pix DEMO sem movimentação financeira. Ambos são recusados em produção. O build do cliente prepara os downloads do companion sem exigir Python no servidor.
 
 ## Verificação
 
 ```sh
+git diff --check
+git diff --cached --check
 npm test
 npm run lint
 npm run build
-npm run test:e2e --workspace apps/client
+npm run test:e2e -w @conexao/client
 ```
 
-Na consolidação corrente de 06/10/2026: **67 testes de API, 9 testes do cliente, lint/TypeScript, build API + React/PWA e 1 cenário Playwright ponta a ponta** passaram. A auditoria visual Owner foi feita com capturas novas do fluxo real; detalhes em `docs/AUDITORIA-VISUAL-OWNER-20261006.md` e evidências em `docs/evidencias/`.
+Em 08/10/2026: gate final com **112 testes API, dez cliente, lint, build e três E2E GREEN**, registrado em `.local-tmp/gate-reviewed-20261008T053328Z/results.json`. Cinco testes Python passaram, incluindo OCR real e GUI/captura em Xvfb isolado. Os E2E cobrem Business editável, registro por chave e ciclo Owner/participante/loja/playlist; o cliente Python conversa com a API real de teste. OAuth e pagamentos externos usam respostas controladas nos testes. Evidências frescas: `docs/evidencias/`.
 
-## Publicação pública
+## Publicação e limites
 
-O frontend continua publicável pelo workflow GitHub Pages em `https://fabiomtt2.github.io/sosyt/`, com base `/sosyt/`. Além disso, já existe uma implantação full-stack no Railway:
+- API: https://sos-youtuber-api-production.up.railway.app
+- Web: https://sos-youtuber-web-production.up.railway.app
+- Railway: fontes ainda fixadas em 65d5b2c, API com volume persistente em /data.
+- GitHub Pages publica automaticamente a partir de main. Um merge exige coordenação com a API; não atualizar apenas o frontend enquanto o novo login não estiver pronto.
 
-- API: `https://sos-youtuber-api-production.up.railway.app`
-- Web: `https://sos-youtuber-web-production.up.railway.app`
-- Fastify em produção, healthcheck `/health` e SQLite em volume persistente.
+Google OAuth, Meta e pagamentos precisam de credenciais e validação nas contas reais. As credenciais locais Owner não autenticaram na produção em 08/10; configurações Meta no banco de produção permanecem não verificadas. Não publicar o novo requisito de identidade sem confirmar ao menos um provedor real de acesso.
 
-Os serviços Railway acompanham `checkpoint de aplicação 65d5b2c`: API e Web estão online/SUCCESS, a API mantém o volume SQLite persistente e respondeu healthcheck 200. GitHub Pages continua hospedando apenas HTML/PWA; `VITE_API_URL` nunca deve cair no `localhost` do visitante.
+Groups API só verifica grupos elegíveis realmente retornados pela Meta. Evolution possui configuração/UI, mas seu transporte não deve ser apresentado como ativo. Os adaptadores Pix existentes não substituem homologação e reconciliação operacional. O monitor do player e OCR fornecem sinais de reprodução, não garantia de atenção ou de contagem pública de visualizações pelo YouTube.
 
-## Integrações e limites atuais
+## Continuidade
 
-Google OAuth/YouTube Data API, WhatsApp e os provedores financeiros possuem adaptadores e testes controlados, mas ainda exigem credenciais e validação real das contas escolhidas. Pagamentos novos podem usar Mercado Pago, Asaas ou PagBank, selecionados pelo Owner; segredos ficam cifrados e não retornam ao navegador. Sem `YOUTUBE_API_KEY`, a validação do link é estrutural. Sem credenciais Meta, não há entrega real pelo canal Meta.
-
-O Owner também oferece **Evolution Gateway** como configuração independente. URL, instância e API key persistem no servidor e a API key não retorna em texto puro. Nesta consolidação, a persistência/UI estão validadas; o adaptador de transporte/eventos Evolution ainda não deve ser apresentado como ativo até implementação e teste próprios. Configurações antigas com modo `HYBRID` são migradas para `META_GROUPS`.
-
-A automação de grupos está implementada para a Groups API oficial: descoberta por nome `SOS YOUTUBER N`, sincronização de participantes, webhook de entrada/saída e fallback manual. A ativação real depende de a conta Meta e os grupos existentes serem elegíveis e retornados pela API.
-
-O acompanhamento de reprodução após a playlist ser criada usa a IFrame Player API: o percentual avança com reprodução natural e aba visível, ignora saltos grandes e é sincronizado por conta/ciclo. Cada 10% consolidado gera 1 moeda interna de capacidade de contribuição, até 10 por playlist/ciclo; o ledger impede duplicação. Essas moedas não têm saque ou conversão em dinheiro. O percentual exibido durante `Criar playlist` continua sendo apenas o progresso técnico de inclusão dos 10 itens.
-
-### Continuidade da rodada 06/10/2026
-
-O Git local canônico está em `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. A rodada Owner control plane partiu de `02f3e4b`, foi validada e convergida no checkpoint de aplicação `65d5b2c`; a branch histórica é `sol/owner-control-plane-20261006`. O snapshot Vercel `snap_Kg3VFafm7lvEcrJXCFXYYeYL9hNs` permanece apenas como recuperação histórica.
-
-O gate atual passou com **67/67 API, 9/9 cliente, lint/TypeScript, build API + React/PWA e E2E Playwright 1/1**. O E2E cobre DDI/DDD persistente, modos WhatsApp, pagamentos Owner desktop/mobile, blur/body lock/scroll interno, mês PT-BR, grupos com prova externa separada e responsividade. Não criar infraestrutura paga quando houver rota local/gratuita funcional.
-
-Antes de produção ainda faltam: validação real dos provedores, reconciliação de pagamentos órfãos/estornos, migração de eventuais telefones legados para a forma canônica internacional, política de privacidade/termos e exclusão/retenção de dados, monitoramento e revisão operacional. **Comece sempre por `docs/ANCHOR-YOUTUBE-FINAL.md`**; depois consulte `PROJECT_STATUS.md`, `docs/ESPECIFICACAO-CANONICA-YOUTUBE-FINAL-20261005.md`, `docs/ARQUITETURA.md` e `docs/WHATSAPP-INTEGRACAO.md`.
+Árvore canônica: `~/Documents/Codex/2026-10-04/gostar/YouTube Final`. A árvore histórica `Conexão Youtube` permanece somente leitura. Leia primeiro `AGENTS.md`, `docs/NEXT-INSTANCE-MANDATORY.md`, `docs/CONTINUIDADE-CANONICA.md` e `docs/ANCHOR-YOUTUBE-FINAL.md`. O topo do handoff registra HEAD, gate, WIP, bloqueios e próximo passo; os documentos antigos abaixo dele são histórico.

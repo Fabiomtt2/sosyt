@@ -3,7 +3,7 @@
 ## Âncora
 - Árvore canônica de integração: `YouTube Final`.
 - `Conexão Youtube` é a fonte histórica/WIP ASTRA e deve permanecer somente leitura durante o merge.
-- Ler antes de agir: `git status`, `git log`, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md`, `docs/AUDITORIA-PARTICIPANTE-INFRA-20261006.md`, `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo. A âncora canônica é obrigatória e deve ser atualizada no mesmo checkpoint de qualquer mudança de regra.
+- Ler antes de agir: `git status`, `git log`, **`docs/CONTINUIDADE-CANONICA.md`**, **`docs/ANCHOR-YOUTUBE-FINAL.md`**, `PROJECT_STATUS.md`, `docs/AUDITORIA-PARTICIPANTE-INFRA-20261006.md`, `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md`, `docs/SKILL-CONTINUIDADE-YOUTUBE-FINAL.md`, `docs/AUDITORIA-ASTRA-20261005.md` e este arquivo. `CONTINUIDADE-CANONICA.md` é o handoff operacional mais recente; a âncora canônica continua obrigatória e deve ser sincronizada no mesmo checkpoint de qualquer mudança de regra.
 
 ## Recuperação obrigatória
 - Se o usuário disser que algo já foi corrigido/validado, que a instância se perdeu ou pedir retomada exata, interromper edições e executar integralmente `docs/SKILL-RECUPERACAO-MEMORIA-GIT.md` antes de agir.
@@ -28,10 +28,19 @@
 - Em execução prolongada, nunca ultrapassar aproximadamente 5 minutos sem atualização.
 - Informar: onde estamos, o que foi validado, REDs encontrados/corrigidos, próximo passo.
 
+## Regras atuais — prioridade sobre o histórico abaixo
+- Decisões explícitas de Fábio em 07/10/2026 prevalecem sobre os parágrafos históricos de 05/10 e as skills antigas.
+- Participante em produção confirma acesso por chave WhatsApp de 5 minutos ou identidade Google vinculada; nome+telefone sem prova é somente DEV. Google não elimina WhatsApp.
+- Tempo novo: WATCH_TIME, 1 moeda interna por 20 minutos acumulados, deduplicados pelo motor do servidor. WATCH_PROGRESS antigo preservado; percentual legado não gera moedas nem conclusão automática.
+- Business público aprovado: +5571993978956; seed TypeScript único, configuração persistida editável prevalece. Telefones privados dos Owners e segredos continuam fora do Git.
+- Intro/login sem carrossel nem fundo ilustrado. Banners informativos somente no dashboard participante. Artes podem ser aprimoradas.
+- Companion Python é nova implementação, não runtime IFtp recuperado. Opt-in, região escolhida, metadados sem imagens, autorização revogável. Não comprova atenção humana nem escreve no ledger.
+- Estado operacional mais recente está no topo de NEXT-INSTANCE-MANDATORY.md; checkpoints anteriores são histórico.
+
 ## Regras de produto confirmadas em 05/10/2026
 - Quadro global compartilhado entre os grupos SOS YOUTUBER; 10 posições sequenciais e permanentes por ciclo.
-- Owners: nomes configurados `Fabio0` e `Rafael0` aceitam também os aliases `Fábio` e `Rafael`; privilégio exige o WhatsApp correspondente configurado no `.env`. Em desenvolvimento a credencial administrativa é `sosyout`; produção continua exigindo segredo forte configurado no servidor. O marcador `#` é somente interno e nunca deve aparecer como instrução/campo da UI.
-- Login participante: nome + `WhatsApp` internacional + grupo SOS YOUTUBER 1–999. Não existe etapa de Credencial/OTP no fluxo principal; o backend só cria sessão se `group_memberships` confirmar telefone + grupo. Campo de credencial aparece exclusivamente após identificação de Owner.
+- Owners principais: `Fábio/Fabio` e `Rafael` são ambos `ROOT_OWNER` com acesso total. Nomes configurados legados com sufixo `0` continuam aceitos apenas por compatibilidade; privilégio exige o WhatsApp correspondente configurado no servidor. Administradores adicionais promovidos usam `ADMIN_OWNER` e não podem alterar segredos/configurações sensíveis nem criar/revogar Owners. O marcador `#` é somente interno e nunca deve aparecer como instrução/campo da UI.
+- Login participante: nome + `WhatsApp` internacional; o usuário comum não digita grupo. O servidor resolve o grupo pelo vínculo aprovado em `group_memberships` e, quando configurada, pela evidência externa em `whatsapp_member_verifications`. Não existe etapa de Credencial/OTP no fluxo principal; campo de credencial aparece exclusivamente após identificação de Owner.
 - Intro: uma única CTA `Quero participar`; ela abre a tela de dados já validada. O envio registra solicitação persistente no dashboard e a própria tela acompanha o resultado. Não criar segunda CTA obrigatória para WhatsApp. Preservar lockup horizontal da marca e o bloco textual de segurança, sem escudo/ícone verde.
 - WhatsApp: onboarding/bot/OTP/alertas/decisão automatizados pela Cloud API quando configurada.
 - Grupos: associação deve ser automatizada pela Groups API oficial quando a conta/grupo forem elegíveis; eventos reais de participante alimentam `group_memberships`. Fallback Owner permanece para grupos não sincronizados.
