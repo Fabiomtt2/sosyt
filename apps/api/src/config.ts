@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { PROJECT_DEFAULTS } from "./project-defaults.js";
 
 const booleanString = z
   .enum(["true", "false"])
@@ -29,6 +30,12 @@ const schema = z.object({
   OWNER_RAFAEL_ID: z.string().trim().min(3).max(80).default("rafael0"),
   OWNER_RAFAEL_SECRET: z.string().min(1).optional(),
   OWNER_RAFAEL_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
+  OWNER_BUSINESS_NAME: z.string().trim().min(2).max(80).default("OWNER"),
+  OWNER_BUSINESS_ID: z.string().trim().min(3).max(80).default("owner-business"),
+  OWNER_BUSINESS_SECRET: z.string().min(1).optional(),
+  OWNER_BUSINESS_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
+  WHATSAPP_BUSINESS_PHONE: z.string().regex(/^[1-9]\d{7,14}$/).default(PROJECT_DEFAULTS.whatsappBusinessPhone),
+  WHATSAPP_SENDER_VALIDATION_REQUIRED: booleanString.default(false),
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
@@ -64,7 +71,7 @@ export type Config = z.infer<typeof schema>;
 
 export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {}): Config {
   const values: Record<string, unknown> = { ...process.env, ...overrides };
-  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN", "PAGBANK_TOKEN", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE", "WPP_CONNECT_TOKEN"]) {
+  for (const key of ["WHATSAPP_BUSINESS_PHONE", "YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN", "PAGBANK_TOKEN", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_BUSINESS_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "OWNER_BUSINESS_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE", "WPP_CONNECT_TOKEN"]) {
     if (values[key] === "") delete values[key];
   }
   const parsed = schema.parse(values);

@@ -82,7 +82,53 @@ CREATE TABLE IF NOT EXISTS users (
   phone TEXT NOT NULL UNIQUE,
   group_code TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  deleted_source TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  avatar_kind TEXT NOT NULL CHECK (avatar_kind IN ('PRESET','CUSTOM')),
+  avatar_preset TEXT,
+  avatar_image BLOB,
+  avatar_mime TEXT,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS owner_profiles (
+  owner_id TEXT PRIMARY KEY,
+  avatar_kind TEXT NOT NULL CHECK (avatar_kind IN ('PRESET','CUSTOM')),
+  avatar_preset TEXT,
+  avatar_image BLOB,
+  avatar_mime TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS owner_access (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  phone TEXT NOT NULL UNIQUE,
+  normalized_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ROOT_OWNER','ADMIN_OWNER')),
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by_owner_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_owner_access_active ON owner_access(active,role);
+
+CREATE TABLE IF NOT EXISTS account_deletions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL UNIQUE,
+  group_code TEXT,
+  deleted_at TEXT NOT NULL,
+  source TEXT NOT NULL,
+  submissions_count INTEGER NOT NULL DEFAULT 0,
+  rounds_count INTEGER NOT NULL DEFAULT 0,
+  approved_payment_cents INTEGER NOT NULL DEFAULT 0,
+  coins_purchased_millis INTEGER NOT NULL DEFAULT 0,
+  passes_purchased INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS login_codes (
@@ -134,6 +180,12 @@ CREATE TABLE IF NOT EXISTS submissions (
   user_id TEXT NOT NULL REFERENCES users(id),
   youtube_url TEXT NOT NULL,
   video_id TEXT NOT NULL,
+  video_title TEXT,
+  video_channel_title TEXT,
+  video_thumbnail_url TEXT,
+  author_channel_title TEXT,
+  author_channel_thumbnail_url TEXT,
+  author_admin_role TEXT,
   created_at TEXT NOT NULL,
   UNIQUE(round_id, slot),
   UNIQUE(round_id, video_id)
@@ -150,6 +202,7 @@ CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   provider TEXT NOT NULL,
+  product_code TEXT NOT NULL DEFAULT 'LEGACY',
   provider_payment_id TEXT UNIQUE,
   status TEXT NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')),
   amount_cents INTEGER NOT NULL,
@@ -166,6 +219,9 @@ CREATE TABLE IF NOT EXISTS youtube_connections (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   refresh_token_cipher TEXT NOT NULL,
   scope TEXT NOT NULL,
+  channel_id TEXT,
+  channel_title TEXT,
+  channel_thumbnail_url TEXT,
   updated_at TEXT NOT NULL
 );
 
@@ -191,6 +247,24 @@ CREATE TABLE IF NOT EXISTS playlist_watch_progress (
   updated_at TEXT NOT NULL,
   PRIMARY KEY(round_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS watch_time_totals (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  verified_millis INTEGER NOT NULL DEFAULT 0 CHECK (verified_millis >= 0),
+  rewarded_coins INTEGER NOT NULL DEFAULT 0 CHECK (rewarded_coins >= 0),
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watch_observation_state (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL,
+  round_id TEXT NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+  video_index INTEGER NOT NULL CHECK (video_index BETWEEN 0 AND 9),
+  player_seconds REAL NOT NULL CHECK (player_seconds >= 0),
+  duration_seconds REAL NOT NULL CHECK (duration_seconds > 0),
+  playback_rate REAL NOT NULL CHECK (playback_rate >= 0.25 AND playback_rate <= 2.0),
+  observed_at TEXT NOT NULL
+);
 `;
 
 export function createDatabase(filename: string): AppDatabase {
@@ -204,6 +278,7 @@ export function createDatabase(filename: string): AppDatabase {
     const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
   };
+  addColumn("watch_observation_state", "active", "INTEGER NOT NULL DEFAULT 0");
   addColumn("login_codes", "attempts", "INTEGER NOT NULL DEFAULT 0");
   addColumn("wallets", "payment_hold", "INTEGER NOT NULL DEFAULT 0");
   addColumn("groups", "whatsapp_group_id", "TEXT");
@@ -214,6 +289,8 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("group_memberships", "approved_by_owner_id", "TEXT");
   addColumn("group_memberships", "approved_by_owner_name", "TEXT");
   addColumn("users", "last_seen_at", "TEXT");
+  addColumn("users", "deleted_at", "TEXT");
+  addColumn("users", "deleted_source", "TEXT");
   addColumn("users", "cooldown_until", "TEXT");
   addColumn("users", "cooldown_reason", "TEXT");
   addColumn("participation_requests", "source", "TEXT NOT NULL DEFAULT 'WEB'");
@@ -225,15 +302,27 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("participation_requests", "approved_by_owner_name", "TEXT");
   addColumn("submissions", "author_name", "TEXT");
   addColumn("submissions", "author_group", "TEXT");
+  addColumn("submissions", "video_title", "TEXT");
+  addColumn("submissions", "video_channel_title", "TEXT");
+  addColumn("submissions", "video_thumbnail_url", "TEXT");
+  addColumn("submissions", "author_channel_title", "TEXT");
+  addColumn("submissions", "author_channel_thumbnail_url", "TEXT");
+  addColumn("submissions", "author_admin_role", "TEXT");
+  addColumn("payments", "product_code", "TEXT NOT NULL DEFAULT 'LEGACY'");
+  addColumn("youtube_connections", "channel_id", "TEXT");
+  addColumn("youtube_connections", "channel_title", "TEXT");
+  addColumn("youtube_connections", "channel_thumbnail_url", "TEXT");
   addColumn("oauth_states", "round_id", "TEXT");
   addColumn("playlist_watch_progress", "finalized_at", "TEXT");
   addColumn("playlist_watch_progress", "finalize_reason", "TEXT");
+  addColumn("playlist_watch_progress", "observed_intervals_json", "TEXT");
   addColumn("wallet_ledger", "note", "TEXT");
   addColumn("wallet_ledger", "actor_owner_id", "TEXT");
   addColumn("wallet_ledger", "actor_owner_name", "TEXT");
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_whatsapp_group_id ON groups(whatsapp_group_id) WHERE whatsapp_group_id IS NOT NULL;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_submissions_video_id ON submissions(video_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_users_cooldown_until ON users(cooldown_until);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_watch_observation_round ON watch_observation_state(round_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_participation_retry_block ON participation_requests(retry_block_until);");
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
