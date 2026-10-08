@@ -12,4 +12,3 @@ export function watchRewardView(db: AppDatabase, userId: string) {
     secondsToNextReward: Math.ceil((WATCH_REWARD_INTERVAL_MILLIS-remainder)/1000)
   };
 }
-

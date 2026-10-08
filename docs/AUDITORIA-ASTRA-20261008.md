@@ -71,3 +71,7 @@ Próxima instância: ler o topo de NEXT-INSTANCE-MANDATORY.md para hashes, resul
 - `ba1ce1ab` — test(e2e): exercise Business identity companion and visual regressions
 
 Hashes do código/evidências comparados com o snapshot pré-commit: todos iguais. Nenhum valor sensível local foi encontrado nos arquivos finais destinados à branch; esta conferência não constitui expurgo do histórico antigo.
+
+## Publicação da branch
+
+PR em rascunho: https://github.com/Fabiomtt2/sosyt/pull/1. A branch foi publicada, sem merge em main. GitHub informou ausência de conflitos; não há checks CI configurados nessa branch, então GREEN aqui se refere ao gate local persistido. A comparação completa contra main encontrou uma linha em branco extra no fim de watch-rewards.ts, removida sem alteração de comportamento. Railway reconfirmado em 08/10: API e Web SUCCESS/1 réplica, sem ocorrências ou mudanças pendentes; nenhum deploy disparado.
