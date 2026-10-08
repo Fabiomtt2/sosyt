@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useModalLifecycle } from "./useModalLifecycle";
+import { useState, type FormEvent } from "react";
 import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone, Youtube } from "lucide-react";
 import { ownerApi, type WhatsAppIntegrationState } from "./api";
 
-type HelpTopic = "mode" | "hybrid" | "evolution" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken" | "evolutionUrl" | "evolutionInstance" | "evolutionApiKey";
+type HelpTopic = "businessPhone" | "mode" | "hybrid" | "evolution" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken" | "evolutionUrl" | "evolutionInstance" | "evolutionApiKey";
 
 const HELP: Record<HelpTopic,{title:string;body:string}> = {
+  businessPhone:{title:"Número público do SOS YouTuber",body:"Este é o telefone Business para receber pedidos de participação. Ao salvar, links e configurações passam a usar o novo número a partir do servidor, inclusive após reiniciar. Se você trocar o número usado pelo bot, atualize também o ID fornecido pela Meta e use Validar integração. O número do telefone sozinho não ativa o envio automático nem altera os contatos pessoais dos Owners."},
   mode:{title:"Qual modo devo usar?",body:"Meta Oficial usa somente a plataforma oficial do WhatsApp Business. Meta + Grupos mantém a Meta para mensagens e acrescenta o WPPConnect apenas para grupos, membros e administradores. Evolution Gateway usa uma instância Evolution independente. Desativado pausa automações externas sem apagar os dados salvos."},
   hybrid:{title:"O que muda em Meta + Grupos?",body:"A Meta continua responsável por mensagens e webhooks. O complemento WPPConnect entra apenas para consultar grupos tradicionais, membros e administradores quando a API oficial não expõe esses dados. A sessão complementar é separada e pode exigir novo pareamento após mudanças no WhatsApp."},
   evolution:{title:"Como funciona o Evolution Gateway?",body:"É um gateway independente configurado pelo Owner. URL, instância e API key ficam no servidor; a chave é protegida e não volta para a tela depois de salva. Conexões baseadas em WhatsApp Web/Baileys podem exigir novo pareamento e têm risco operacional diferente da Cloud API oficial."},
@@ -33,8 +35,12 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
     mode:initial.mode,
     businessAccountId:initial.businessAccountId,
     phoneNumberId:initial.phoneNumberId,
-    businessPhone:initial.businessPhone,
+    businessPhone:initial.businessPhone?`+${initial.businessPhone}`:"",
     graphVersion:initial.graphVersion,
+    otpTemplate:initial.otpTemplate,
+    ownerAlertTemplate:initial.ownerAlertTemplate,
+    decisionTemplate:initial.decisionTemplate,
+    templateLanguage:initial.templateLanguage,
     accessToken:"",
     appSecret:"",
     verifyToken:"",
@@ -51,16 +57,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
   const [generatedVerifyToken,setGeneratedVerifyToken]=useState("");
   const [help,setHelp]=useState<HelpTopic>();
 
-  useEffect(()=>{
-    const previousOverflow=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    const onKey=(event:KeyboardEvent)=>{
-      if (event.key!=="Escape") return;
-      if (help) setHelp(undefined); else onClose();
-    };
-    document.addEventListener("keydown",onKey);
-    return ()=>{ document.removeEventListener("keydown",onKey); document.body.style.overflow=previousOverflow; };
-  },[help,onClose]);
+  const modalRef=useModalLifecycle(()=>{if(help)setHelp(undefined);else onClose();});
 
   const metaMode=form.mode==="OFFICIAL" || form.mode==="META_GROUPS";
   const evolutionReady=Boolean(form.evolutionUrl && form.evolutionInstance && (form.evolutionApiKey || state.evolutionApiKeyConfigured));
@@ -86,8 +83,12 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
         mode:form.mode,
         businessAccountId:form.businessAccountId || undefined,
         phoneNumberId:form.phoneNumberId || undefined,
-        businessPhone:form.businessPhone || undefined,
+        businessPhone:form.businessPhone,
         graphVersion:form.graphVersion,
+        otpTemplate:form.otpTemplate || undefined,
+        ownerAlertTemplate:form.ownerAlertTemplate || undefined,
+        decisionTemplate:form.decisionTemplate || undefined,
+        templateLanguage:form.templateLanguage,
         accessToken:form.accessToken || undefined,
         appSecret:form.appSecret || undefined,
         verifyToken:form.verifyToken || undefined,
@@ -99,7 +100,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
         evolutionApiKey:form.evolutionApiKey || undefined
       });
       setState(saved);
-      setForm((current)=>({...current,accessToken:"",appSecret:"",verifyToken:"",wppToken:"",evolutionApiKey:""}));
+      setForm((current)=>({...current,businessPhone:saved.businessPhone?`+${saved.businessPhone}`:"",accessToken:"",appSecret:"",verifyToken:"",wppToken:"",evolutionApiKey:""}));
       setNotice(saved.mode==="EVOLUTION"
         ? (saved.evolutionApiKeyConfigured ? "Evolution Gateway salvo no servidor." : "Evolution Gateway salvo. Ainda falta a API key.")
         : saved.mode==="DISABLED"
@@ -129,6 +130,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
       const result=await ownerApi.validateWhatsApp();
       const fresh=await ownerApi.whatsappIntegration();
       setState(fresh);
+      setForm(current=>({...current,phoneNumberId:fresh.phoneNumberId,businessPhone:fresh.businessPhone?`+${fresh.businessPhone}`:""}));
       setNotice(`Conexão oficial validada com a Meta${result.phone.display_phone_number ? ` para ${result.phone.display_phone_number}` : ""}.`);
       onSaved(fresh,"Integração oficial validada.");
     } catch(cause) { setError(cause instanceof Error ? cause.message : "Não foi possível validar a conexão com a Meta."); }
@@ -139,7 +141,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
     <button className="field-help" type="button" aria-label={label} onClick={()=>setHelp(topic)}><CircleHelp size={15}/></button>;
 
   return <div className="modal-backdrop integration-backdrop" onMouseDown={onClose}>
-    <section className="modal integration-modal astra-integration-modal" role="dialog" aria-modal="true" aria-label="Configurar integração WhatsApp" onMouseDown={(e)=>e.stopPropagation()}>
+    <section ref={modalRef} className="modal integration-modal astra-integration-modal" role="dialog" aria-modal="true" aria-label="Configurar integração WhatsApp" onMouseDown={(e)=>e.stopPropagation()}>
       <button className="close" aria-label="Fechar configuração" onClick={onClose}>×</button>
 
       <div className="integration-title astra-modal-title">
@@ -177,22 +179,40 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
           <p className="mode-explanation">{modeCopy} <HelpButton topic={form.mode==="META_GROUPS" ? "hybrid" : form.mode==="EVOLUTION" ? "evolution" : "mode"} label="Explicar o modo selecionado"/></p>
         </section>
 
+        <section className="integration-section"><div className="integration-section-title"><div><p className="eyebrow dark">CONTATO DA COMUNIDADE</p><h3>WhatsApp do projeto</h3></div></div><label><span className="label-with-help"><MessageCircleMore size={15}/>Número do WhatsApp Business <HelpButton topic="businessPhone" label="Explicar número Business e atualização dos links"/></span><input aria-label="Número do WhatsApp Business" type="tel" inputMode="tel" autoComplete="tel" value={form.businessPhone} onChange={(e)=>setForm({...form,businessPhone:e.target.value})} placeholder="DDI, DDD e número"/><small>Salvo no servidor e compartilhado pelos links de participação. Pode ser alterado aqui.</small></label></section>
+
         {metaMode && <section className="integration-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">CONTA META</p><h3>Identificação da conta Business</h3></div><button className="help-text-button" type="button" onClick={()=>setHelp("meta")}><CircleHelp size={16}/>Onde encontro?</button></div>
           <div className="integration-grid">
             <label><span className="label-with-help">ID da conta do WhatsApp Business <HelpButton topic="waba" label="Explicar ID da conta do WhatsApp Business"/></span><input inputMode="numeric" value={form.businessAccountId} onChange={(e)=>setForm({...form,businessAccountId:e.target.value.replace(/\D/g,"")})} placeholder="Ex.: 123456789012345"/></label>
             <label><span className="label-with-help">ID do número do WhatsApp <HelpButton topic="phoneId" label="Explicar ID do número do WhatsApp"/></span><input inputMode="numeric" value={form.phoneNumberId} onChange={(e)=>setForm({...form,phoneNumberId:e.target.value.replace(/\D/g,"")})} placeholder="Identificador numérico fornecido pela Meta"/></label>
-            <label><span className="label-with-help"><MessageCircleMore size={15}/>Número do WhatsApp Business</span><input value={form.businessPhone} onChange={(e)=>setForm({...form,businessPhone:e.target.value})} placeholder="+55 71 ..."/></label>
+
             <label>Versão da API<select value={form.graphVersion} onChange={(e)=>setForm({...form,graphVersion:e.target.value})}><option>v23.0</option><option>v24.0</option><option>v25.0</option></select></label>
           </div>
         </section>}
 
+        {state.senderValidationRequired&&<p className="notice" role="status">O número ou as credenciais mudaram. Valide a integração com a Meta para liberar os envios pelo número correto.</p>}
         {metaMode && <section className="integration-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">CREDENCIAIS</p><h3>Autorizar a comunicação com a Meta</h3></div><KeyRound size={20}/></div>
           <label><span className="label-with-help">Credencial de acesso da Meta <HelpButton topic="token" label="Explicar credencial de acesso da Meta"/></span><input aria-label="Credencial de acesso da Meta" type="password" value={form.accessToken} onChange={(e)=>setForm({...form,accessToken:e.target.value})} placeholder={state.accessTokenConfigured ? "Já configurada · deixe vazio para manter" : "Cole aqui a credencial quando estiver disponível"}/></label>
           <label><span className="label-with-help">Chave secreta do aplicativo <HelpButton topic="secret" label="Explicar chave secreta do aplicativo"/></span><input type="password" value={form.appSecret} onChange={(e)=>setForm({...form,appSecret:e.target.value})} placeholder={state.appSecretConfigured ? "Já configurada · deixe vazio para manter" : "Informe a chave fornecida pela Meta"}/></label>
           <div className="verify-token-row"><label><span className="label-with-help">Token de verificação <HelpButton topic="verify" label="Explicar token de verificação"/></span><input type="password" value={form.verifyToken} onChange={(e)=>setForm({...form,verifyToken:e.target.value})} placeholder={state.verifyTokenConfigured ? "Já configurado · deixe vazio para manter" : "Você pode gerar um token abaixo"}/></label><button className="secondary" type="button" disabled={busy} onClick={()=>void generateVerifyToken()}>Gerar token</button></div>
           {generatedVerifyToken && <div className="generated-token"><strong>Copie este valor agora</strong><code>{generatedVerifyToken}</code><small>Ele já está salvo de forma protegida no servidor e não será exibido novamente depois que esta janela for fechada.</small></div>}
+        </section>}
+
+        {metaMode && <section className="integration-section">
+          <div className="integration-section-title"><div><p className="eyebrow dark">TEMPLATES META</p><h3>Mensagens aprovadas para o bot</h3></div><MessageCircleMore size={20}/></div>
+          <p className="mode-explanation">Informe os nomes exatos dos templates aprovados no WhatsApp Manager. O SOS não cria nem aprova templates sozinho; estes campos apenas dizem ao backend quais modelos usar para cada mensagem transacional.</p>
+          <div className="integration-grid">
+            <label>Template do código de acesso<input value={form.otpTemplate} onChange={(e)=>setForm({...form,otpTemplate:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"")})} placeholder="Ex.: sos_codigo_acesso"/></label>
+            <label>Template de alerta aos Owners<input value={form.ownerAlertTemplate} onChange={(e)=>setForm({...form,ownerAlertTemplate:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"")})} placeholder="Ex.: sos_novo_participante"/></label>
+            <label>Template de decisão ao participante<input value={form.decisionTemplate} onChange={(e)=>setForm({...form,decisionTemplate:e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"")})} placeholder="Ex.: sos_decisao_cadastro"/></label>
+            <label>Idioma dos templates<input value={form.templateLanguage} onChange={(e)=>setForm({...form,templateLanguage:e.target.value.replace(/[^A-Za-z_]/g,"")})} placeholder="pt_BR"/></label>
+          </div>
+          <div className="notice">
+            <CheckCircle2 size={18}/>
+            <span>{form.otpTemplate ? "Código de acesso nomeado" : "Falta o template do código"} · {form.ownerAlertTemplate ? "alerta Owner nomeado" : "falta o alerta Owner"} · {form.decisionTemplate ? "decisão nomeada" : "falta o template de decisão"}</span>
+          </div>
         </section>}
 
         {form.mode==="EVOLUTION" && <section className="integration-section evolution-section">

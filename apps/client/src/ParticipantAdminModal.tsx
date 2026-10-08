@@ -1,11 +1,15 @@
+import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, CircleDollarSign, Clock3, LoaderCircle, ShieldCheck, UserRoundCog, WalletCards } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleDollarSign, Clock3, LoaderCircle, ShieldCheck, UserRoundCog, WalletCards, Youtube } from "lucide-react";
 import { ownerApi, type OwnerOverview, type ParticipantAdminDetail } from "./api";
 import { formatInternationalPhoneInput } from "./phone";
+import { UserAvatarView } from "./AvatarModal";
+import { useModalLifecycle } from "./useModalLifecycle";
 
 const when = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "—";
 const coins = (millis = 0) => (millis / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 const money = (cents = 0) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const product = (code:string) => code==="COINS_LAUNCH" ? "10 moedas + 1 passe bônus" : code==="PASS_SINGLE" ? "1 passe" : "Compra anterior";
 
 export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   phone: string;
@@ -20,11 +24,7 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
-  useEffect(()=>{
-    const previous=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return ()=>{ document.body.style.overflow=previous; };
-  },[]);
+  const modalRef=useModalLifecycle(onClose);
 
   async function load(target=phone) {
     setBusy(true); setError("");
@@ -36,6 +36,13 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
     finally { setBusy(false); }
   }
   useEffect(()=>{ void load(); },[phone]);
+  useEffect(()=>{
+    let alive=true;
+    const timer=window.setInterval(()=>{
+      void ownerApi.participant(phone).then(result=>{if(alive)setDetail(current=>current?{...current,watchRewards:result.watchRewards}:current);}).catch(()=>{});
+    },10000);
+    return()=>{alive=false;window.clearInterval(timer);};
+  },[phone]);
 
   async function save(event:FormEvent) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
@@ -67,12 +74,12 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   }
 
   return <div className="modal-backdrop participant-admin-backdrop" onMouseDown={onClose}>
-    <section className="modal participant-admin-modal" role="dialog" aria-modal="true" aria-label="Administrar participante" onMouseDown={(e)=>e.stopPropagation()}>
+    <section ref={modalRef} className="modal participant-admin-modal" role="dialog" aria-modal="true" aria-label="Administrar participante" onMouseDown={(e)=>e.stopPropagation()}>
       <button className="close" aria-label="Fechar participante" onClick={onClose}>×</button>
       {!detail ? <div className="admin-modal-loading"><LoaderCircle className="spin"/><span>Carregando cadastro…</span>{error && <p className="error">{error}</p>}</div> : <>
         <div className="participant-admin-heading">
-          <span className="participant-admin-avatar"><UserRoundCog size={24}/></span>
-          <div><p className="eyebrow dark">ÁREA RESTRITA · OWNER</p><h2>{detail.profile.name}</h2><p className="muted">{detail.profile.phone} · SOS YOUTUBER {detail.profile.groupCode ?? "—"}</p></div>
+          <UserAvatarView avatar={detail.profile.avatar} name={detail.profile.name} className="participant-admin-avatar participant-user-avatar"/>
+          <div><p className="eyebrow dark">ÁREA RESTRITA · OWNER</p><h2>{detail.profile.name}</h2><p className="muted">{detail.profile.phone} · {detail.profile.groupCode==="#" ? "Participação administrativa" : `SOS YOUTUBER ${detail.profile.groupCode ?? "—"}`}</p>{detail.profile.youtubeChannel&&<div className="participant-channel-card">{detail.profile.youtubeChannel.thumbnailUrl?<img src={detail.profile.youtubeChannel.thumbnailUrl} alt=""/>:<span><Youtube size={17}/></span>}<div><small>Canal conectado</small><strong>{detail.profile.youtubeChannel.title}</strong></div></div>}</div>
         </div>
 
         <div className="participant-admin-status">
@@ -85,8 +92,11 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
           <article><span>Aprovação</span><strong>{when(detail.membership?.approvedAt ?? detail.request?.approvedAt)}</strong><small>por {detail.membership?.approvedByOwnerName ?? detail.request?.approvedByOwnerName ?? "Owner não identificado (registro legado)"}</small></article>
           <article><span>Cadastro</span><strong>{when(detail.profile.createdAt)}</strong><small>Origem: {detail.request?.source ?? detail.membership?.source ?? "—"}</small></article>
           <article><span>Último acesso</span><strong>{when(detail.profile.lastSeenAt)}</strong><small>{detail.profile.userId ? "Conta de uso criada" : "Ainda não fez o primeiro login"}</small></article>
-          <article><span>Atividade</span><strong>{detail.activity.submissions} URLs</strong><small>{detail.activity.playlists} playlists criadas</small></article>
+          <article><span>Contribuições</span><strong>{detail.activity.submissions} URLs</strong><small>em {detail.activity.rounds} fila{detail.activity.rounds===1?"":"s"}</small></article>
+          <article><span>Jornada</span><strong>{detail.activity.playlists} playlists</strong><small>{detail.activity.completedTasks} tarefa{detail.activity.completedTasks===1?"":"s"} concluída{detail.activity.completedTasks===1?"":"s"}</small></article>
         </section>
+
+        <WatchTimeSummary rewards={detail.watchRewards}/>
 
         <form className="participant-edit-form" onSubmit={save}>
           <div className="section-title admin-subtitle"><div><p className="eyebrow dark">DADOS CADASTRAIS</p><h3>Editar participante</h3></div><span>Alterações são exclusivas do Owner.</span></div>
@@ -101,34 +111,36 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
         <section className="participant-wallet-admin">
           <div className="section-title admin-subtitle"><div><p className="eyebrow dark">CARTEIRA E ACESSO</p><h3>Controles administrativos</h3></div></div>
           {detail.wallet ? <div className="wallet-breakdown">
-            <div><CircleDollarSign/><span>Total</span><strong>{coins(detail.wallet.promoMillis+detail.wallet.rewardMillis+detail.wallet.purchasedMillis)}</strong></div>
+            <div><CircleDollarSign/><span>Moedas atuais</span><strong>{coins(detail.wallet.promoMillis+detail.wallet.rewardMillis+detail.wallet.purchasedMillis)}</strong></div>
+            <div><span>Passes atuais</span><strong>{detail.wallet.extraPasses}</strong></div>
             <div><span>Inicial/promocional</span><strong>{coins(detail.wallet.promoMillis)}</strong></div>
-            <div><span>Compradas</span><strong>{coins(detail.wallet.purchasedMillis)}</strong></div>
             <div><span>Bônus/recompensas</span><strong>{coins(detail.wallet.rewardMillis)}</strong></div>
-            <div><span>Passes extras</span><strong>{detail.wallet.extraPasses}</strong></div>
+            {detail.purchaseTotals&&<><div><span>Moedas compradas · histórico</span><strong>{coins(detail.purchaseTotals.coinsPurchasedMillis)}</strong></div><div><span>Passes comprados</span><strong>{detail.purchaseTotals.passesPurchased}</strong></div><div><span>Passes bônus</span><strong>{detail.purchaseTotals.bonusPasses}</strong></div><div><span>Compras aprovadas</span><strong>{money(detail.purchaseTotals.approvedSpendCents)}</strong></div></>}
           </div> : <p className="muted">A carteira será criada no primeiro login do participante.</p>}
           <div className="admin-action-row">
             <button className="secondary" disabled={busy} onClick={()=>void action(detail.membership?.revokedAt ? "RESTORE":"REVOKE",detail.membership?.revokedAt ? "Acesso restaurado.":"Acesso revogado; dados preservados.")}>{detail.membership?.revokedAt ? "Restaurar acesso":"Revogar acesso"}</button>
             {detail.profile.cooldownUntil && <button className="secondary" disabled={busy} onClick={()=>void action("CLEAR_COOLDOWN","Cooldown liberado pelo Owner.")}><Clock3 size={16}/>Liberar cooldown</button>}
-            {detail.wallet && <button className="secondary" disabled={busy} onClick={()=>void action(detail.wallet?.paymentHold ? "REVIEW_OFF":"REVIEW_ON",detail.wallet?.paymentHold ? "Revisão da carteira encerrada.":"Carteira colocada em revisão.")}>{detail.wallet.paymentHold ? "Encerrar revisão":"Colocar em revisão"}</button>}
+            {detail.wallet && detail.permissions?.canReviewWallet && <button className="secondary" disabled={busy} onClick={()=>void action(detail.wallet?.paymentHold ? "REVIEW_OFF":"REVIEW_ON",detail.wallet?.paymentHold ? "Revisão da carteira encerrada.":"Carteira colocada em revisão.")}>{detail.wallet.paymentHold ? "Encerrar revisão":"Colocar em revisão"}</button>}
           </div>
-          {detail.wallet && <form className="admin-adjust-form" onSubmit={adjust}>
+          {detail.wallet && detail.permissions?.canAdjustWallet && <form className="admin-adjust-form" onSubmit={adjust}>
             <label>Ajuste de bônus/moedas<input inputMode="decimal" value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="+2 ou -1" /></label>
             <label>Motivo<input value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="Motivo obrigatório para auditoria" /></label>
             <button className="secondary" disabled={busy}><WalletCards size={16}/>Registrar ajuste</button>
           </form>}
         </section>
 
-        <section className="participant-purchases">
-          <div className="section-title admin-subtitle"><div><p className="eyebrow dark">HISTÓRICO FINANCEIRO</p><h3>Compras</h3></div><span>Registros de provedor são somente leitura.</span></div>
-          <div className="table-scroll"><table><thead><tr><th>Valor</th><th>Tipo</th><th>Status</th><th>Criado em</th></tr></thead><tbody>
-            {detail.purchases.map((p)=><tr key={p.id}><td>{money(p.amountCents)}</td><td>{p.provider==="DEMO" ? "Simulação":"Pix"}</td><td>{p.status}</td><td>{when(p.createdAt)}</td></tr>)}
-          </tbody></table>{!detail.purchases.length && <p className="muted">Nenhuma compra registrada.</p>}</div>
-        </section>
+        {detail.permissions?.canViewSensitive && <>
+          <section className="participant-purchases">
+            <div className="section-title admin-subtitle"><div><p className="eyebrow dark">HISTÓRICO FINANCEIRO</p><h3>Compras</h3></div><span>Registros de provedor são somente leitura.</span></div>
+            <div className="table-scroll"><table><thead><tr><th>Produto</th><th>Valor</th><th>Provedor</th><th>Status</th><th>Data</th></tr></thead><tbody>
+              {detail.purchases.map((p)=><tr key={p.id}><td><strong>{product(p.productCode)}</strong><small>{p.creditsMillis/1000} moeda{p.creditsMillis===1000?"":"s"} · {p.extraPasses} passe{p.extraPasses===1?"":"s"}</small></td><td>{money(p.amountCents)}</td><td>{p.provider==="DEMO" ? "Simulação":p.provider}</td><td>{p.status}</td><td>{when(p.approvedAt ?? p.createdAt)}</td></tr>)}
+            </tbody></table>{!detail.purchases.length && <p className="muted">Nenhuma compra registrada.</p>}</div>
+          </section>
 
-        <section className="participant-ledger">
-          <details><summary>Ver ledger e ajustes recentes</summary><div className="ledger-list">{detail.ledger.map((entry)=><div key={entry.id}><span>{entry.kind}</span><strong>{entry.amountMillis>=0 ? "+":""}{coins(entry.amountMillis)} moedas</strong><small>{when(entry.createdAt)}{entry.actorOwnerName ? ` · ${entry.actorOwnerName}`:""}{entry.note ? ` · ${entry.note}`:""}</small></div>)}</div></details>
-        </section>
+          <section className="participant-ledger">
+            <details><summary>Ver ledger e ajustes recentes</summary><div className="ledger-list">{detail.ledger.map((entry)=><div key={entry.id}><span>{entry.kind}</span><strong>{entry.amountMillis>=0 ? "+":""}{coins(entry.amountMillis)} moedas</strong><small>{when(entry.createdAt)}{entry.actorOwnerName ? ` · ${entry.actorOwnerName}`:""}{entry.note ? ` · ${entry.note}`:""}</small></div>)}</div></details>
+          </section>
+        </>}
 
         {notice && <div className="notice" role="status"><CheckCircle2 size={18}/><span>{notice}</span></div>}
         {error && <p className="error banner" role="alert">{error}</p>}
