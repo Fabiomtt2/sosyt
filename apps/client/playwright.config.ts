@@ -1,10 +1,10 @@
 import { defineConfig } from "@playwright/test";
 import { resolve } from "node:path";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 const root = resolve("../.."), scratch = resolve(root, ".local-tmp");
 mkdirSync(scratch, { recursive: true });
 const database = resolve(scratch, "browser-test.db");
-for (const suffix of ["", "-wal", "-shm"]) rmSync(database + suffix, { force: true });
+// The launcher resets the isolated fixture once, before starting the API.
 const browser = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 export default defineConfig({
   testDir: "./e2e", workers: 1, timeout: 90_000, retries: 0,
