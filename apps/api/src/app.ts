@@ -2,6 +2,7 @@ import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, normalizeSetupCode, passwordSchemaMin, passwordSchemaMax } from "./password.js";
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
+import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -548,6 +549,20 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const passwordSetSchema = z.object({
     newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
     currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
+  });
+
+  // AUDITORIA / correio interno: DMs ao vivo entre usuários e leitura de avisos do Owner.
+  const dmSchema = z.object({ toUserId: z.string().min(8).max(64), body: z.string().min(1).max(2000) });
+  app.post("/mail/dm", { preHandler: authGuard, config: { rateLimit: { max: 40, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const body = dmSchema.parse(request.body);
+    try { return reply.send(sendDirectMessage(db, request.user.sub, body.toUserId, body.body)); }
+    catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar." }); }
+  });
+  app.get("/mail/inbox", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => ({ threads: listInbox(db, request.user.sub), unread: unreadCount(db, request.user.sub) }));
+  app.get("/mail/unread-count", { preHandler: authGuard, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (request) => ({ unread: unreadCount(db, request.user.sub) }));
+  app.get("/mail/thread/:userId", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
+    const otherId = String((request.params as { userId: string }).userId);
+    return { messages: readThread(db, request.user.sub, otherId) };
   });
 
   // AUDITORIA C-01 / portão híbrido: resgate da credencial de setup emitida pelo Owner.

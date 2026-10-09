@@ -1,3 +1,4 @@
+import { ownerBroadcast, ownerListRecent, ownerDeleteMessage } from "./mailbox.js";
 import { listStoreProducts, upsertStoreProduct, setStoreProductActive } from "./store.js";
 import { generateSetupCode, normalizeSetupCode, hashPassword } from "./password.js";
 import { watchRewardView } from "./watch-rewards.js";
@@ -380,6 +381,23 @@ export async function registerOwnerRoutes(
   // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
   app.get("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async () => readYouTubeIntegration(db,config));
   app.post("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async (request) => saveYouTubeIntegration(db,config,request.body));
+  // AUDITORIA / correio interno: aviso global do Owner e moderação.
+  app.post("/admin/mail/broadcast", { preHandler: ownerGuard }, async (request, reply) => {
+    const account = resolveOwnerContext(request)!;
+    const parsed = z.object({ body: z.string().min(1).max(2000) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "Escreva o aviso." });
+    try { return ownerBroadcast(db, parsed.data.body, account.id); }
+    catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar." }); }
+  });
+  app.get("/admin/mail", { preHandler: ownerGuard }, async (request) => {
+    const limit = Number((request.query as { limit?: string }).limit ?? 100);
+    return { messages: ownerListRecent(db, Number.isFinite(limit) ? limit : 100) };
+  });
+  app.delete("/admin/mail/:id", { preHandler: ownerGuard }, async (request, reply) => {
+    const ok = ownerDeleteMessage(db, String((request.params as { id: string }).id));
+    if (!ok) return reply.code(404).send({ message: "Mensagem não encontrada." });
+    return { ok: true };
+  });
   // AUDITORIA / loja configurável: CRUD de produtos pelo ROOT_OWNER, aplicado em tempo real.
   app.get("/admin/store/products", { preHandler: ownerGuard }, async () => ({ products: listStoreProducts(db) }));
   const storeProductSchema = z.object({

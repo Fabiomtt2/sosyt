@@ -322,6 +322,21 @@ export function createDatabase(filename: string): AppDatabase {
   );`);
   // AUDITORIA C-01 / portão híbrido: código de setup emitido pelo Owner, resgatável
   // uma vez para definir a primeira senha SEM depender de entrega automática por WhatsApp.
+  // AUDITORIA / correio interno: DMs entre usuários + avisos globais do Owner.
+  db.exec(`CREATE TABLE IF NOT EXISTS mail_messages (
+    id TEXT PRIMARY KEY,
+    thread_key TEXT NOT NULL,
+    sender_id TEXT,
+    sender_role TEXT NOT NULL DEFAULT 'USER',
+    recipient_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    read_at TEXT,
+    deleted_at TEXT
+  );`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mail_recipient ON mail_messages(recipient_id, read_at);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail_messages(thread_key, created_at);");
+
   // AUDITORIA / loja configurável: catálogo de produtos editável pelo painel.
   db.exec(`CREATE TABLE IF NOT EXISTS store_products (
     code TEXT PRIMARY KEY,
