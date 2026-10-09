@@ -1,3 +1,4 @@
+import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
 import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
 import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
 import { ownerBroadcast, ownerListRecent, ownerDeleteMessage } from "./mailbox.js";
@@ -13,7 +14,7 @@ import type { AppDatabase } from "./db.js";
 import { administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
-import { effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
+import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
 import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 
@@ -468,6 +469,15 @@ export async function registerOwnerRoutes(
     return { ok:true, verifyToken, state:readWhatsAppIntegration(db,config) };
   });
   app.post("/admin/integrations/whatsapp/validate", { preHandler: rootOwnerGuard }, async () => validateMetaWhatsApp(db,config));
+  // AUDITORIA / saude do numero Business: diagnostico e recomendacao de troca.
+  app.get("/admin/integrations/whatsapp/health", { preHandler: ownerGuard }, async () => ({
+    health: lastNumberHealth(db) ?? null, replacementSteps: REPLACEMENT_STEPS
+  }));
+  app.post("/admin/integrations/whatsapp/health", { preHandler: ownerGuard }, async () => {
+    const runtime = effectiveWhatsAppConfig(db, config);
+    const health = await checkNumberHealth(db, config, { accessToken: runtime.WHATSAPP_ACCESS_TOKEN });
+    return { health, replacementSteps: REPLACEMENT_STEPS };
+  });
 
   app.get("/admin/participants/:phone", { preHandler: ownerGuard }, async (request, reply) => {
     const account=resolveOwnerContext(request)!;
