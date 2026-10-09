@@ -9,3 +9,5 @@ const app = await buildApp(config);
 
 await app.listen({ port: config.PORT, host: "0.0.0.0" });
 
+
+// deploy: motor server-time (auditoria) 2026-10-09T21:55Z
