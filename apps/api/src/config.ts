@@ -20,6 +20,9 @@ const schema = z.object({
   // AUDITORIA A-02: a credencial de desenvolvimento sai do código-fonte (repo público).
   // Sem este valor definido, nenhuma credencial de atalho é aceita.
   OWNER_DEV_SECRET: z.string().min(6).optional(),
+  // AUDITORIA: credencial inicial do painel para os ROOT. Fica no AMBIENTE, nunca no
+  // codigo — o repositorio e publico. Semeada uma unica vez, com troca sugerida.
+  OWNER_DEFAULT_CREDENTIAL: z.string().min(10).max(128).optional(),
   REQUIRE_GROUP_MEMBERSHIP: booleanString.default(true),
   ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]\d{0,2}(,[1-9]\d{0,2})*$/).default("1,2"),
   OWNER_NAME: z.string().trim().min(2).max(80).default("Owner"),

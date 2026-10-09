@@ -96,6 +96,26 @@ describe("credencial administrativa", () => {
     expect(ok.json().ownerRole).toBe("ADMIN_OWNER");
   });
 
+  it("identidade do Owner é NOME + TELEFONE, sem acento e sem caixa", async () => {
+    setCredential(db, "fabio", "S@S!Youtube555");
+    for (const name of ["Fabio0", "fábio", "FáBiO", "FABIO"]) {
+      const r = await app.inject({ method: "POST", url: "/admin/login", payload: { name, phone: "5571999990001", groupCode: "#", secret: "S@S!Youtube555" } });
+      expect(r.statusCode, `nome ${name}`).toBe(200);
+    }
+    // telefone errado nao entra, mesmo com nome e senha certos
+    expect((await app.inject({ method: "POST", url: "/admin/login", payload: { name: "Fabio0", phone: "5571999999999", groupCode: "#", secret: "S@S!Youtube555" } })).statusCode).toBe(401);
+  });
+
+  it("trocar o telefone do Owner no painel passa a valer no login", async () => {
+    setCredential(db, "fabio", "S@S!Youtube555");
+    const root = (await app.inject({ method: "POST", url: "/admin/login", payload: { name: "Fabio0", phone: "5571999990001", groupCode: "#", secret: ENV_SECRET } })).json().token as string;
+    const changed = await app.inject({ method: "POST", url: "/admin/owner-phone", headers: auth(root), payload: { ownerId: "fabio", phone: "5571911112222" } });
+    expect(changed.statusCode).toBe(200);
+    // o numero novo entra; o antigo nao
+    expect((await app.inject({ method: "POST", url: "/admin/login", payload: { name: "Fabio0", phone: "5571911112222", groupCode: "#", secret: "S@S!Youtube555" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/admin/login", payload: { name: "Fabio0", phone: "5571999990001", groupCode: "#", secret: "S@S!Youtube555" } })).statusCode).toBe(401);
+  });
+
   it("só ROOT gerencia credenciais, e nunca a de outro ROOT", async () => {
     const rootToken = (await login(ENV_SECRET)).json().token as string;
     expect((await app.inject({ method: "GET", url: "/admin/credentials", headers: auth(rootToken) })).statusCode).toBe(200);

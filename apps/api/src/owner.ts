@@ -1,4 +1,5 @@
 import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
+import { generateBotPassword } from "./password.js";
 import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
 import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
 import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
@@ -12,7 +13,7 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
 import type { AppDatabase } from "./db.js";
-import { administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
+import { effectiveOwnerAccounts, ownerPhoneKey, administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
 import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
@@ -72,7 +73,7 @@ export async function registerOwnerRoutes(
 
   function resolveOwnerContext(request:FastifyRequest):OwnerContext|undefined {
     if (request.user.purpose!=="owner" || request.user.aud!=="conexao-owner") return undefined;
-    const staticAccount=ownerAccounts(config).find((item)=>`owner:${item.id}`===request.user.sub);
+    const staticAccount=effectiveOwnerAccounts(db,config).find((item)=>`owner:${item.id}`===request.user.sub);
     if (staticAccount) {
       if (!staticAccount.secret || !staticAccount.phone || request.user.jti!==ownerCredentialVersion(staticAccount.secret)) return undefined;
       const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(staticAccount.phone) as {id:string}|undefined;
@@ -232,8 +233,16 @@ export async function registerOwnerRoutes(
   });
 
   app.post("/admin/login", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    const body = z.object({ secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80), identifier: phoneSchema, groupCode: z.literal("#") }).parse(request.body);
-    const account = ownerAccounts(config).find((o) => ownerNameMatches(o.name, body.name) && o.phone === body.identifier);
+    // AUDITORIA: a identidade do Owner e NOME + TELEFONE. `phone` e o campo correto;
+    // `identifier` segue aceito como apelido para nao quebrar clientes antigos.
+    const body = z.object({
+      secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80),
+      phone: phoneSchema.optional(), identifier: phoneSchema.optional(), groupCode: z.literal("#")
+    }).parse(request.body);
+    const loginPhone = body.phone ?? body.identifier;
+    if (!loginPhone) return reply.code(400).send({ message: "Informe o WhatsApp do Owner." });
+    // Telefone EFETIVO: respeita a troca de numero feita no painel.
+    const account = effectiveOwnerAccounts(db, config).find((o) => ownerNameMatches(o.name, body.name) && o.phone === loginPhone);
     if (!account?.secret) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const hash = (value: string) => createHash("sha256").update(value).digest();
     // AUDITORIA A-02: credencial de atalho só existe fora de produção, apenas com
@@ -872,6 +881,31 @@ export async function registerOwnerRoutes(
   });
 
   // AUDITORIA / credenciais: o ROOT define a propria senha do painel e a de cada ADMIN.
+  // AUDITORIA: troca de numero do Owner sem redeploy. Util quando o chip muda.
+  app.post("/admin/owner-phone", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const body = z.object({ ownerId: z.enum(["fabio", "rafael"]), phone: phoneSchema }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe o Owner e um WhatsApp válido." });
+    const taken = effectiveOwnerAccounts(db, config).find((o) => o.phone === body.data.phone && o.id !== body.data.ownerId);
+    if (taken) return reply.code(409).send({ message: "Este WhatsApp já pertence a outro Owner." });
+    db.prepare(`INSERT INTO integration_settings (key,value,updated_at) VALUES (?,?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+      .run(ownerPhoneKey(body.data.ownerId), body.data.phone, new Date().toISOString());
+    return { ok: true, owners: effectiveOwnerAccounts(db, config).map((o) => ({ id: o.id, name: o.name, phone: o.phone })) };
+  });
+
+  // AUDITORIA: o ADMIN NAO compartilha a credencial do ROOT. O bot gera uma senha
+  // propria, entregue UMA vez ao ROOT para repassar, com troca obrigatoria depois.
+  app.post("/admin/credentials/generate", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const body = z.object({ ownerId: z.string().min(1) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe o administrador." });
+    if (!db.prepare("SELECT 1 FROM owner_access WHERE id=? AND active=1 AND role='ADMIN_OWNER'").get(body.data.ownerId)) {
+      return reply.code(404).send({ message: "Administrador não encontrado." });
+    }
+    const generated = generateBotPassword() + "7";   // garante digito, como exige setCredential
+    setCredential(db, body.data.ownerId, generated, { mustChange: true });
+    return { ok: true, password: generated, state: credentialState(db, body.data.ownerId) };
+  });
+
   app.get("/admin/credentials", { preHandler: rootOwnerGuard }, async (request) => {
     const me = resolveOwnerContext(request)!;
     const admins = db.prepare("SELECT id,phone,normalized_name AS name FROM owner_access WHERE active=1 AND role='ADMIN_OWNER'").all() as Array<{id:string;phone:string;name:string}>;

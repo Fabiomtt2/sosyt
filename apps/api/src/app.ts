@@ -4,6 +4,8 @@ import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, n
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
+import { ownerAccounts } from "./owners.js";
+import { credentialState, setCredential } from "./admin-credentials.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
 import { Readable } from "node:stream";
@@ -367,6 +369,16 @@ function debitContribution(db: AppDatabase, userId: string) {
 export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const db = providedDb ?? createDatabase(config.DATABASE_PATH);
   initializeWhatsAppIntegration(db,config);
+  // AUDITORIA: semeia a credencial inicial do painel para os ROOT, UMA unica vez e
+  // apenas se OWNER_DEFAULT_CREDENTIAL estiver no ambiente. Nunca fica em codigo
+  // (o repositorio e publico) e o painel permite trocar depois, individualmente.
+  if (config.OWNER_DEFAULT_CREDENTIAL) {
+    for (const owner of ownerAccounts(config)) {
+      if (owner.secret && !credentialState(db, owner.id).configured) {
+        setCredential(db, owner.id, config.OWNER_DEFAULT_CREDENTIAL, { mustChange: false });
+      }
+    }
+  }
   const app = Fastify({ logger: config.NODE_ENV === "test" ? false : { redact: ["req.headers.authorization", "req.headers.cookie", "req.url", "res.headers.location"] } });
   await app.register(cors, {
     origin: [config.WEB_APP_URL, config.ANDROID_APP_ORIGIN],
