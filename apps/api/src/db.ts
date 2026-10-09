@@ -311,6 +311,10 @@ export function createDatabase(filename: string): AppDatabase {
   // Duração confirmada pela YouTube Data API no momento da contribuição.
   // NULL = contribuição anterior a esta migração ou sem YOUTUBE_API_KEY.
   addColumn("submissions", "video_duration_seconds", "REAL");
+  // AUDITORIA / multi-fila: soft-close e numero de exibicao (aditivos, sem tocar no CHECK).
+  addColumn("rounds", "closed_at", "TEXT");
+  addColumn("rounds", "display_number", "INTEGER");
+
   // AUDITORIA C-01: credencial de senha persistente, opcional, provada via OTP.
   db.exec(`CREATE TABLE IF NOT EXISTS user_passwords (
     user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -323,6 +327,37 @@ export function createDatabase(filename: string): AppDatabase {
   // AUDITORIA C-01 / portão híbrido: código de setup emitido pelo Owner, resgatável
   // uma vez para definir a primeira senha SEM depender de entrega automática por WhatsApp.
   // AUDITORIA / correio interno: DMs entre usuários + avisos globais do Owner.
+  // AUDITORIA / multi-fila: participacao por fila + numero de exibicao + soft-close.
+  db.exec(`CREATE TABLE IF NOT EXISTS round_participants (
+    round_id TEXT NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    joined_at TEXT NOT NULL,
+    left_at TEXT,
+    source TEXT NOT NULL DEFAULT 'FREE',
+    PRIMARY KEY (round_id, user_id)
+  );`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_round_participants_user ON round_participants(user_id, left_at);");
+  // AUDITORIA / inventario: itens do usuario (base do "Pular" e dos presentes).
+  db.exec(`CREATE TABLE IF NOT EXISTS user_items (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_code TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, item_code)
+  );`);
+  // Trilha de origem dos itens (idempotente por reference_id, como o wallet_ledger).
+  db.exec(`CREATE TABLE IF NOT EXISTS item_grants (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    item_code TEXT NOT NULL,
+    delta INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    reference_id TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL
+  );`);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_item_grants_unique ON item_grants(user_id,kind,reference_id) WHERE reference_id IS NOT NULL;");
+
   // AUDITORIA / chat global: mensagens (texto puro) + estado de moderacao por usuario.
   db.exec(`CREATE TABLE IF NOT EXISTS global_chat_messages (
     id TEXT PRIMARY KEY,
@@ -370,6 +405,9 @@ export function createDatabase(filename: string): AppDatabase {
     item_reference TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );`);
+  // Colunas aditivas da loja (depois do CREATE TABLE acima).
+  addColumn("store_products", "grants_item", "TEXT");
+  addColumn("store_products", "grants_item_qty", "INTEGER NOT NULL DEFAULT 0");
   // Seed uma única vez. Item de lançamento pedido pelo owner: 20 moedas por R$10,00.
   if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
     const now = new Date().toISOString();
@@ -378,6 +416,9 @@ export function createDatabase(filename: string): AppDatabase {
     // Produtos legados preservados inativos (não aparecem na loja, mas resolvem histórico).
     seed.run("COINS_LAUNCH","Pacote de lançamento","10 moedas + 1 passe bônus (legado).",2000,10000,1,0,90,"coins-launch-10",now);
     seed.run("PASS_SINGLE","1 passe","Um passe avulso (legado).",2000,0,1,0,91,"pass-single",now);
+    // Item "Pular": permite entrar em outra fila sem ter concluido 100% da atual.
+    db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
+      VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas.',500,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);
   }
 
   db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (
@@ -407,6 +448,10 @@ export function createDatabase(filename: string): AppDatabase {
   db.exec("CREATE INDEX IF NOT EXISTS idx_users_cooldown_until ON users(cooldown_until);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_watch_observation_round ON watch_observation_state(round_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_participation_retry_block ON participation_requests(retry_block_until);");
+  // Backfill: numero de exibicao pela ordem de criacao; participacao a partir das contribuicoes.
+  db.exec("UPDATE rounds SET display_number = sequence WHERE display_number IS NULL;");
+  db.exec(`INSERT OR IGNORE INTO round_participants (round_id,user_id,joined_at,left_at,source)
+    SELECT s.round_id, s.user_id, MIN(s.created_at), NULL, 'FREE' FROM submissions s GROUP BY s.round_id, s.user_id;`);
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);
@@ -417,10 +462,15 @@ export function ensureOpenRound(db: AppDatabase): void {
   const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' LIMIT 1").get();
   if (open) return;
   const latest = db.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM rounds").get() as { sequence: number };
-  db.prepare("INSERT INTO rounds (id, sequence, status, created_at) VALUES (?, ?, 'OPEN', ?)").run(
+  // AUDITORIA / multi-fila: toda fila nasce com display_number no MENOR numero livre.
+  const used = new Set((db.prepare("SELECT display_number AS n FROM rounds WHERE closed_at IS NULL AND display_number IS NOT NULL").all() as Array<{ n: number }>).map((r) => r.n));
+  let display = 1;
+  while (used.has(display)) display += 1;
+  db.prepare("INSERT INTO rounds (id, sequence, status, created_at, display_number) VALUES (?, ?, 'OPEN', ?, ?)").run(
     crypto.randomUUID(),
     latest.sequence + 1,
-    new Date().toISOString()
+    new Date().toISOString(),
+    display
   );
 }
 

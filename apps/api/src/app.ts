@@ -4,6 +4,8 @@ import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, n
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
+import { myRounds, currentRoundFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
+import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -335,6 +337,12 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
       WHERE user_id = ?`).run(payment.credits_millis, payment.extra_passes, now, payment.user_id);
     db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'PIX_PURCHASE', ?, ?, ?)")
       .run(randomUUID(), payment.user_id, payment.credits_millis, payment.id, now);
+    // AUDITORIA / inventario: o produto pode conceder item (ex.: SKIP). Idempotente pelo id do pagamento.
+    const bought = db.prepare("SELECT grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS qty FROM store_products WHERE code=?")
+      .get(String((payment as unknown as { product_code?: string }).product_code ?? "")) as { grantsItem?: string; qty: number } | undefined;
+    if (bought?.grantsItem && bought.qty > 0) {
+      grantItem(db, { userId: payment.user_id, itemCode: bought.grantsItem, delta: bought.qty, kind: "PURCHASE", referenceId: payment.id, note: "Compra na loja" });
+    }
     return true;
   })();
 }
@@ -550,6 +558,48 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const passwordSetSchema = z.object({
     newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
     currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
+  });
+
+  // AUDITORIA / multi-fila: só as filas DO USUÁRIO. Quem está na Fila 1 não vê a
+  // Fila 2 — a não ser que tenha entrado nela com o item "Pular".
+  app.get("/queues/mine", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
+    const mine = myRounds(db, request.user.sub);
+    const skips = itemQuantity(db, request.user.sub, ITEM_SKIP);
+    return {
+      queues: mine.map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
+      canSkip: skips > 0,
+      skipsAvailable: skips,
+      inventory: listInventory(db, request.user.sub)
+    };
+  });
+
+  // Usa um "Pular": entra na próxima fila livre em que ainda NÃO está; se não houver,
+  // CRIA uma. O item nunca é desperdiçado — consumo e entrada na mesma transação.
+  app.post("/queues/skip", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    try {
+      const result = db.transaction(() => {
+        if (itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
+          throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
+        }
+        const target = skipTargetFor(db, request.user.sub);
+        consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${target.id}:${request.user.sub}`);
+        joinRound(db, target.id, request.user.sub, "SKIP");
+        return { id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
+      })();
+      return reply.send({ queue: result, skipsAvailable: itemQuantity(db, request.user.sub, ITEM_SKIP) });
+    } catch (error) {
+      const e = error as { statusCode?: number; message?: string; code?: string };
+      return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível entrar em outra fila.", code: e.code });
+    }
+  });
+
+  // Presentear item do próprio inventário a outro participante.
+  app.post("/inventory/gift", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = z.object({ toUserId: z.string().min(8).max(64), itemCode: z.string().regex(/^[A-Z0-9_]{2,40}$/), quantity: z.number().int().min(1).max(100).default(1) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Dados do presente inválidos." });
+    try { return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity)); }
+    catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
+      return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível presentear.", code: e.code }); }
   });
 
   // AUDITORIA / chat global: leitura por cursor (tempo real via polling) e envio seguro.
@@ -1040,7 +1090,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         if (pending && !administrativeParticipant) throw new Error(`Finalize sua tarefa da Fila ${pending.sequence} antes de contribuir em uma nova fila.`);
         const duplicate = db.prepare("SELECT 1 FROM submissions WHERE video_id=? LIMIT 1").get(verified.videoId);
         if (duplicate) throw new Error("Este vídeo do YouTube já foi usado em uma fila anterior ou atual. Escolha outro vídeo.");
-        const open = db.prepare("SELECT id, sequence FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string; sequence: number };
+        // AUDITORIA / multi-fila: a contribuição vai para a fila DO USUÁRIO (aquela em
+        // que ele já está), nunca para "a fila mais nova do sistema".
+        const mine = currentRoundFor(db, request.user.sub);
+        if (!mine) throw new Error("Nenhuma fila disponível no momento. Tente novamente em instantes.");
+        const open = { id: mine.id, sequence: mine.displayNumber };
         if(body.expectedRoundId && body.expectedRoundId!==open.id) throw Object.assign(new Error(`A fila mudou enquanto seu vídeo era conferido. Agora estamos na Fila ${open.sequence}.`),{code:"QUEUE_CHANGED",currentRoundId:open.id,currentRoundSequence:open.sequence});
         const next = db.prepare("SELECT COUNT(*) + 1 AS slot FROM submissions WHERE round_id = ?").get(open.id) as { slot: number };
         if (next.slot > 10) throw new Error("Este ciclo já foi concluído. Atualize a página.");
@@ -1068,6 +1122,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           );
         db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'SUBMISSION', -1000, ?, ?)")
           .run(randomUUID(), request.user.sub, submissionId, now);
+        joinRound(db, open.id, request.user.sub, "FREE");   // AUDITORIA: participacao explicita
 
         if (next.slot === 10) {
           db.prepare("UPDATE rounds SET status = 'READY', completed_at = ? WHERE id = ?").run(now, open.id);
@@ -1078,8 +1133,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
             if(inserted.changes) db.prepare("UPDATE wallets SET reward_millis = reward_millis + 1000, updated_at = ? WHERE user_id = ?")
               .run(now, contributor.userId);
           }
-          db.prepare("INSERT INTO rounds (id, sequence, status, created_at) VALUES (?, ?, 'OPEN', ?)")
-            .run(randomUUID(), open.sequence + 1, now);
+          ensureOpenQueue(db);   // AUDITORIA: proxima fila pelo menor numero livre
         }
         return { submissionId, slot: next.slot, roundCompleted: next.slot === 10 };
       })();
