@@ -1,6 +1,6 @@
 import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
 import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
-import { generateBotPassword } from "./password.js";
+import { generateBotPassword, generateAdminCredential } from "./password.js";
 import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
 import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
 import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
@@ -932,7 +932,7 @@ export async function registerOwnerRoutes(
     if (!db.prepare("SELECT 1 FROM owner_access WHERE id=? AND active=1 AND role='ADMIN_OWNER'").get(body.data.ownerId)) {
       return reply.code(404).send({ message: "Administrador não encontrado." });
     }
-    const generated = generateBotPassword() + "7";   // garante digito, como exige setCredential
+    const generated = generateAdminCredential();
     setCredential(db, body.data.ownerId, generated, { mustChange: true });
     return { ok: true, password: generated, state: credentialState(db, body.data.ownerId) };
   });
@@ -942,7 +942,10 @@ export async function registerOwnerRoutes(
     const admins = db.prepare("SELECT id,phone,normalized_name AS name FROM owner_access WHERE active=1 AND role='ADMIN_OWNER'").all() as Array<{id:string;phone:string;name:string}>;
     return {
       mine: { ownerId: me.id, ...credentialState(db, me.id) },
-      admins: admins.map((a) => ({ ownerId: a.id, phone: a.phone, name: a.name, ...credentialState(db, a.id) }))
+      admins: admins.map((a) => ({ ownerId: a.id, phone: a.phone, name: a.name, ...credentialState(db, a.id) })),
+      // Telefone vigente de cada Owner (painel sobrepõe o ambiente) para o painel
+      // mostrar o número atual ao lado do campo de troca.
+      owners: effectiveOwnerAccounts(db, config).map((o) => ({ id: o.id, name: o.name, phone: o.phone }))
     };
   });
   app.post("/admin/credentials", { preHandler: rootOwnerGuard }, async (request, reply) => {

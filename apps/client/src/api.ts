@@ -254,6 +254,10 @@ export type BotStatus = {
 };
 export type NumberHealth = { status:"HEALTHY"|"DEGRADED"|"UNUSABLE"|"UNKNOWN";checkedAt:string;phone?:string;phoneNumberId?:string;qualityRating?:string;platformStatus?:string;detail:string;recommendation:string;shouldReplaceNumber:boolean };
 export type YouTubeIntegrationState = { apiKeyConfigured:boolean;source:"PANEL"|"ENVIRONMENT"|"NONE";verification:"VERIFIED"|"STRUCTURAL_ONLY";ready:boolean };
+export type CredentialEntry = { ownerId:string; configured:boolean; mustChange:boolean; lockedUntil?:string; updatedAt?:string; phone?:string; name?:string };
+export type CredentialsState = { mine:CredentialEntry; admins:CredentialEntry[]; owners?:Array<{id:string;name:string;phone:string}> };
+export type SuperSubscriber = { userId:string; name:string; phone:string; expiresAt:string; autoRenew:number; source:string; revokedAt?:string };
+export type SuperAdminState = { subscribers:SuperSubscriber[]; pins:Array<{id:string;userId:string;body:string;createdAt:string}>; defaultDays:number };
 export type AdminMailMessage = { id:string;threadKey:string;senderId:string|null;senderRole:string;recipientId:string;body:string;createdAt:string;deletedAt:string|null };
 
 export const ownerApi = {
@@ -298,6 +302,23 @@ export const ownerApi = {
   saveYouTubeIntegration: (body: { apiKey?: string; clear?: boolean }) =>
     ownerRequest<YouTubeIntegrationState>("/admin/integrations/youtube", { method: "POST", body: JSON.stringify(body) }),
   // correio interno
+  // acesso: credenciais, telefone dos owners e SUPER
+  credentials: () => ownerRequest<CredentialsState>("/admin/credentials"),
+  saveCredential: (body: { ownerId?: string; password: string; mustChange?: boolean }) =>
+    ownerRequest<{ ok: true }>("/admin/credentials", { method: "POST", body: JSON.stringify(body) }),
+  generateCredential: (ownerId: string) =>
+    ownerRequest<{ ok: true; password: string }>("/admin/credentials/generate", { method: "POST", body: JSON.stringify({ ownerId }) }),
+  clearCredential: (ownerId: string) =>
+    ownerRequest<{ ok: true }>(`/admin/credentials/${encodeURIComponent(ownerId)}`, { method: "DELETE" }),
+  saveOwnerPhone: (ownerId: string, phone: string) =>
+    ownerRequest<{ ok: true }>("/admin/owner-phone", { method: "POST", body: JSON.stringify({ ownerId, phone }) }),
+  superAdmin: () => ownerRequest<SuperAdminState>("/admin/super"),
+  grantSuper: (userId: string, days?: number) =>
+    ownerRequest<{ ok: true }>("/admin/super/grant", { method: "POST", body: JSON.stringify({ userId, days }) }),
+  revokeSuper: (userId: string) =>
+    ownerRequest<{ ok: true }>("/admin/super/revoke", { method: "POST", body: JSON.stringify({ userId }) }),
+  superAutoRenew: (userId: string, autoRenew: boolean) =>
+    ownerRequest<{ ok: true }>("/admin/super/auto-renew", { method: "POST", body: JSON.stringify({ userId, autoRenew }) }),
   mailBroadcast: (body: string) => ownerRequest<{ delivered: number; createdAt: string }>("/admin/mail/broadcast", { method: "POST", body: JSON.stringify({ body }) }),
   mailRecent: (limit = 100) => ownerRequest<{ messages: AdminMailMessage[] }>(`/admin/mail?limit=${limit}`),
   mailDelete: (id: string) => ownerRequest<{ ok: true }>(`/admin/mail/${encodeURIComponent(id)}`, { method: "DELETE" }),

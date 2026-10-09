@@ -33,6 +33,20 @@ export function generateBotPassword(): string {
 }
 
 /**
+ * Credencial administrativa gerada pelo bot. `generateBotPassword` sozinha pode
+ * sair só com letras, e `setCredential` exige letra **e** dígito; em vez de
+ * grudar um dígito fixo no fim (que viraria sufixo previsível em toda senha),
+ * trocamos uma posição aleatória por um dígito aleatório.
+ */
+export function generateAdminCredential(): string {
+  const base = generateBotPassword().split("");
+  const digits = "23456789";
+  const [posByte, digitByte] = randomBytes(2);
+  base[posByte % base.length] = digits[digitByte % digits.length];
+  return base.join("");
+}
+
+/**
  * AUDITORIA C-01 / portão híbrido: credencial de setup emitida pelo Owner.
  * Desacopla o primeiro acesso de um canal WhatsApp automático — o Owner entrega
  * o código pelo próprio grupo (manual ou via link wa.me que ele mesmo envia).

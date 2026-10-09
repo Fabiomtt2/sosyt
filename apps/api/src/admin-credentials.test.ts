@@ -6,6 +6,7 @@ import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { normalizePhone } from "./phone.js";
+import { generateAdminCredential } from "./password.js";
 import { setCredential, verifyCredential, credentialState } from "./admin-credentials.js";
 
 const ENV_SECRET = "fabio-secret-32-characters-long-okay";
@@ -122,5 +123,21 @@ describe("credencial administrativa", () => {
     expect((await app.inject({ method: "GET", url: "/admin/credentials" })).statusCode).toBe(401);
     // alvo inexistente (nao e ADMIN ativo) e recusado
     expect((await app.inject({ method: "POST", url: "/admin/credentials", headers: auth(rootToken), payload: { ownerId: "rafael", password: "Qualquer123" } })).statusCode).toBe(404);
+  });
+});
+
+describe("credencial gerada pelo bot", () => {
+  it("sempre nasce com letra e dígito, sem sufixo previsível", () => {
+    const amostra = Array.from({ length: 300 }, () => generateAdminCredential());
+    for (const senha of amostra) {
+      expect(senha.length).toBeGreaterThanOrEqual(10);
+      expect(senha).toMatch(/[A-Za-z]/);
+      expect(senha).toMatch(/[0-9]/);
+    }
+    // O defeito que isto previne: concatenar um dígito fixo deixava TODA senha
+    // terminando no mesmo caractere — pista de graça para quem tenta adivinhar.
+    const ultimos = new Set(amostra.map((senha) => senha.at(-1)));
+    expect(ultimos.size).toBeGreaterThan(1);
+    expect(new Set(amostra).size).toBe(amostra.length);   // e nenhuma repetida
   });
 });

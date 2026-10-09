@@ -6,6 +6,7 @@ import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { normalizePhone } from "./phone.js";
+import { credentialState, verifyCredential } from "./admin-credentials.js";
 
 describe("hierarquia ROOT_OWNER x ADMIN_OWNER", () => {
   let db: AppDatabase; let app: Awaited<ReturnType<typeof buildApp>>; let config: Config;
@@ -94,6 +95,62 @@ describe("hierarquia ROOT_OWNER x ADMIN_OWNER", () => {
     expect((await app.inject({ method: "DELETE", url: "/admin/members/5571988887777", headers: auth(admin) })).statusCode).toBe(200);
     // moderação do chat continua sendo trabalho de admin
     expect((await app.inject({ method: "POST", url: "/admin/chat/global/moderate", headers: auth(admin), payload: { userId: "u".repeat(10), action: "UNMUTE" } })).statusCode).toBe(200);
+  });
+
+  it("CREDENCIAIS, TELEFONE do Owner e SUPER: nenhum deles chega ao ADMIN", async () => {
+    const admin = await adminToken();
+    const fechadas = [
+      { method: "GET" as const, url: "/admin/credentials" },
+      { method: "POST" as const, url: "/admin/credentials", payload: { password: "trocaSegura1" } },
+      { method: "POST" as const, url: "/admin/credentials/generate", payload: { ownerId: "qualquer" } },
+      { method: "DELETE" as const, url: "/admin/credentials/qualquer" },
+      { method: "POST" as const, url: "/admin/owner-phone", payload: { ownerId: "fabio", phone: "5571977770001" } },
+      { method: "GET" as const, url: "/admin/super" },
+      { method: "POST" as const, url: "/admin/super/grant", payload: { userId: "u".repeat(10) } },
+      { method: "POST" as const, url: "/admin/super/revoke", payload: { userId: "u".repeat(10) } },
+      { method: "POST" as const, url: "/admin/super/auto-renew", payload: { userId: "u".repeat(10), autoRenew: true } }
+    ];
+    for (const rota of fechadas) {
+      const resposta = await app.inject({ ...rota, headers: auth(admin) });
+      expect(resposta.statusCode, `${rota.method} ${rota.url}`).toBe(403);
+    }
+  });
+
+  it("a credencial do ADMIN é gerada pelo bot, nasce válida e NÃO é a do ROOT", async () => {
+    await adminToken();                       // cria o ADMIN_OWNER real
+    const root = await rootToken();
+    const alvo = db.prepare("SELECT id FROM owner_access WHERE role='ADMIN_OWNER'").get() as { id: string };
+
+    const gerada = await app.inject({ method: "POST", url: "/admin/credentials/generate", headers: auth(root), payload: { ownerId: alvo.id } });
+    expect(gerada.statusCode).toBe(200);
+    const senha = gerada.json().password as string;
+    // Precisa satisfazer as mesmas regras que setCredential exige de um humano.
+    expect(senha.length).toBeGreaterThanOrEqual(10);
+    expect(senha).toMatch(/[A-Za-z]/);
+    expect(senha).toMatch(/[0-9]/);
+    expect(verifyCredential(db, alvo.id, senha)).toBe(true);
+    expect(credentialState(db, alvo.id)).toMatchObject({ configured: true, mustChange: true });
+
+    // O ROOT define a SUA senha; a do ADMIN não a abre, e vice-versa.
+    expect((await app.inject({ method: "POST", url: "/admin/credentials", headers: auth(root), payload: { password: "RaizDoPainel9" } })).statusCode).toBe(200);
+    expect(verifyCredential(db, alvo.id, "RaizDoPainel9")).toBe(false);
+    expect(verifyCredential(db, "fabio0", senha)).toBe(false);
+    // Gerar de novo troca a senha: a anterior deixa de valer.
+    const outra = (await app.inject({ method: "POST", url: "/admin/credentials/generate", headers: auth(root), payload: { ownerId: alvo.id } })).json().password as string;
+    expect(outra).not.toBe(senha);
+  });
+
+  it("o telefone do Owner troca pelo painel e a leitura já mostra o novo", async () => {
+    const root = await rootToken();
+    const ler = async () => {
+      const r = await app.inject({ method: "GET", url: "/admin/credentials", headers: auth(root) });
+      expect(r.statusCode).toBe(200);
+      return (r.json().owners as Array<{ id: string; phone: string }>).find((o) => o.id === "fabio");
+    };
+    expect((await ler())?.phone).toBe(normalizePhone("5571999990001"));
+    const troca = await app.inject({ method: "POST", url: "/admin/owner-phone", headers: auth(root), payload: { ownerId: "fabio", phone: "5571977770001" } });
+    expect(troca.statusCode).toBe(200);
+    expect((await ler())?.phone).toBe(normalizePhone("5571977770001"));
   });
 
   it("carteira e exportação de dados: só ROOT", async () => {

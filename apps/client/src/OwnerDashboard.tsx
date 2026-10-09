@@ -10,6 +10,7 @@ import { OwnerDeskMenu, type OwnerMenuTarget } from "./OwnerDeskMenu";
 import { OwnerBotPanel } from "./OwnerBotPanel";
 import { OwnerStorePanel } from "./OwnerStorePanel";
 import { OwnerCommsPanel } from "./OwnerCommsPanel";
+import { OwnerAccessPanel } from "./OwnerAccessPanel";
 import { AvatarModal, UserAvatarView } from "./AvatarModal";
 import { OwnerTeamModal } from "./OwnerTeamModal";
 import { useModalLifecycle } from "./useModalLifecycle";
@@ -238,7 +239,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
       {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
 
       <nav className="owner-tabs" aria-label="Seções administrativas">
-        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["store", "Loja"], ["bot", "Bot"], ["comms", "Comunicação"], ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
+        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
       </nav>
 
       {tab==="requests" && data.owner.permissions.canManageOwners && <GoogleIdentityRequests/>}
@@ -289,6 +290,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
       {tab === "store" && <OwnerStorePanel canEdit={data.owner.permissions.canConfigure}/>}
       {tab === "bot" && <OwnerBotPanel/>}
       {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure} canViewSensitive={data.owner.permissions.canViewSensitive}/>}
+      {tab === "access" && data.owner.permissions.canManageOwners && <OwnerAccessPanel/>}
       {tab === "groups" && <section className="owner-panel groups-admin-panel">
         <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">{data.owner.permissions.canConfigure?"Controle habilitação interna, vínculo externo confirmado, verificação e link de entrada de cada grupo.":"Visualização operacional dos grupos. Alterações de vínculo, ativação e configuração são exclusivas de um Owner principal."}</p></div><span className="live-chip"><RefreshCw size={13}/>Painel sincroniza a cada 10 s</span></div>
         <div className="group-carousel-meta"><strong>Grupos {groupStart+1}–{Math.min(groupStart+GROUP_PAGE_SIZE,999)} de 999</strong><span>{data.owner.permissions.canConfigure?"Todos os números podem ser ativados e administrados.":"Modo somente leitura para Administrador delegado."}</span></div>

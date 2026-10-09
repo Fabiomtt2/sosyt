@@ -2038,7 +2038,13 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 /* --- loja --- */
 .store-grants{display:flex;flex-direction:column;gap:3px}
 .store-grants span{display:inline-flex;align-items:center;gap:5px;font-size:.8rem}
-.store-row-actions{display:flex;gap:8px;white-space:nowrap}
+/* AUDITORIA: `display:flex` numa <td> tira a celula do fluxo da tabela — a
+   borda inferior passa a ser desenhada na altura do conteudo dela, e nao na
+   da linha, deixando o divisor desalinhado. Mantemos a celula como table-cell
+   e espacamos os botoes pela margem. Vale para a loja e para o painel de acesso. */
+.store-row-actions{white-space:nowrap}
+td.store-row-actions{display:table-cell;vertical-align:top}
+.store-row-actions>*+*{margin-left:8px}
 .store-form{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .store-form h3{margin:0 0 11px;font-size:.95rem}
 .store-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -2156,3 +2162,34 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
   padding:8px 13px;font-size:.84rem;font-weight:700;color:var(--ink);background:#fff}
 .store-upload:hover{border-color:var(--red);color:var(--red)}
 .store-image-row small{display:block;margin-top:5px;font-size:.74rem;max-width:34ch}
+
+/* AUDITORIA / painel de acesso: credenciais, telefone dos Owners e SUPER (so ROOT). */
+.owner-access-form{display:flex;flex-wrap:wrap;gap:.7rem;align-items:flex-end;margin-top:.6rem;}
+.owner-access-form label{display:flex;flex-direction:column;gap:.3rem;font-size:.78rem;font-weight:700;
+  color:var(--ink-soft,#6b5a52);letter-spacing:.02em;flex:1 1 13rem;min-width:0;}
+.owner-access-form input{width:100%;padding:.58rem .7rem;border:1px solid rgba(123,30,24,.22);border-radius:.6rem;
+  background:#fffdf8;font-size:.92rem;font-family:inherit;}
+.owner-access-form input:focus-visible{outline:2px solid rgba(197,48,38,.45);outline-offset:1px;}
+.owner-access-form button{flex:0 0 auto;}
+/* min-width:0 e indispensavel: sem ele o min-width:auto do flex item preserva
+   a largura intrinseca do <input> e o flex-basis curto nao surte efeito. */
+.owner-access-form label.narrow{flex:0 0 7.5rem;min-width:0;}
+.owner-access-owners{display:flex;flex-direction:column;gap:.55rem;margin-top:.6rem;}
+.owner-access-row{display:grid;grid-template-columns:7rem 11rem 1fr auto;gap:.6rem;align-items:center;
+  padding:.5rem .65rem;border:1px solid rgba(123,30,24,.14);border-radius:.7rem;background:rgba(255,253,248,.7);}
+.owner-access-row code{font-size:.84rem;color:var(--ink-soft,#6b5a52);word-break:break-all;}
+.owner-access-row input{padding:.5rem .6rem;border:1px solid rgba(123,30,24,.22);border-radius:.55rem;
+  background:#fffdf8;font-size:.88rem;font-family:inherit;width:100%;}
+.owner-access-generated{margin-top:.8rem;padding:.75rem .85rem;border-radius:.8rem;
+  border:1px solid rgba(197,48,38,.3);background:rgba(255,244,214,.75);
+  display:flex;flex-direction:column;gap:.45rem;}
+.owner-access-generated strong{font-size:.86rem;color:#7b1e18;}
+.owner-access-generated>div{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;}
+.owner-access-generated code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.05rem;
+  letter-spacing:.06em;padding:.35rem .6rem;border-radius:.5rem;background:#fff;
+  border:1px dashed rgba(123,30,24,.35);user-select:all;}
+.owner-access-generated small{color:var(--ink-soft,#6b5a52);font-size:.76rem;}
+@media (max-width:720px){
+  .owner-access-row{grid-template-columns:1fr;gap:.35rem;}
+  .owner-access-row code{font-size:.8rem;}
+}
