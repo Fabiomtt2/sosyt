@@ -311,6 +311,15 @@ export function createDatabase(filename: string): AppDatabase {
   // Duração confirmada pela YouTube Data API no momento da contribuição.
   // NULL = contribuição anterior a esta migração ou sem YOUTUBE_API_KEY.
   addColumn("submissions", "video_duration_seconds", "REAL");
+  // AUDITORIA C-01: credencial de senha persistente, opcional, provada via OTP.
+  db.exec(`CREATE TABLE IF NOT EXISTS user_passwords (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    must_change INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    updated_at TEXT NOT NULL
+  );`);
   addColumn("payments", "product_code", "TEXT NOT NULL DEFAULT 'LEGACY'");
   addColumn("youtube_connections", "channel_id", "TEXT");
   addColumn("youtube_connections", "channel_title", "TEXT");

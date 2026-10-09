@@ -1,5 +1,6 @@
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { hashPassword, verifyPassword, generateBotPassword, passwordSchemaMin, passwordSchemaMax } from "./password.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -34,8 +35,8 @@ declare module "fastify" {
 }
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"; authPhone?:string; googleSubject?:string };
-    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"; authPhone?:string; googleSubject?:string };
+    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"; authPhone?:string; googleSubject?:string };
+    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"; authPhone?:string; googleSubject?:string };
   }
 }
 
@@ -523,6 +524,92 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       }
     })();
     return reply.send({ token: app.jwt.sign({ sub: user!.id, purpose: "session", aud: "conexao-session", authMethod:"otp", authPhone:row.phone }), user: getUser(db, user!.id) });
+  });
+
+  // ============== AUDITORIA C-01: login por senha persistente ==============
+  // Modelo: o grupo autoriza o NUMERO (gate grosso); a senha prova a PESSOA.
+  // A senha so pode ser definida por quem ja provou posse do numero via OTP
+  // (ou identidade Google), nunca so por estar no grupo. Assim fecha-se o furo
+  // em que qualquer membro do grupo assumia a conta de outro so com o telefone.
+  const PASSWORD_MAX_ATTEMPTS = 5;
+  const PASSWORD_LOCK_MINUTES = 15;
+  const passwordLoginSchema = z.object({
+    phone: z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país.")),
+    groupCode: z.string().trim().regex(/^[1-9]\d{0,2}$/).optional(),
+    password: z.string().min(1).max(passwordSchemaMax)
+  });
+  const passwordSetSchema = z.object({
+    newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
+    currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
+  });
+
+  app.post("/auth/password/login", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = passwordLoginSchema.parse(request.body);
+    const resolved = resolveGroupForPhone(db, body.phone);
+    const groupCode = body.groupCode ?? resolved.groupCode ?? undefined;
+    if (!groupCode || (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, groupCode))) {
+      return reply.code(403).send({ code: "GROUP_NOT_CONFIRMED", message: "Seu WhatsApp ainda não está autorizado em um grupo SOS YOUTUBER." });
+    }
+    const user = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
+    const cred = user ? db.prepare("SELECT password_hash AS hash, must_change AS mustChange, attempts, locked_until AS lockedUntil FROM user_passwords WHERE user_id=?").get(user.id) as { hash: string; mustChange: number; attempts: number; lockedUntil?: string } | undefined : undefined;
+    // Resposta uniforme: nao revela se o numero tem conta/senha (evita enumeracao).
+    if (!user || !cred) return reply.code(401).send({ message: "Telefone ou senha inválidos." });
+    if (cred.lockedUntil && Date.parse(cred.lockedUntil) > Date.now()) {
+      return reply.code(429).send({ code: "PASSWORD_LOCKED", message: "Muitas tentativas. Use o código do WhatsApp para entrar ou aguarde alguns minutos." });
+    }
+    if (!verifyPassword(body.password, cred.hash)) {
+      const attempts = cred.attempts + 1;
+      const lockedUntil = attempts >= PASSWORD_MAX_ATTEMPTS ? new Date(Date.now() + PASSWORD_LOCK_MINUTES * 60_000).toISOString() : null;
+      db.prepare("UPDATE user_passwords SET attempts=?, locked_until=? WHERE user_id=?").run(lockedUntil ? 0 : attempts, lockedUntil, user.id);
+      return reply.code(401).send({ message: "Telefone ou senha inválidos." });
+    }
+    const cooldown = cooldownState(db, user.id);
+    if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
+    db.prepare("UPDATE user_passwords SET attempts=0, locked_until=NULL WHERE user_id=?").run(user.id);
+    db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), user.id);
+    return reply.send({
+      token: app.jwt.sign({ sub: user.id, purpose: "session", aud: "conexao-session", authMethod: "password", authPhone: body.phone }),
+      user: getUser(db, user.id),
+      mustChangePassword: Boolean(cred.mustChange)
+    });
+  });
+
+  // Define/troca a propria senha. Exige sessao com prova fresca (OTP/Google) OU a
+  // senha atual correta. Nunca permite definir senha so com sessao de senha sem
+  // confirmar a senha atual (evita que uma sessao sequestrada troque a credencial).
+  app.post("/auth/password/set", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = passwordSetSchema.parse(request.body);
+    const userId = request.user.sub;
+    const existing = db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as { hash: string } | undefined;
+    const freshProof = request.user.authMethod === "otp" || request.user.authMethod === "google";
+    if (!freshProof) {
+      if (!existing || !body.currentPassword || !verifyPassword(body.currentPassword, existing.hash)) {
+        return reply.code(403).send({ code: "REAUTH_REQUIRED", message: "Confirme a senha atual ou entre novamente pelo código do WhatsApp para alterar a senha." });
+      }
+    }
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+      VALUES (?,?,0,0,NULL,?)
+      ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+      .run(userId, hashPassword(body.newPassword), now);
+    return reply.send({ ok: true });
+  });
+
+  // Fluxo "o bot gera a senha": apos provar o numero (OTP/Google), o servidor cria
+  // uma senha forte, guarda com must_change=1 e a devolve UMA vez para ser exibida/
+  // enviada. O participante troca depois em /auth/password/set.
+  app.post("/auth/password/bootstrap", { preHandler: authGuard, config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    if (request.user.authMethod !== "otp" && request.user.authMethod !== "google") {
+      return reply.code(403).send({ code: "REAUTH_REQUIRED", message: "Entre pelo código do WhatsApp para gerar uma senha." });
+    }
+    const generated = generateBotPassword();
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+      VALUES (?,?,1,0,NULL,?)
+      ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=1,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+      .run(request.user.sub, hashPassword(generated), now);
+    // Entregue uma unica vez. Opcional: enviar tambem via bot quando houver template Meta.
+    return reply.send({ ok: true, password: generated, mustChange: true });
   });
 
   app.delete("/profile/account", { preHandler: authGuard, config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (request, reply) => {
