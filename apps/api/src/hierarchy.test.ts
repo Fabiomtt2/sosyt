@@ -75,14 +75,25 @@ describe("hierarquia ROOT_OWNER x ADMIN_OWNER", () => {
     expect((await app.inject({ method: "POST", url: "/admin/chat/global/clear", headers: auth(admin) })).statusCode).toBe(403);
   });
 
-  it("ADMIN mantém o OPERACIONAL: lê loja/bot/saúde e modera o chat", async () => {
+  it("ADMIN não VÊ configuração de APIs, bot, loja nem saúde do número", async () => {
     const admin = await adminToken();
-    expect((await app.inject({ method: "GET", url: "/admin/store/products", headers: auth(admin) })).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url: "/admin/bot", headers: auth(admin) })).statusCode).toBe(200);
-    expect((await app.inject({ method: "GET", url: "/admin/integrations/whatsapp/health", headers: auth(admin) })).statusCode).toBe(200);
+    // Regra do owner: o que for configuravel de APIs/bots nao deve ser nem visivel.
+    expect((await app.inject({ method: "GET", url: "/admin/store/products", headers: auth(admin) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/admin/bot", headers: auth(admin) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/admin/integrations/whatsapp/health", headers: auth(admin) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/admin/integrations/whatsapp", headers: auth(admin) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/admin/integrations/payments", headers: auth(admin) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: "/admin/integrations/youtube", headers: auth(admin) })).statusCode).toBe(403);
+  });
+
+  it("ADMIN mantém as funções simples: aprovar, remover e moderar o chat", async () => {
+    const admin = await adminToken();
+    expect((await app.inject({ method: "GET", url: "/admin/overview?month=2026-10", headers: auth(admin) })).statusCode).toBe(200);
+    // aprovar e remover membros
+    expect((await app.inject({ method: "POST", url: "/admin/members", headers: auth(admin), payload: { phone: "5571988887777", groupCode: "12", name: "Novo" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: "/admin/members/5571988887777", headers: auth(admin) })).statusCode).toBe(200);
     // moderação do chat continua sendo trabalho de admin
-    const mod = await app.inject({ method: "POST", url: "/admin/chat/global/moderate", headers: auth(admin), payload: { userId: "u".repeat(10), action: "UNMUTE" } });
-    expect(mod.statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/admin/chat/global/moderate", headers: auth(admin), payload: { userId: "u".repeat(10), action: "UNMUTE" } })).statusCode).toBe(200);
   });
 
   it("carteira e exportação de dados: só ROOT", async () => {

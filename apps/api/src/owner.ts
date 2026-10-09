@@ -1,3 +1,4 @@
+import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
 import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
 import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
 import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
@@ -239,7 +240,14 @@ export async function registerOwnerRoutes(
     // AUTH_DEV_MODE explícito e apenas se OWNER_DEV_SECRET estiver configurado.
     const devCredentialAccepted = devAuthEnabled(config) && config.NODE_ENV !== "production"
       && Boolean(config.OWNER_DEV_SECRET) && body.secret === config.OWNER_DEV_SECRET;
-    if (!devCredentialAccepted && !timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });
+    // AUDITORIA: a senha do PAINEL (hash scrypt, com bloqueio por tentativas) vale como
+    // credencial principal — e permite uma senha memorizavel com seguranca. O segredo
+    // do ambiente continua valendo como entrada de emergencia (break-glass).
+    let panelCredentialAccepted = false;
+    try { panelCredentialAccepted = verifyCredential(db, account.id, body.secret); }
+    catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
+      return reply.code(e.statusCode ?? 429).send({ message: e.message ?? "Credencial bloqueada.", code: e.code }); }
+    if (!devCredentialAccepted && !panelCredentialAccepted && !timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const displayName = body.name.trim();
     return {
       token: app.jwt.sign({ sub:`owner:${account.id}`,purpose:"owner",aud:"conexao-owner",jti:ownerCredentialVersion(account.secret),displayName,ownerRole:account.role,ownerId:account.id },{expiresIn:"1h"}),
@@ -410,7 +418,8 @@ export async function registerOwnerRoutes(
     adminRestoreToRoom(db, userId); return { ok: true };
   });
   // AUDITORIA / cérebro do bot: estado/prontidão e configuração em tempo real.
-  app.get("/admin/bot", { preHandler: ownerGuard }, async () => ({ status: botStatus(db, config), catalog: BOT_FEATURES }));
+  // HIERARQUIA: configuracao de APIs e bot nao e visivel ao ADMIN_OWNER.
+  app.get("/admin/bot", { preHandler: rootOwnerGuard }, async () => ({ status: botStatus(db, config), catalog: BOT_FEATURES }));
   app.post("/admin/bot", { preHandler: rootOwnerGuard }, async (request, reply) => {
     try { saveBotSettings(db, request.body); return { ok: true, status: botStatus(db, config) }; }
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Configuração inválida." }); }
@@ -435,7 +444,7 @@ export async function registerOwnerRoutes(
     return { ok: true };
   });
   // AUDITORIA / loja configurável: CRUD de produtos pelo ROOT_OWNER, aplicado em tempo real.
-  app.get("/admin/store/products", { preHandler: ownerGuard }, async () => ({ products: listStoreProducts(db) }));
+  app.get("/admin/store/products", { preHandler: rootOwnerGuard }, async () => ({ products: listStoreProducts(db) }));
   const storeProductSchema = z.object({
     code: z.string(), title: z.string(), description: z.string().optional(),
     amountCents: z.number(), credits: z.number().optional(), creditsMillis: z.number().optional(),
@@ -472,7 +481,7 @@ export async function registerOwnerRoutes(
   });
   app.post("/admin/integrations/whatsapp/validate", { preHandler: rootOwnerGuard }, async () => validateMetaWhatsApp(db,config));
   // AUDITORIA / saude do numero Business: diagnostico e recomendacao de troca.
-  app.get("/admin/integrations/whatsapp/health", { preHandler: ownerGuard }, async () => ({
+  app.get("/admin/integrations/whatsapp/health", { preHandler: rootOwnerGuard }, async () => ({
     health: lastNumberHealth(db) ?? null, replacementSteps: REPLACEMENT_STEPS
   }));
   app.post("/admin/integrations/whatsapp/health", { preHandler: rootOwnerGuard }, async () => {
@@ -798,8 +807,23 @@ export async function registerOwnerRoutes(
         FROM owner_access WHERE user_id=? AND active=1`).get(user.id) as
         | {id:string;userId:string;phone:string;normalizedName:string;role:OwnerRole;updatedAt:string}
         | undefined;
-      if (!access || access.normalizedName!==normalizeOwnerName(user.name) || (!devAuthEnabled(config) && request.user.authMethod!=="google" && request.user.authMethod!=="otp" && !administrativeSessionValid(db,config,request.user))) {
+      if (!access || access.normalizedName!==normalizeOwnerName(user.name)) {
         return reply.code(403).send({message:"Esta conta de participante não possui acesso administrativo ativo."});
+      }
+      // AUDITORIA / 2o fator do ADMIN: posse do telefone nao basta. O ROOT define uma
+      // credencial para cada ADMIN; sem ela, nao ha elevacao.
+      if (!devAuthEnabled(config)) {
+        const state = credentialState(db, access.id);
+        if (!state.configured) {
+          return reply.code(403).send({ code:"CREDENTIAL_REQUIRED", message:"Peça ao Owner principal para definir sua credencial administrativa." });
+        }
+        const offered = (request.body as { secret?: string } | undefined)?.secret;
+        if (!offered) return reply.code(401).send({ code:"CREDENTIAL_REQUIRED", message:"Informe sua credencial administrativa para abrir o painel." });
+        let ok = false;
+        try { ok = verifyCredential(db, access.id, String(offered)); }
+        catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
+          return reply.code(e.statusCode ?? 429).send({ message: e.message ?? "Credencial bloqueada.", code: e.code }); }
+        if (!ok) return reply.code(401).send({ message:"Credencial administrativa inválida." });
       }
       return {
         token:app.jwt.sign({
@@ -847,6 +871,35 @@ export async function registerOwnerRoutes(
     return {token,user:{id:user.id,name:user.name,phone:user.phone,groupCode:user.groupCode},adminRole:owner.role,rounds};
   });
 
+  // AUDITORIA / credenciais: o ROOT define a propria senha do painel e a de cada ADMIN.
+  app.get("/admin/credentials", { preHandler: rootOwnerGuard }, async (request) => {
+    const me = resolveOwnerContext(request)!;
+    const admins = db.prepare("SELECT id,phone,normalized_name AS name FROM owner_access WHERE active=1 AND role='ADMIN_OWNER'").all() as Array<{id:string;phone:string;name:string}>;
+    return {
+      mine: { ownerId: me.id, ...credentialState(db, me.id) },
+      admins: admins.map((a) => ({ ownerId: a.id, phone: a.phone, name: a.name, ...credentialState(db, a.id) }))
+    };
+  });
+  app.post("/admin/credentials", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const me = resolveOwnerContext(request)!;
+    const body = z.object({ ownerId: z.string().min(1).optional(), password: z.string().min(10).max(128), mustChange: z.boolean().optional() }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe uma credencial de 10 a 128 caracteres." });
+    const target = body.data.ownerId ?? me.id;
+    // So define a propria credencial ou a de um ADMIN ativo — nunca a de outro ROOT.
+    if (target !== me.id && !db.prepare("SELECT 1 FROM owner_access WHERE id=? AND active=1 AND role='ADMIN_OWNER'").get(target)) {
+      return reply.code(404).send({ message: "Administrador não encontrado." });
+    }
+    try { setCredential(db, target, body.data.password, { mustChange: target !== me.id ? body.data.mustChange ?? true : false }); }
+    catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Credencial inválida." }); }
+    return { ok: true, state: credentialState(db, target) };
+  });
+  app.delete("/admin/credentials/:ownerId", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const me = resolveOwnerContext(request)!;
+    const target = String((request.params as { ownerId: string }).ownerId);
+    if (target === me.id) return reply.code(409).send({ message: "Não remova a própria credencial pelo painel." });
+    clearCredential(db, target);
+    return { ok: true };
+  });
   app.get("/admin/owners", { preHandler: rootOwnerGuard }, async () => {
     const staticRows=ownerAccounts(config).map((item)=>{
       const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(item.phone) as {id:string}|undefined;

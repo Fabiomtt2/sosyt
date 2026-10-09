@@ -358,6 +358,16 @@ export function createDatabase(filename: string): AppDatabase {
   );`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_item_grants_unique ON item_grants(user_id,kind,reference_id) WHERE reference_id IS NOT NULL;");
 
+  // AUDITORIA / credencial administrativa gerenciada no painel (hash scrypt).
+  db.exec(`CREATE TABLE IF NOT EXISTS admin_credentials (
+    owner_id TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    must_change INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    updated_at TEXT NOT NULL
+  );`);
+
   // AUDITORIA / chat global: mensagens (texto puro) + estado de moderacao por usuario.
   db.exec(`CREATE TABLE IF NOT EXISTS global_chat_messages (
     id TEXT PRIMARY KEY,
