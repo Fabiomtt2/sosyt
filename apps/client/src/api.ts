@@ -231,6 +231,19 @@ export type OwnerParticipantSession={
   rounds:Array<{id:string;sequence:number;status:"OPEN"|"READY";submissions:number}>;
 };
 
+// AUDITORIA / painel: loja configuravel, cerebro do bot, saude do numero e correio.
+export type StoreProduct = { code:string;title:string;description:string;amountCents:number;creditsMillis:number;extraPasses:number;active:boolean;sortOrder:number;itemReference:string;grantsItem?:string;grantsItemQty:number };
+export type BotFeature = { code:string;label:string;engine:"messaging"|"group";enabled:boolean;active:boolean;blockedReason:string|null;riskNote:string|null };
+export type BotStatus = {
+  mode:"DISABLED"|"OFFICIAL"|"EVOLUTION"|"HYBRID";
+  engines:{ messaging:{ready:boolean;official:boolean;evolution:boolean}; group:{ready:boolean} };
+  dependencies:{ whatsappOfficialReady:boolean;youtubeReady:boolean;paymentReady:boolean;webhookUrl:string };
+  features:BotFeature[]; missing:string[]; fullyActive:boolean;
+};
+export type NumberHealth = { status:"HEALTHY"|"DEGRADED"|"UNUSABLE"|"UNKNOWN";checkedAt:string;phone?:string;phoneNumberId?:string;qualityRating?:string;platformStatus?:string;detail:string;recommendation:string;shouldReplaceNumber:boolean };
+export type YouTubeIntegrationState = { apiKeyConfigured:boolean;source:"PANEL"|"ENVIRONMENT"|"NONE";verification:"VERIFIED"|"STRUCTURAL_ONLY";ready:boolean };
+export type AdminMailMessage = { id:string;threadKey:string;senderId:string|null;senderRole:string;recipientId:string;body:string;createdAt:string;deletedAt:string|null };
+
 export const ownerApi = {
   googleIdentities:()=>ownerRequest<{claims:GoogleIdentityRequest[]}>("/admin/google-identities"),
   decideGoogleIdentity:(id:string,approve:boolean,groupCode?:string)=>ownerRequest<{ok:true}>(`/admin/google-identities/${id}/decision`,{method:"POST",body:JSON.stringify({approve,groupCode})}),
@@ -255,6 +268,27 @@ export const ownerApi = {
   }>) => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp", { method: "POST", body: JSON.stringify(body) }),
   generateWhatsAppVerifyToken: () => ownerRequest<{ ok: true; verifyToken: string; state: WhatsAppIntegrationState }>("/admin/integrations/whatsapp/verify-token", { method: "POST" }),
   validateWhatsApp: () => ownerRequest<{ ok: true; validatedAt: string; phone: { id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string } }>("/admin/integrations/whatsapp/validate", { method: "POST" }),
+  // loja configuravel
+  storeProducts: () => ownerRequest<{ products: StoreProduct[] }>("/admin/store/products"),
+  saveStoreProduct: (body: Partial<StoreProduct> & { code: string; title: string; amountCents: number; credits?: number }) =>
+    ownerRequest<{ product: StoreProduct }>("/admin/store/products", { method: "POST", body: JSON.stringify(body) }),
+  setStoreProductActive: (code: string, active: boolean) =>
+    ownerRequest<{ ok: true; products: StoreProduct[] }>(`/admin/store/products/${encodeURIComponent(code)}/active`, { method: "POST", body: JSON.stringify({ active }) }),
+  // cerebro do bot
+  bot: () => ownerRequest<{ status: BotStatus; catalog: unknown }>("/admin/bot"),
+  saveBot: (body: { mode?: BotStatus["mode"]; features?: Record<string, boolean> }) =>
+    ownerRequest<{ ok: true; status: BotStatus }>("/admin/bot", { method: "POST", body: JSON.stringify(body) }),
+  // saude do numero Business
+  numberHealth: () => ownerRequest<{ health: NumberHealth | null; replacementSteps: string[] }>("/admin/integrations/whatsapp/health"),
+  checkNumberHealth: () => ownerRequest<{ health: NumberHealth; replacementSteps: string[] }>("/admin/integrations/whatsapp/health", { method: "POST" }),
+  // YouTube no painel
+  youtubeIntegration: () => ownerRequest<YouTubeIntegrationState>("/admin/integrations/youtube"),
+  saveYouTubeIntegration: (body: { apiKey?: string; clear?: boolean }) =>
+    ownerRequest<YouTubeIntegrationState>("/admin/integrations/youtube", { method: "POST", body: JSON.stringify(body) }),
+  // correio interno
+  mailBroadcast: (body: string) => ownerRequest<{ delivered: number; createdAt: string }>("/admin/mail/broadcast", { method: "POST", body: JSON.stringify({ body }) }),
+  mailRecent: (limit = 100) => ownerRequest<{ messages: AdminMailMessage[] }>(`/admin/mail?limit=${limit}`),
+  mailDelete: (id: string) => ownerRequest<{ ok: true }>(`/admin/mail/${encodeURIComponent(id)}`, { method: "DELETE" }),
   saveAvatar: (avatar:UserAvatar) => ownerRequest<{avatar:UserAvatar}>("/admin/profile/avatar",{method:"PUT",body:JSON.stringify(avatar.kind==="PRESET"?{kind:"PRESET",presetId:avatar.presetId}:{kind:"CUSTOM",dataUrl:avatar.dataUrl})}),
   clearAvatar: () => ownerRequest<{ok:true}>("/admin/profile/avatar",{method:"DELETE"}),
   participantSession: () => ownerRequest<{token:string;user:{id:string;name:string;phone:string;groupCode:string};adminRole:"ROOT_OWNER"|"ADMIN_OWNER";rounds:Array<{id:string;sequence:number;status:"OPEN"|"READY";submissions:number}>}>("/admin/participant-session",{method:"POST"}),
