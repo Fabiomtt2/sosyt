@@ -1871,9 +1871,11 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 @keyframes gc-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .gc-badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;font-size:.72rem;font-weight:800;display:grid;place-items:center}
 .gc-pinned{display:flex;flex-direction:column;gap:4px;padding:8px 12px;background:rgba(214,167,61,.12);border-bottom:1px solid rgba(214,167,61,.25)}
-.gc-pinned-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--ink)}
-.gc-pinned-item .gc-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gc-stream{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px;display:flex;flex-direction:column;gap:11px;scroll-behavior:smooth}
+.gc-pinned-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--ink);min-width:0}
+.gc-pinned-item .gc-name{white-space:nowrap;flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;font-size:.78rem}
+.gc-pinned-item .gc-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.gc-pinned-item svg{flex:0 0 auto}
+.gc-stream{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 12px 16px;display:flex;flex-direction:column;gap:11px;scroll-behavior:smooth;overscroll-behavior:contain}
 .gc-empty{color:var(--muted);text-align:center;font-size:.85rem;margin:18px 0}
 .gc-msg{display:flex;gap:9px;align-items:flex-start}
 .gc-avatar-btn{position:relative;flex:0 0 auto;border:0;background:none;padding:0;cursor:pointer;border-radius:50%}
@@ -1889,12 +1891,20 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .gc-time{margin-left:auto;font-size:.66rem;color:var(--muted)}
 .gc-text{font-family:"DM Sans",sans-serif;font-size:.9rem;line-height:1.4;color:var(--ink);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
 /* Faixa dourada do ADMIN: destaque absoluto, à prova de quebra de linha */
-.gc-admin-banner{position:relative;border-radius:12px;padding:8px 12px;overflow:hidden;
-  background:linear-gradient(110deg,#5a4600,#8a6d12,#d8b23f,#f3dd8e,#d8b23f,#8a6d12,#5a4600);
-  background-size:300% 100%;animation:gc-gold 6s linear infinite;
-  box-shadow:inset 0 0 0 1px rgba(255,245,200,.5),0 6px 18px -8px rgba(138,109,18,.6)}
-@keyframes gc-gold{0%{background-position:0% 50%}100%{background-position:300% 50%}}
-.gc-text-admin{color:#1a1403;font-weight:600;text-shadow:0 1px 0 rgba(255,250,230,.45);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;display:block}
+/* Faixa dourada SEMPRE clara (contraste garantido com texto escuro).
+   O brilho anima numa camada separada, nunca escurecendo o fundo do texto. */
+.gc-admin-banner{position:relative;border-radius:12px;padding:9px 13px 9px 16px;overflow:hidden;isolation:isolate;
+  background:linear-gradient(100deg,#fbeec2,#f1d685,#fff6da,#f1d685,#fbeec2);
+  background-size:220% 100%;animation:gc-gold 7s linear infinite;
+  border-left:4px solid #c9a233;
+  box-shadow:inset 0 0 0 1px rgba(201,162,51,.45),0 6px 18px -10px rgba(138,109,18,.45)}
+.gc-admin-banner::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.75) 50%,transparent 70%);
+  background-size:220% 100%;animation:gc-sheen 4.5s linear infinite;mix-blend-mode:overlay}
+@keyframes gc-gold{0%{background-position:0% 50%}100%{background-position:220% 50%}}
+@keyframes gc-sheen{0%{background-position:220% 50%}100%{background-position:0% 50%}}
+@media (prefers-reduced-motion:reduce){.gc-admin-banner,.gc-admin-banner::after{animation:none}}
+.gc-text-admin{color:#3a2b00;font-weight:600;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;display:block;position:relative;z-index:1}
 .gc-msg-staff .gc-name{color:#7a5a00}
 .gc-msg-pinned .gc-bubble{outline:1px dashed rgba(214,167,61,.5);outline-offset:4px;border-radius:8px}
 .gc-mod{display:flex;gap:4px;margin-top:4px;opacity:.55;transition:opacity .15s}
