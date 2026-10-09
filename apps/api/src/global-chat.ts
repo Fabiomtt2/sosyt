@@ -6,8 +6,10 @@
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import { identityOf } from "./mailbox.js";
+import { effectiveSuper, superState } from "./super.js";
 
-export type ChatRole = "USER" | "ADMIN" | "OWNER";
+// SUPER tem estetica propria no chat, abaixo do destaque de ADMIN/OWNER.
+export type ChatRole = "USER" | "SUPER" | "ADMIN" | "OWNER";
 const BODY_MAX = 500;
 const DEFAULT_COOLDOWN_SECONDS = 180; // 3 minutos para membros comuns (owner configura)
 
@@ -72,7 +74,8 @@ export function chatRoleOf(db: AppDatabase, userId: string): ChatRole {
   const row = db.prepare("SELECT role FROM owner_access WHERE user_id=? AND active=1").get(userId) as { role: string } | undefined;
   if (row?.role === "ROOT_OWNER") return "OWNER";
   if (row?.role === "ADMIN_OWNER") return "ADMIN";
-  return "USER";
+  // Assinatura viva vira papel SUPER; ao vencer, volta a USER sozinho.
+  return superState(db, userId).active ? "SUPER" : "USER";
 }
 const isStaff = (r: ChatRole) => r === "ADMIN" || r === "OWNER";
 
@@ -103,10 +106,15 @@ export function sendGlobalMessage(db: AppDatabase, userId: string, rawBody: stri
   if (!isStaff(role)) {
     if (looksLikeLink(body)) throw err(400, "Links não são permitidos no chat da comunidade.", { code: "CHAT_LINK" });
     if (hasProfanity(body)) throw err(400, "Vamos manter o respeito 🙂 Reescreva sem ofensas.", { code: "CHAT_PROFANITY" });
-    const last = db.prepare("SELECT created_at AS at FROM global_chat_messages WHERE user_id=? ORDER BY created_at DESC LIMIT 1").get(userId) as { at: string } | undefined;
+    // AUDITORIA / SUPER: assinatura viva dispensa a espera entre mensagens.
+    const sup = effectiveSuper(db, userId);
+    const cooldown = sup.chatCooldownSeconds === 0 ? 0 : mod.cooldownSeconds;
+    const last = cooldown > 0
+      ? db.prepare("SELECT created_at AS at FROM global_chat_messages WHERE user_id=? ORDER BY created_at DESC LIMIT 1").get(userId) as { at: string } | undefined
+      : undefined;
     if (last) {
       const waited = (Date.now() - Date.parse(last.at)) / 1000;
-      if (waited < mod.cooldownSeconds) throw err(429, "Aguarde um pouco antes de enviar outra mensagem.", { code: "CHAT_COOLDOWN", retryAfterSeconds: Math.ceil(mod.cooldownSeconds - waited) });
+      if (waited < cooldown) throw err(429, "Aguarde um pouco antes de enviar outra mensagem.", { code: "CHAT_COOLDOWN", retryAfterSeconds: Math.ceil(cooldown - waited) });
     }
   }
   const id = randomUUID(), now = new Date().toISOString();
@@ -138,7 +146,11 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
   };
   const pinned = (db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
     WHERE deleted_at IS NULL AND pinned=1 ORDER BY created_at DESC LIMIT 3`).all() as Array<Record<string, unknown>>).map(decorate);
-  return { removed: false as const, messages: rows.map(decorate), pinned, cooldownSeconds: mod.cooldownSeconds, viewerRole: chatRoleOf(db, viewerId) };
+  // O cooldown informado ao cliente ja considera o privilegio SUPER.
+  const viewerSuper = effectiveSuper(db, viewerId);
+  return { removed: false as const, messages: rows.map(decorate), pinned,
+    cooldownSeconds: viewerSuper.chatCooldownSeconds === 0 ? 0 : mod.cooldownSeconds,
+    viewerRole: chatRoleOf(db, viewerId) };
 }
 
 // ---------- ações administrativas ----------

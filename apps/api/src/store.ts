@@ -17,6 +17,10 @@ export type StoreProduct = {
   /** Item de inventario concedido na compra (ex.: SKIP). */
   grantsItem?: string;
   grantsItemQty: number;
+  /** Ilustracao enviada pelo painel (data URL). */
+  imageDataUrl?: string;
+  /** >0 => produto de assinatura: concede SUPER por N dias. */
+  subscriptionDays: number;
 };
 
 const CODE_RE = /^[A-Z0-9_]{2,40}$/;
@@ -24,13 +28,15 @@ const CODE_RE = /^[A-Z0-9_]{2,40}$/;
 export function listStoreProducts(db: AppDatabase, opts: { activeOnly?: boolean } = {}): StoreProduct[] {
   const rows = db.prepare(`SELECT code,title,description,amount_cents AS amountCents,credits_millis AS creditsMillis,
     extra_passes AS extraPasses,active,sort_order AS sortOrder,item_reference AS itemReference,
-    grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS grantsItemQty
+    grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS grantsItemQty,
+    image_data_url AS imageDataUrl, COALESCE(subscription_days,0) AS subscriptionDays
     FROM store_products ${opts.activeOnly ? "WHERE active=1" : ""} ORDER BY sort_order, code`).all() as Array<Record<string, unknown>>;
   return rows.map((r) => ({
     code: String(r.code), title: String(r.title), description: String(r.description),
     amountCents: Number(r.amountCents), creditsMillis: Number(r.creditsMillis), extraPasses: Number(r.extraPasses),
     active: Boolean(r.active), sortOrder: Number(r.sortOrder), itemReference: String(r.itemReference),
-    grantsItem: r.grantsItem ? String(r.grantsItem) : undefined, grantsItemQty: Number(r.grantsItemQty ?? 0)
+    grantsItem: r.grantsItem ? String(r.grantsItem) : undefined, grantsItemQty: Number(r.grantsItemQty ?? 0),
+    imageDataUrl: r.imageDataUrl ? String(r.imageDataUrl) : undefined, subscriptionDays: Number(r.subscriptionDays ?? 0)
   }));
 }
 
@@ -42,7 +48,7 @@ export function getActiveStoreProduct(db: AppDatabase, code: string): StoreProdu
 export type StoreProductInput = {
   code: string; title: string; description?: string; amountCents: number;
   credits?: number; creditsMillis?: number; extraPasses?: number; active?: boolean; sortOrder?: number; itemReference?: string;
-  grantsItem?: string; grantsItemQty?: number;
+  grantsItem?: string; grantsItemQty?: number; imageDataUrl?: string; subscriptionDays?: number;
 };
 
 export function upsertStoreProduct(db: AppDatabase, input: StoreProductInput): StoreProduct {
@@ -57,7 +63,14 @@ export function upsertStoreProduct(db: AppDatabase, input: StoreProductInput): S
   const grantsItem = input.grantsItem ? String(input.grantsItem).toUpperCase() : undefined;
   if (grantsItem && !CODE_RE.test(grantsItem)) throw Object.assign(new Error("Código do item inválido."), { statusCode: 400 });
   const grantsItemQty = Math.max(0, Math.round(Number(input.grantsItemQty ?? (grantsItem ? 1 : 0))));
-  if (creditsMillis === 0 && extraPasses === 0 && !(grantsItem && grantsItemQty > 0)) throw Object.assign(new Error("O produto precisa conceder ao menos moedas, passes ou um item."), { statusCode: 400 });
+  const subscriptionDays = Math.max(0, Math.round(Number(input.subscriptionDays ?? 0)));
+  // Ilustracao: aceita apenas imagem embutida (data URL) e limita o tamanho.
+  const imageDataUrl = typeof input.imageDataUrl === "string" && input.imageDataUrl.trim() ? input.imageDataUrl.trim() : undefined;
+  if (imageDataUrl !== undefined) {
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl)) throw Object.assign(new Error("Envie uma imagem PNG, JPG, WEBP ou GIF."), { statusCode: 400 });
+    if (imageDataUrl.length > 400_000) throw Object.assign(new Error("A imagem deve ter no máximo ~300 KB."), { statusCode: 400 });
+  }
+  if (creditsMillis === 0 && extraPasses === 0 && subscriptionDays === 0 && !(grantsItem && grantsItemQty > 0)) throw Object.assign(new Error("O produto precisa conceder moedas, passes, um item ou uma assinatura."), { statusCode: 400 });
   const title = String(input.title ?? "").trim();
   if (title.length < 2 || title.length > 80) throw Object.assign(new Error("Título deve ter entre 2 e 80 caracteres."), { statusCode: 400 });
   const description = String(input.description ?? "").trim().slice(0, 400);
@@ -65,13 +78,15 @@ export function upsertStoreProduct(db: AppDatabase, input: StoreProductInput): S
   const sortOrder = Number.isFinite(Number(input.sortOrder)) ? Math.round(Number(input.sortOrder)) : 100;
   const itemReference = (input.itemReference && /^[a-z0-9-]{2,60}$/.test(input.itemReference)) ? input.itemReference : code.toLowerCase().replace(/_/g, "-");
   const now = new Date().toISOString();
-  db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,image_data_url,subscription_days,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(code) DO UPDATE SET title=excluded.title,description=excluded.description,amount_cents=excluded.amount_cents,
       credits_millis=excluded.credits_millis,extra_passes=excluded.extra_passes,active=excluded.active,
       sort_order=excluded.sort_order,item_reference=excluded.item_reference,
-      grants_item=excluded.grants_item,grants_item_qty=excluded.grants_item_qty,updated_at=excluded.updated_at`)
-    .run(code, title, description, amountCents, creditsMillis, extraPasses, active ? 1 : 0, sortOrder, itemReference, grantsItem ?? null, grantsItemQty, now);
+      grants_item=excluded.grants_item,grants_item_qty=excluded.grants_item_qty,
+      image_data_url=COALESCE(excluded.image_data_url, store_products.image_data_url),
+      subscription_days=excluded.subscription_days,updated_at=excluded.updated_at`)
+    .run(code, title, description, amountCents, creditsMillis, extraPasses, active ? 1 : 0, sortOrder, itemReference, grantsItem ?? null, grantsItemQty, imageDataUrl ?? null, subscriptionDays, now);
   return getActiveStoreProduct(db, code) ?? listStoreProducts(db).find((p) => p.code === code)!;
 }
 

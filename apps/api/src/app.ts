@@ -8,6 +8,7 @@ import { ownerAccounts } from "./owners.js";
 import { credentialState, setCredential } from "./admin-credentials.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
+import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -341,10 +342,15 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
     db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'PIX_PURCHASE', ?, ?, ?)")
       .run(randomUUID(), payment.user_id, payment.credits_millis, payment.id, now);
     // AUDITORIA / inventario: o produto pode conceder item (ex.: SKIP). Idempotente pelo id do pagamento.
-    const bought = db.prepare("SELECT grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS qty FROM store_products WHERE code=?")
-      .get(String((payment as unknown as { product_code?: string }).product_code ?? "")) as { grantsItem?: string; qty: number } | undefined;
-    if (bought?.grantsItem && bought.qty > 0) {
+    const bought = db.prepare("SELECT grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS qty, COALESCE(subscription_days,0) AS days FROM store_products WHERE code=?")
+      .get(String((payment as unknown as { product_code?: string }).product_code ?? "")) as { grantsItem?: string; qty: number; days: number } | undefined;
+    if (bought?.grantsItem && bought.qty > 0 && !bought.days) {
       grantItem(db, { userId: payment.user_id, itemCode: bought.grantsItem, delta: bought.qty, kind: "PURCHASE", referenceId: payment.id, note: "Compra na loja" });
+    }
+    // AUDITORIA / SUPER: produto de assinatura concede tempo, nao item avulso.
+    // Idempotente pelo id do pagamento — webhook reenviado nao estende de novo.
+    if (bought?.days && bought.days > 0) {
+      grantSuper(db, payment.user_id, { days: bought.days, source: "PURCHASE", autoRenew: true, referenceId: payment.id });
     }
     return true;
   })();
@@ -613,6 +619,38 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     try { return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity)); }
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível presentear.", code: e.code }); }
+  });
+
+  // AUDITORIA / SUPER: estado da assinatura e vitrine de divulgacao.
+  app.get("/super/me", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
+    const state = effectiveSuper(db, request.user.sub);
+    return {
+      ...state,
+      pinMinutes: SUPER_PIN_MINUTES,
+      pinSlotsFree: pinSlotsFree(db),
+      myPins: activePins(db).filter((p) => p.userId === request.user.sub)
+    };
+  });
+
+  // Vitrine publica: todos veem as divulgacoes vivas, em tempo real.
+  app.get("/super/pins", { preHandler: authGuard, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async () => {
+    const pins = activePins(db).map((pin) => {
+      const who = getUser(db, pin.userId);
+      return {
+        id: pin.id, body: pin.body, createdAt: pin.createdAt,
+        expiresInSeconds: Math.max(0, SUPER_PIN_MINUTES * 60 - Math.floor((Date.now() - Date.parse(pin.createdAt)) / 1000)),
+        author: who ? { id: who.id, name: who.name, avatar: who.avatar, channel: who.youtubeChannel ?? null } : null
+      };
+    });
+    return { pins, slotsFree: pinSlotsFree(db), slots: 3 };
+  });
+
+  app.post("/super/pins", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = z.object({ body: z.string().min(10).max(180) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Escreva uma divulgação de 10 a 180 caracteres." });
+    try { return reply.send(createPin(db, request.user.sub, body.data.body)); }
+    catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
+      return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível fixar.", code: e.code }); }
   });
 
   // AUDITORIA / chat global: leitura por cursor (tempo real via polling) e envio seguro.
@@ -1123,10 +1161,15 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         const next = db.prepare("SELECT COUNT(*) + 1 AS slot FROM submissions WHERE round_id = ?").get(open.id) as { slot: number };
         if (next.slot > 10) throw new Error("Este ciclo já foi concluído. Atualize a página.");
         const previous = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?").get(open.id, request.user.sub) as { count: number };
-        if (previous.count > 0 && !administrativeParticipant) {
+        // AUDITORIA / SUPER: assinatura viva libera ate 5 videos por fila (comum: 1).
+        // Esgotada a cota, o passe comprado continua valendo como posicao extra.
+        const superAllowance = effectiveSuper(db, request.user.sub).uploadsPerRound;
+        if (previous.count >= superAllowance && !administrativeParticipant) {
           const changed = db.prepare("UPDATE wallets SET extra_slot_passes = extra_slot_passes - 1 WHERE user_id = ? AND extra_slot_passes > 0")
             .run(request.user.sub);
-          if (!changed.changes) throw new Error("Você já contribuiu neste ciclo. Uma compra aprovada libera uma posição extra.");
+          if (!changed.changes) throw new Error(superAllowance > 1
+            ? `Você já usou suas ${superAllowance} posições SUPER nesta fila. Um passe comprado libera mais uma.`
+            : "Você já contribuiu neste ciclo. Uma compra aprovada libera uma posição extra.");
         }
         debitContribution(db, request.user.sub);
         const submissionId = randomUUID();

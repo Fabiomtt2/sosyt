@@ -32,7 +32,7 @@ describe("loja configurável", () => {
   it("validação server-side rejeita preço fora da faixa e produto vazio", () => {
     expect(() => upsertStoreProduct(db, { code: "X", title: "x", amountCents: 1000, credits: 5 })).toThrow(); // code curto
     expect(() => upsertStoreProduct(db, { code: "CHEAP", title: "Barato", amountCents: 50, credits: 1 })).toThrow(/R\$1,00/);
-    expect(() => upsertStoreProduct(db, { code: "EMPTY", title: "Nada", amountCents: 1000, credits: 0, extraPasses: 0 })).toThrow(/moedas, passes ou um item/);
+    expect(() => upsertStoreProduct(db, { code: "EMPTY", title: "Nada", amountCents: 1000, credits: 0, extraPasses: 0 })).toThrow(/moedas, passes, um item ou uma assinatura/);
   });
 
   it("ROOT_OWNER cria e edita produto pelo painel, aplicado em tempo real", async () => {

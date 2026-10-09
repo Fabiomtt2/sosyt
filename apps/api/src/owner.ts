@@ -1,3 +1,4 @@
+import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
 import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
 import { generateBotPassword } from "./password.js";
 import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
@@ -452,6 +453,36 @@ export async function registerOwnerRoutes(
     if (!ok) return reply.code(404).send({ message: "Mensagem não encontrada." });
     return { ok: true };
   });
+  // AUDITORIA / SUPER: o ROOT controla toda a rota — conceder, doar, revogar e moderar.
+  app.get("/admin/super", { preHandler: rootOwnerGuard }, async () => {
+    const rows = db.prepare(`SELECT s.user_id AS userId,u.name,u.phone,s.expires_at AS expiresAt,s.auto_renew AS autoRenew,s.source,s.revoked_at AS revokedAt
+      FROM super_subscriptions s JOIN users u ON u.id=s.user_id ORDER BY s.expires_at DESC`).all() as Array<Record<string, unknown>>;
+    return { subscribers: rows, pins: activePins(db), defaultDays: SUPER_DAYS };
+  });
+  app.post("/admin/super/grant", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const body = z.object({ userId: z.string().min(8), days: z.number().int().min(1).max(3650).optional(), autoRenew: z.boolean().optional() }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe o participante." });
+    if (!db.prepare("SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL").get(body.data.userId)) return reply.code(404).send({ message: "Participante não encontrado." });
+    // Doacao do Owner: fonte registrada como GIFT para distinguir de compra.
+    return { ok: true, state: grantSuper(db, body.data.userId, { days: body.data.days ?? SUPER_DAYS, source: "GIFT", autoRenew: body.data.autoRenew ?? false }) };
+  });
+  app.post("/admin/super/revoke", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const me = resolveOwnerContext(request)!;
+    const body = z.object({ userId: z.string().min(8) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe o participante." });
+    revokeSuper(db, body.data.userId, me.name);
+    return { ok: true, state: superState(db, body.data.userId) };
+  });
+  app.post("/admin/super/auto-renew", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const body = z.object({ userId: z.string().min(8), autoRenew: z.boolean() }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Parâmetros inválidos." });
+    setAutoRenew(db, body.data.userId, body.data.autoRenew);
+    return { ok: true, state: superState(db, body.data.userId) };
+  });
+  app.delete("/admin/super/pins/:id", { preHandler: ownerGuard }, async (request, reply) => {
+    return removePin(db, String((request.params as { id: string }).id)) ? { ok: true } : reply.code(404).send({ message: "Divulgação não encontrada." });
+  });
+
   // AUDITORIA / loja configurável: CRUD de produtos pelo ROOT_OWNER, aplicado em tempo real.
   app.get("/admin/store/products", { preHandler: rootOwnerGuard }, async () => ({ products: listStoreProducts(db) }));
   const storeProductSchema = z.object({

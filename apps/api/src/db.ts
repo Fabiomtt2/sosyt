@@ -358,6 +358,38 @@ export function createDatabase(filename: string): AppDatabase {
   );`);
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_item_grants_unique ON item_grants(user_id,kind,reference_id) WHERE reference_id IS NOT NULL;");
 
+  // AUDITORIA / assinatura SUPER: a verdade e a data de expiracao; os privilegios
+  // sao derivados dela na leitura, entao vencer revoga tudo sem rotina nenhuma.
+  db.exec(`CREATE TABLE IF NOT EXISTS super_subscriptions (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    auto_renew INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'PURCHASE',
+    revoked_at TEXT,
+    updated_at TEXT NOT NULL
+  );`);
+  db.exec(`CREATE TABLE IF NOT EXISTS super_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    days INTEGER NOT NULL DEFAULT 0,
+    reference_id TEXT,
+    note TEXT,
+    created_at TEXT NOT NULL
+  );`);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_super_events_ref ON super_events(reference_id) WHERE reference_id IS NOT NULL;");
+  // Vitrine de divulgacao: 3 vagas no sistema, 1 hora cada.
+  db.exec(`CREATE TABLE IF NOT EXISTS super_pins (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    channel_url TEXT,
+    created_at TEXT NOT NULL,
+    removed_at TEXT
+  );`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_super_pins_live ON super_pins(removed_at, created_at);");
+
   // AUDITORIA / credencial administrativa gerenciada no painel (hash scrypt).
   db.exec(`CREATE TABLE IF NOT EXISTS admin_credentials (
     owner_id TEXT PRIMARY KEY,
@@ -418,6 +450,10 @@ export function createDatabase(filename: string): AppDatabase {
   // Colunas aditivas da loja (depois do CREATE TABLE acima).
   addColumn("store_products", "grants_item", "TEXT");
   addColumn("store_products", "grants_item_qty", "INTEGER NOT NULL DEFAULT 0");
+  // Ilustracao enviada pelo painel (data URL) — o Owner troca sem depender de deploy.
+  addColumn("store_products", "image_data_url", "TEXT");
+  // Produto de assinatura: concede SUPER por N dias em vez de item avulso.
+  addColumn("store_products", "subscription_days", "INTEGER NOT NULL DEFAULT 0");
   // Seed uma única vez. Item de lançamento pedido pelo owner: 20 moedas por R$10,00.
   if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
     const now = new Date().toISOString();
@@ -429,6 +465,9 @@ export function createDatabase(filename: string): AppDatabase {
     // Item "Pular": permite entrar em outra fila sem ter concluido 100% da atual.
     db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
       VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas e pode alternar entre elas.',2000,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);
+    // Assinatura SUPER: 30 dias de privilégios, renovável.
+    db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,subscription_days,updated_at)
+      VALUES ('SUPER_30','SUPER · 30 dias','Chat sem espera, 5 vídeos por fila, selo animado no seu avatar e divulgação fixa do seu canal.',4500,0,0,1,3,'super-30','SUPER',1,30,?)`).run(now);
   }
 
   db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (

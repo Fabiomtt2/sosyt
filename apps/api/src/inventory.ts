@@ -4,6 +4,7 @@
 // já usa e que a auditoria verificou como sólido).
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
+import { isRootOwner } from "./super.js";
 
 export const ITEM_SKIP = "SKIP";
 
@@ -13,7 +14,16 @@ function err(statusCode: number, message: string, extra: Record<string, unknown>
   return Object.assign(new Error(message), { statusCode, ...extra });
 }
 
+/**
+ * AUDITORIA: o ROOT_OWNER possui TODOS os itens, atuais e futuros, em quantidade
+ * ilimitada e sem gasto. Em vez de semear linhas (que precisariam ser atualizadas
+ * a cada item novo), o saldo dele e derivado — qualquer item criado amanha ja
+ * nasce disponivel. O ADMIN_OWNER nao tem esse privilegio.
+ */
+export const ROOT_ITEM_QUANTITY = Number.MAX_SAFE_INTEGER;
+
 export function itemQuantity(db: AppDatabase, userId: string, itemCode: string): number {
+  if (isRootOwner(db, userId)) return ROOT_ITEM_QUANTITY;
   const row = db.prepare("SELECT quantity FROM user_items WHERE user_id=? AND item_code=?").get(userId, itemCode) as { quantity: number } | undefined;
   return row?.quantity ?? 0;
 }
@@ -33,6 +43,9 @@ export function grantItem(db: AppDatabase, input: {
 }): boolean {
   const { userId, itemCode, delta, kind, referenceId, note } = input;
   if (!Number.isInteger(delta) || delta === 0) throw err(400, "Quantidade inválida.");
+  // O saldo do ROOT e derivado (ilimitado); somar delta a ele estouraria o numero.
+  // Nao gravamos linha para o ROOT — ele nunca ganha nem gasta.
+  if (isRootOwner(db, userId)) return true;
   return db.transaction(() => {
     if (referenceId) {
       const already = db.prepare("SELECT 1 FROM item_grants WHERE user_id=? AND kind=? AND reference_id=?").get(userId, kind, referenceId);
@@ -53,6 +66,7 @@ export function grantItem(db: AppDatabase, input: {
 
 /** Consome 1 unidade. Lança 409 se não houver. */
 export function consumeItem(db: AppDatabase, userId: string, itemCode: string, referenceId?: string): void {
+  if (isRootOwner(db, userId)) return;   // ROOT usa sem gastar
   const applied = grantItem(db, { userId, itemCode, delta: -1, kind: "CONSUME", referenceId, note: `Uso de ${itemCode}` });
   if (!applied) throw err(409, "Esta ação já foi registrada.", { code: "ALREADY_APPLIED" });
 }
