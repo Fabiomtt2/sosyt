@@ -1,3 +1,4 @@
+import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
 import { ownerBroadcast, ownerListRecent, ownerDeleteMessage } from "./mailbox.js";
 import { listStoreProducts, upsertStoreProduct, setStoreProductActive } from "./store.js";
 import { generateSetupCode, normalizeSetupCode, hashPassword } from "./password.js";
@@ -381,6 +382,12 @@ export async function registerOwnerRoutes(
   // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
   app.get("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async () => readYouTubeIntegration(db,config));
   app.post("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async (request) => saveYouTubeIntegration(db,config,request.body));
+  // AUDITORIA / cérebro do bot: estado/prontidão e configuração em tempo real.
+  app.get("/admin/bot", { preHandler: ownerGuard }, async () => ({ status: botStatus(db, config), catalog: BOT_FEATURES }));
+  app.post("/admin/bot", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    try { saveBotSettings(db, request.body); return { ok: true, status: botStatus(db, config) }; }
+    catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Configuração inválida." }); }
+  });
   // AUDITORIA / correio interno: aviso global do Owner e moderação.
   app.post("/admin/mail/broadcast", { preHandler: ownerGuard }, async (request, reply) => {
     const account = resolveOwnerContext(request)!;
