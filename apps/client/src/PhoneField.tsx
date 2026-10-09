@@ -135,6 +135,26 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     if (countryOpen) countryListRef.current?.scrollTo({top:0,behavior:"smooth"});
   },[search,countryOpen]);
 
+  // AUDITORIA / paridade DDI x DDD: o DDD isolava e identificava ao digitar, o DDI
+  // apenas filtrava. Agora, quando a digitacao deixa UM unico resultado, ele e
+  // identificado e aplicado — mesmo comportamento nos dois campos.
+  useEffect(()=>{
+    if (!countryOpen) return;
+    const typed=search.replace(/\D/g,"");
+    if (!typed) return;
+    const matches=COUNTRIES.filter((entry)=>entry.callingCode.startsWith(typed));
+    // So aplica quando ficou exatamente um DDI possivel e o codigo esta completo.
+    if (matches.length===1 && matches[0].callingCode===typed && matches[0].country!==country) {
+      chooseCountry(matches[0].country);
+    }
+  },[search,countryOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(()=>{
+    if (!dddOpen || dddSearch.length<2) return;
+    const matches=BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch));
+    if (matches.length===1 && matches[0][0]!==ddd) chooseDdd(matches[0][0]);
+  },[dddSearch,dddOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(()=>{
     if (!dddOpen) {
       setDddSearch("");
@@ -242,7 +262,7 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
 
     {countryOpen && <div className="phone-popover country-popover" role="dialog" aria-label="País e DDI">
       <div className="phone-popover-head"><strong>País e DDI</strong><button type="button" onClick={()=>setCountryOpen(false)} aria-label="Fechar lista de países"><X size={17}/></button></div>
-      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> mantém Brasil. A escolha só é aplicada quando você toca no país.</p>
+      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> identifica o Brasil e já aplica. Quando a digitação deixa um único DDI, ele é selecionado sozinho — e você sempre pode tocar no país.</p>
       {search && <div className="phone-incremental-filter" aria-live="polite"><span>Filtro digitado</span><strong>{search}</strong><button type="button" onClick={()=>setSearch("")} aria-label="Limpar filtro">Limpar</button></div>}
       <div className="country-scroll-shell">
         <button type="button" className="popover-scroll-arrow vertical" aria-label="Países anteriores" onClick={()=>scrollCountries(-1)}><ChevronUp size={17}/></button>
