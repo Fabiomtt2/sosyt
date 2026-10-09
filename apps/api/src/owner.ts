@@ -1,3 +1,4 @@
+import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
 import { botStatus, saveBotSettings, BOT_FEATURES } from "./bot.js";
 import { ownerBroadcast, ownerListRecent, ownerDeleteMessage } from "./mailbox.js";
 import { listStoreProducts, upsertStoreProduct, setStoreProductActive } from "./store.js";
@@ -382,6 +383,31 @@ export async function registerOwnerRoutes(
   // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
   app.get("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async () => readYouTubeIntegration(db,config));
   app.post("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async (request) => saveYouTubeIntegration(db,config,request.body));
+  // AUDITORIA / chat global: poderes de moderação (só Owner/Admin).
+  app.delete("/admin/chat/global/:id", { preHandler: ownerGuard }, async (request, reply) => {
+    return chatDelete(db, String((request.params as { id: string }).id)) ? { ok: true } : reply.code(404).send({ message: "Mensagem não encontrada." });
+  });
+  app.post("/admin/chat/global/:id/pin", { preHandler: ownerGuard }, async (request, reply) => {
+    const b = z.object({ pinned: z.boolean() }).safeParse(request.body);
+    if (!b.success) return reply.code(400).send({ message: "Informe pinned." });
+    return adminSetPinned(db, String((request.params as { id: string }).id), b.data.pinned) ? { ok: true } : reply.code(404).send({ message: "Mensagem não encontrada." });
+  });
+  app.post("/admin/chat/global/clear", { preHandler: rootOwnerGuard }, async () => ({ ok: true, cleared: adminClearChat(db) }));
+  app.post("/admin/chat/global/moderate", { preHandler: ownerGuard }, async (request, reply) => {
+    const b = z.object({
+      userId: z.string().min(8),
+      action: z.enum(["MUTE", "UNMUTE", "COOLDOWN", "REMOVE", "RESTORE"]),
+      minutes: z.number().int().min(1).max(10080).optional(),
+      seconds: z.number().int().min(0).max(86400).optional()
+    }).safeParse(request.body);
+    if (!b.success) return reply.code(400).send({ message: "Parâmetros inválidos." });
+    const { userId, action, minutes, seconds } = b.data;
+    if (action === "MUTE") return adminMute(db, userId, minutes ?? 10);
+    if (action === "UNMUTE") { adminUnmute(db, userId); return { ok: true }; }
+    if (action === "COOLDOWN") { adminSetCooldown(db, userId, seconds ?? 180); return { ok: true }; }
+    if (action === "REMOVE") { adminRemoveFromRoom(db, userId); return { ok: true }; }
+    adminRestoreToRoom(db, userId); return { ok: true };
+  });
   // AUDITORIA / cérebro do bot: estado/prontidão e configuração em tempo real.
   app.get("/admin/bot", { preHandler: ownerGuard }, async () => ({ status: botStatus(db, config), catalog: BOT_FEATURES }));
   app.post("/admin/bot", { preHandler: rootOwnerGuard }, async (request, reply) => {

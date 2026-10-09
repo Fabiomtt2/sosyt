@@ -46,6 +46,13 @@ export const api = {
   dashboard: () => request<Dashboard>("/dashboard"),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
   createPix: (email: string, cpf: string, product: string) => request<Pix>("/payments/pix", { method: "POST", body: JSON.stringify({ email, cpf, product }) }),
+  chatList: (afterId?: string) => request<ChatState>("/chat/global" + (afterId ? ("?afterId=" + encodeURIComponent(afterId)) : "")),
+  chatSend: (body: string) => request<{ id: string; createdAt: string; role: ChatRole }>("/chat/global", { method: "POST", body: JSON.stringify({ body }) }),
+  chatDelete: (id: string) => request<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id), { method: "DELETE" }),
+  chatPin: (id: string, pinned: boolean) => request<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id) + "/pin", { method: "POST", body: JSON.stringify({ pinned }) }),
+  chatClear: () => request<{ ok: true; cleared: number }>("/admin/chat/global/clear", { method: "POST" }),
+  chatModerate: (userId: string, action: ChatModerateAction, opts: { minutes?: number; seconds?: number } = {}) =>
+    request<Record<string, unknown>>("/admin/chat/global/moderate", { method: "POST", body: JSON.stringify({ userId, action, ...opts }) }),
   saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="PRESET" ? {kind:"PRESET",presetId:avatar.presetId} : {kind:"CUSTOM",dataUrl:avatar.dataUrl}) }),
   clearAvatar: () => request<{ok:true}>("/profile/avatar", { method:"DELETE" }),
   elevateAdmin: () => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST"}),
@@ -68,6 +75,11 @@ export type UserAvatar =
   | { kind:"PRESET"; presetId:string }
   | { kind:"CUSTOM"; dataUrl:string };
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
+export type ChatRole = "USER" | "ADMIN" | "OWNER";
+export type ChatSender = { id: string; name: string; groupCode: string; avatar: UserAvatar | null };
+export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
+export type ChatState = { removed: boolean; messages: ChatMessage[]; pinned: ChatMessage[]; cooldownSeconds: number; viewerRole: ChatRole };
+export type ChatModerateAction = "MUTE" | "UNMUTE" | "COOLDOWN" | "REMOVE" | "RESTORE";
 export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string};
 export type Slot = {
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;

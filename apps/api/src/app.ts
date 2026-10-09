@@ -3,6 +3,7 @@ import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto"
 import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, normalizeSetupCode, passwordSchemaMin, passwordSchemaMax } from "./password.js";
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
+import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -549,6 +550,19 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const passwordSetSchema = z.object({
     newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
     currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
+  });
+
+  // AUDITORIA / chat global: leitura por cursor (tempo real via polling) e envio seguro.
+  app.get("/chat/global", { preHandler: authGuard, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (request) => {
+    const q = request.query as { afterId?: string };
+    return listGlobalMessages(db, request.user.sub, { afterId: typeof q.afterId === "string" ? q.afterId : undefined });
+  });
+  app.post("/chat/global", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const parsed = z.object({ body: z.string().min(1).max(500) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "Escreva uma mensagem." });
+    try { return reply.send(sendGlobalMessage(db, request.user.sub, parsed.data.body)); }
+    catch (error) { const e = error as { statusCode?: number; message?: string; code?: string; retryAfterSeconds?: number; until?: string };
+      return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar.", code: e.code, retryAfterSeconds: e.retryAfterSeconds, until: e.until }); }
   });
 
   // AUDITORIA / correio interno: DMs ao vivo entre usuários e leitura de avisos do Owner.

@@ -323,6 +323,26 @@ export function createDatabase(filename: string): AppDatabase {
   // AUDITORIA C-01 / portão híbrido: código de setup emitido pelo Owner, resgatável
   // uma vez para definir a primeira senha SEM depender de entrega automática por WhatsApp.
   // AUDITORIA / correio interno: DMs entre usuários + avisos globais do Owner.
+  // AUDITORIA / chat global: mensagens (texto puro) + estado de moderacao por usuario.
+  db.exec(`CREATE TABLE IF NOT EXISTS global_chat_messages (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    sender_role TEXT NOT NULL DEFAULT 'USER',
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    deleted_at TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0
+  );`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_global_chat_created ON global_chat_messages(created_at);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_global_chat_pinned ON global_chat_messages(pinned, created_at);");
+  db.exec(`CREATE TABLE IF NOT EXISTS global_chat_members (
+    user_id TEXT PRIMARY KEY,
+    removed INTEGER NOT NULL DEFAULT 0,
+    muted_until TEXT,
+    cooldown_seconds INTEGER,
+    updated_at TEXT NOT NULL
+  );`);
+
   db.exec(`CREATE TABLE IF NOT EXISTS mail_messages (
     id TEXT PRIMARY KEY,
     thread_key TEXT NOT NULL,

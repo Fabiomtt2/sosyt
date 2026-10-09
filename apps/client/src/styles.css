@@ -1854,3 +1854,60 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .watch-time-summary>svg{flex-shrink:0;margin-top:4px}.watch-time-summary>div{display:grid;gap:7px;flex:1;min-width:0}
 .watch-time-summary span{font-size:.82rem;font-weight:700}.watch-time-summary strong{font-size:1.5rem}.watch-time-summary small,.watch-time-summary p{font-size:.8rem;line-height:1.55;margin:0;color:#675973}
 .watch-time-summary progress{width:100%;height:8px;accent-color:#8551a7}
+
+/* ===== AUDITORIA / Chat global translúcido, sempre visível ===== */
+.global-chat{position:fixed;right:18px;bottom:18px;width:min(360px,92vw);z-index:60;
+  display:flex;flex-direction:column;max-height:min(70vh,560px);
+  background:rgba(255,253,250,.72);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1);
+  border:1px solid rgba(23,32,51,.10);border-radius:18px;box-shadow:0 18px 50px -20px rgba(23,32,51,.45);overflow:hidden}
+:root[data-theme="dark"] .global-chat,.global-chat.dark{background:rgba(18,22,32,.66);border-color:rgba(255,255,255,.08)}
+.global-chat.closed{max-height:none}
+.gc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+  padding:11px 14px;border:0;background:rgba(231,43,59,.08);color:var(--ink);cursor:pointer;font:inherit}
+.gc-title{display:flex;align-items:center;gap:7px;font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.95rem}
+.gc-head-right{display:flex;align-items:center;gap:8px}
+.gc-live{font-style:normal;font-size:.62rem;font-weight:700;color:#179a5b;background:rgba(23,154,91,.12);padding:2px 7px;border-radius:999px;text-transform:uppercase;letter-spacing:.06em}
+.gc-live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#19b267;margin-right:5px;vertical-align:middle;animation:gc-pulse 1.6s infinite}
+@keyframes gc-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.gc-badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;font-size:.72rem;font-weight:800;display:grid;place-items:center}
+.gc-pinned{display:flex;flex-direction:column;gap:4px;padding:8px 12px;background:rgba(214,167,61,.12);border-bottom:1px solid rgba(214,167,61,.25)}
+.gc-pinned-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--ink)}
+.gc-pinned-item .gc-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gc-stream{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px;display:flex;flex-direction:column;gap:11px;scroll-behavior:smooth}
+.gc-empty{color:var(--muted);text-align:center;font-size:.85rem;margin:18px 0}
+.gc-msg{display:flex;gap:9px;align-items:flex-start}
+.gc-avatar-btn{position:relative;flex:0 0 auto;border:0;background:none;padding:0;cursor:pointer;border-radius:50%}
+.gc-avatar{width:34px;height:34px}
+.gc-avatar-btn.has-admin-badge{box-shadow:0 0 0 2px #e8c45b,0 0 0 4px rgba(232,196,91,.35);border-radius:50%}
+.gc-admin-badge{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%) scale(.68);margin:0}
+.gc-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.gc-meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+/* FONTES DISTINTAS: nome em Manrope, texto em DM Sans */
+.gc-name{font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.86rem;color:var(--ink);word-break:break-word}
+.gc-group{font-size:.62rem;font-weight:700;color:var(--muted);background:rgba(23,32,51,.07);padding:1px 6px;border-radius:999px}
+.gc-role-tag{font-size:.62rem;font-weight:800;color:#7a5a00;background:linear-gradient(90deg,#f7e3a1,#e8c45b);padding:1px 7px;border-radius:999px;letter-spacing:.04em;text-transform:uppercase}
+.gc-time{margin-left:auto;font-size:.66rem;color:var(--muted)}
+.gc-text{font-family:"DM Sans",sans-serif;font-size:.9rem;line-height:1.4;color:var(--ink);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+/* Faixa dourada do ADMIN: destaque absoluto, à prova de quebra de linha */
+.gc-admin-banner{position:relative;border-radius:12px;padding:8px 12px;overflow:hidden;
+  background:linear-gradient(110deg,#5a4600,#8a6d12,#d8b23f,#f3dd8e,#d8b23f,#8a6d12,#5a4600);
+  background-size:300% 100%;animation:gc-gold 6s linear infinite;
+  box-shadow:inset 0 0 0 1px rgba(255,245,200,.5),0 6px 18px -8px rgba(138,109,18,.6)}
+@keyframes gc-gold{0%{background-position:0% 50%}100%{background-position:300% 50%}}
+.gc-text-admin{color:#1a1403;font-weight:600;text-shadow:0 1px 0 rgba(255,250,230,.45);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;display:block}
+.gc-msg-staff .gc-name{color:#7a5a00}
+.gc-msg-pinned .gc-bubble{outline:1px dashed rgba(214,167,61,.5);outline-offset:4px;border-radius:8px}
+.gc-mod{display:flex;gap:4px;margin-top:4px;opacity:.55;transition:opacity .15s}
+.gc-msg:hover .gc-mod{opacity:1}
+.gc-mod button{border:0;background:rgba(23,32,51,.06);color:var(--ink);border-radius:7px;padding:3px 6px;cursor:pointer;display:grid;place-items:center}
+.gc-mod button:hover{background:rgba(231,43,59,.14);color:var(--red)}
+.gc-admin-tools{padding:6px 12px;border-top:1px solid rgba(23,32,51,.08)}
+.gc-admin-tools button{border:0;background:rgba(231,43,59,.1);color:var(--red);border-radius:8px;padding:5px 10px;font-size:.76rem;font-weight:700;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
+.gc-input{display:flex;gap:7px;padding:10px 12px;border-top:1px solid rgba(23,32,51,.08);background:rgba(255,255,255,.35)}
+.gc-input input{flex:1;min-width:0;border:1px solid rgba(23,32,51,.14);border-radius:10px;padding:9px 11px;font:inherit;font-size:.88rem;background:rgba(255,255,255,.7)}
+.gc-send{flex:0 0 auto;border:0;border-radius:10px;width:40px;display:grid;place-items:center;background:var(--red);color:#fff;cursor:pointer}
+.gc-send:disabled{opacity:.45;cursor:not-allowed}
+.gc-error{color:var(--red);font-size:.78rem;padding:0 12px 8px;display:flex;align-items:center;gap:5px}
+.gc-note{color:var(--muted);font-size:.68rem;padding:0 12px 10px;display:block}
+.gc-removed{display:flex;align-items:center;gap:8px;padding:12px 14px;color:var(--muted);font-size:.84rem}
+@media (max-width:560px){.global-chat{right:0;left:0;bottom:0;width:100%;max-height:60vh;border-radius:16px 16px 0 0}}
