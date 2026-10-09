@@ -416,18 +416,20 @@ export async function registerOwnerRoutes(
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Configuração inválida." }); }
   });
   // AUDITORIA / correio interno: aviso global do Owner e moderação.
-  app.post("/admin/mail/broadcast", { preHandler: ownerGuard }, async (request, reply) => {
+  // HIERARQUIA: falar em nome do projeto para TODA a comunidade e ler/moderar a
+  // correspondencia privada sao poderes de ROOT_OWNER. ADMIN_OWNER nao acessa.
+  app.post("/admin/mail/broadcast", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const account = resolveOwnerContext(request)!;
     const parsed = z.object({ body: z.string().min(1).max(2000) }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Escreva o aviso." });
     try { return ownerBroadcast(db, parsed.data.body, account.id); }
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar." }); }
   });
-  app.get("/admin/mail", { preHandler: ownerGuard }, async (request) => {
+  app.get("/admin/mail", { preHandler: rootOwnerGuard }, async (request) => {
     const limit = Number((request.query as { limit?: string }).limit ?? 100);
     return { messages: ownerListRecent(db, Number.isFinite(limit) ? limit : 100) };
   });
-  app.delete("/admin/mail/:id", { preHandler: ownerGuard }, async (request, reply) => {
+  app.delete("/admin/mail/:id", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const ok = ownerDeleteMessage(db, String((request.params as { id: string }).id));
     if (!ok) return reply.code(404).send({ message: "Mensagem não encontrada." });
     return { ok: true };
@@ -473,7 +475,7 @@ export async function registerOwnerRoutes(
   app.get("/admin/integrations/whatsapp/health", { preHandler: ownerGuard }, async () => ({
     health: lastNumberHealth(db) ?? null, replacementSteps: REPLACEMENT_STEPS
   }));
-  app.post("/admin/integrations/whatsapp/health", { preHandler: ownerGuard }, async () => {
+  app.post("/admin/integrations/whatsapp/health", { preHandler: rootOwnerGuard }, async () => {
     const runtime = effectiveWhatsAppConfig(db, config);
     const health = await checkNumberHealth(db, config, { accessToken: runtime.WHATSAPP_ACCESS_TOKEN });
     return { health, replacementSteps: REPLACEMENT_STEPS };

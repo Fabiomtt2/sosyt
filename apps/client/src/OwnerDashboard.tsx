@@ -288,7 +288,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
 
       {tab === "store" && <OwnerStorePanel canEdit={data.owner.permissions.canConfigure}/>}
       {tab === "bot" && <OwnerBotPanel/>}
-      {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure}/>}
+      {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure} canViewSensitive={data.owner.permissions.canViewSensitive}/>}
       {tab === "groups" && <section className="owner-panel groups-admin-panel">
         <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">{data.owner.permissions.canConfigure?"Controle habilitação interna, vínculo externo confirmado, verificação e link de entrada de cada grupo.":"Visualização operacional dos grupos. Alterações de vínculo, ativação e configuração são exclusivas de um Owner principal."}</p></div><span className="live-chip"><RefreshCw size={13}/>Painel sincroniza a cada 10 s</span></div>
         <div className="group-carousel-meta"><strong>Grupos {groupStart+1}–{Math.min(groupStart+GROUP_PAGE_SIZE,999)} de 999</strong><span>{data.owner.permissions.canConfigure?"Todos os números podem ser ativados e administrados.":"Modo somente leitura para Administrador delegado."}</span></div>

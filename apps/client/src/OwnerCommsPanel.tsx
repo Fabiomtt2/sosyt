@@ -9,7 +9,12 @@ const when = (iso?: string) => (iso ? new Date(iso).toLocaleString("pt-BR") : "�
  * troca quando ele morre), chave do YouTube e correio interno (aviso global +
  * moderação). Tudo cruzado numa tela só, aplicado em tempo real.
  */
-export function OwnerCommsPanel({ canEdit }: { canEdit: boolean }) {
+/**
+ * HIERARQUIA: `canEdit` (canConfigure) libera editar; `canViewSensitive` libera o
+ * CORREIO — correspondência privada e disparo global são exclusivos do ROOT_OWNER.
+ * ADMIN_OWNER vê apenas o operacional (saúde do número e estado do YouTube).
+ */
+export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolean; canViewSensitive: boolean }) {
   const [health, setHealth] = useState<NumberHealth | null>(null);
   const [steps, setSteps] = useState<string[]>([]);
   const [youtube, setYoutube] = useState<YouTubeIntegrationState>();
@@ -22,10 +27,13 @@ export function OwnerCommsPanel({ canEdit }: { canEdit: boolean }) {
 
   const load = useCallback(async () => {
     try {
-      const [h, y, m] = await Promise.all([ownerApi.numberHealth(), ownerApi.youtubeIntegration(), ownerApi.mailRecent(60)]);
-      setHealth(h.health); setSteps(h.replacementSteps); setYoutube(y); setMail(m.messages); setError("");
+      const [h, y] = await Promise.all([ownerApi.numberHealth(), ownerApi.youtubeIntegration()]);
+      setHealth(h.health); setSteps(h.replacementSteps); setYoutube(y);
+      // Correio só é carregado por quem pode vê-lo — ADMIN nem recebe os dados.
+      if (canViewSensitive) setMail((await ownerApi.mailRecent(60)).messages);
+      setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao carregar."); }
-  }, []);
+  }, [canViewSensitive]);
   useEffect(() => { void load(); }, [load]);
 
   function flash(message: string) { setNotice(message); window.setTimeout(() => setNotice(""), 2600); }
@@ -50,7 +58,7 @@ export function OwnerCommsPanel({ canEdit }: { canEdit: boolean }) {
       <div className={"comms-block health-" + statusTone}>
         <div className="comms-block-head">
           <h3><HeartPulse size={17} /> Número Business</h3>
-          <button className="text-button" onClick={() => void run(() => ownerApi.checkNumberHealth(), "Diagnóstico atualizado.")} disabled={busy}>Verificar agora</button>
+          {canEdit && <button className="text-button" onClick={() => void run(() => ownerApi.checkNumberHealth(), "Diagnóstico atualizado.")} disabled={busy}>Verificar agora</button>}
         </div>
         {!health ? <p className="muted">Ainda não há diagnóstico. Clique em “Verificar agora”.</p> : <>
           <div className="health-line">
@@ -86,8 +94,8 @@ export function OwnerCommsPanel({ canEdit }: { canEdit: boolean }) {
         </form>}
       </div>
 
-      {/* ---- correio interno ---- */}
-      <div className="comms-block">
+      {/* ---- correio interno: exclusivo do ROOT_OWNER ---- */}
+      {canViewSensitive && <div className="comms-block">
         <div className="comms-block-head"><h3><Megaphone size={17} /> Aviso para todos</h3></div>
         <form className="comms-inline-form" onSubmit={(e: FormEvent) => { e.preventDefault(); void run(() => ownerApi.mailBroadcast(broadcast.trim()), "Aviso entregue nos correios."); setBroadcast(""); }}>
           <input value={broadcast} onChange={(e) => setBroadcast(e.target.value)} placeholder="Mensagem que chega no correio de todos os participantes" maxLength={2000} />
@@ -110,7 +118,7 @@ export function OwnerCommsPanel({ canEdit }: { canEdit: boolean }) {
           </table>
           {!mail.length && <p className="muted">Nenhuma mensagem ainda.</p>}
         </div>
-      </div>
+      </div>}
 
       {notice && <p className="bot-notice">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
