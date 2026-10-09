@@ -21,7 +21,15 @@ describe("regressões de domínio e segurança", () => {
     });
     db = createDatabase(":memory:");
     app = await buildApp(config, db);
-    fetchMock = vi.fn(async () => { throw new Error("Unexpected external request"); });
+    fetchMock = vi.fn(async (input: unknown) => {
+      // AUDITORIA M-06: a validação de vídeo agora exige confirmação positiva de
+      // existência. O oEmbed é respondido aqui; qualquer outra chamada externa
+      // continua sendo um erro de teste, como no desenho original.
+      if (String(input).includes("youtube.com/oembed")) {
+        return response({ title: "Vídeo de teste", author_name: "Canal de teste", thumbnail_url: "https://i.ytimg.com/vi/test/hqdefault.jpg" });
+      }
+      throw new Error("Unexpected external request");
+    });
     vi.stubGlobal("fetch", fetchMock);
   });
   afterEach(async () => { await app.close(); db.close(); vi.unstubAllGlobals(); });
@@ -59,8 +67,8 @@ describe("regressões de domínio e segurança", () => {
   async function readyRound(userId: string) {
     const row = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN'").get() as { id: string };
     for (let slot = 1; slot <= 10; slot++) {
-      db.prepare("INSERT INTO submissions (id,round_id,slot,user_id,youtube_url,video_id,created_at) VALUES (?,?,?,?,?,?,?)")
-        .run(randomUUID(), row.id, slot, userId, `https://youtu.be/vid${String(slot).padStart(8, "0")}`, `vid${String(slot).padStart(8, "0")}`, new Date().toISOString());
+      db.prepare("INSERT INTO submissions (id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES (?,?,?,?,?,?,?,?)")
+        .run(randomUUID(), row.id, slot, userId, `https://youtu.be/vid${String(slot).padStart(8, "0")}`, `vid${String(slot).padStart(8, "0")}`, new Date().toISOString(), 600);
     }
     db.prepare("UPDATE rounds SET status = 'READY' WHERE id = ?").run(row.id);
     db.prepare("INSERT INTO youtube_connections (user_id,refresh_token_cipher,scope,updated_at) VALUES (?,?,?,?)").run(userId,encryptToken("test-refresh",config),"youtube",new Date().toISOString());

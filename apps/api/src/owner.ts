@@ -3,6 +3,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Config } from "./config.js";
+import { devAuthEnabled } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
@@ -116,7 +117,7 @@ export async function registerOwnerRoutes(
     };
   });
   app.post("/participation/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    if(!config.AUTH_DEV_MODE) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Confirme este WhatsApp com a chave de acesso antes de enviar uma solicitação."});
+    if(!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Confirme este WhatsApp com a chave de acesso antes de enviar uma solicitação."});
     const body=z.object({name:z.string().trim().min(2).max(80),phone:phoneSchema,consent:z.literal(true)}).parse(request.body);
     const member=db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(body.phone) as {groupCode:string}|undefined;
     if (member) return reply.code(409).send({code:"ALREADY_REGISTERED",alreadyApproved:true,message:"Esse número já possui acesso registrado. Entre pelo acesso normal ou confirme seu WhatsApp para continuar."});
@@ -228,7 +229,10 @@ export async function registerOwnerRoutes(
     const account = ownerAccounts(config).find((o) => ownerNameMatches(o.name, body.name) && o.phone === body.identifier);
     if (!account?.secret) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const hash = (value: string) => createHash("sha256").update(value).digest();
-    const devCredentialAccepted = config.AUTH_DEV_MODE && body.secret === "sosyout";
+    // AUDITORIA A-02: credencial de atalho só existe fora de produção, apenas com
+    // AUTH_DEV_MODE explícito e apenas se OWNER_DEV_SECRET estiver configurado.
+    const devCredentialAccepted = devAuthEnabled(config) && config.NODE_ENV !== "production"
+      && Boolean(config.OWNER_DEV_SECRET) && body.secret === config.OWNER_DEV_SECRET;
     if (!devCredentialAccepted && !timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const displayName = body.name.trim();
     return {
@@ -667,7 +671,7 @@ export async function registerOwnerRoutes(
         FROM owner_access WHERE user_id=? AND active=1`).get(user.id) as
         | {id:string;userId:string;phone:string;normalizedName:string;role:OwnerRole;updatedAt:string}
         | undefined;
-      if (!access || access.normalizedName!==normalizeOwnerName(user.name) || (!config.AUTH_DEV_MODE && request.user.authMethod!=="google" && request.user.authMethod!=="otp" && !administrativeSessionValid(db,config,request.user))) {
+      if (!access || access.normalizedName!==normalizeOwnerName(user.name) || (!devAuthEnabled(config) && request.user.authMethod!=="google" && request.user.authMethod!=="otp" && !administrativeSessionValid(db,config,request.user))) {
         return reply.code(403).send({message:"Esta conta de participante não possui acesso administrativo ativo."});
       }
       return {

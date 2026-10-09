@@ -14,7 +14,9 @@ describe("Owner e acesso por grupo", () => {
       NODE_ENV: "test", DATABASE_PATH: ":memory:", AUTH_DEV_MODE: "true", PAYMENTS_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP: "true",
       OWNER_FABIO_NAME: ownerBody.name, OWNER_FABIO_ID: "fabio0", OWNER_FABIO_SECRET: ownerBody.secret, OWNER_FABIO_WHATSAPP: "5571999990001",
       OWNER_RAFAEL_NAME: "Rafael0", OWNER_RAFAEL_ID: "rafael0", OWNER_RAFAEL_SECRET:"rafael-own-secret-32-characters-long", OWNER_RAFAEL_WHATSAPP: "5571999990002",
-      OWNER_WHATSAPP: "5571999999000", MERCADO_PAGO_ACCESS_TOKEN: undefined, YOUTUBE_API_KEY: undefined
+      OWNER_WHATSAPP: "5571999999000", MERCADO_PAGO_ACCESS_TOKEN: undefined, YOUTUBE_API_KEY: undefined,
+      // AUDITORIA A-02: a credencial de atalho saiu do codigo-fonte e agora vem do ambiente.
+      OWNER_DEV_SECRET: "sosyout"
     }), db);
     const login = await app.inject({ method: "POST", url: "/admin/login", payload: ownerBody });
     expect(login.statusCode).toBe(200); ownerToken = login.json().token;
@@ -34,7 +36,7 @@ describe("Owner e acesso por grupo", () => {
     const token = await participant();
     expect((await app.inject({ method: "GET", url: "/admin/overview", headers: authorization(token) })).statusCode).toBe(401);
   });
-  it("Fabio0 e Rafael0 têm identidades separadas; sosyout funciona apenas no modo dev", async () => {
+  it("Fabio0 e Rafael0 têm identidades separadas; OWNER_DEV_SECRET funciona apenas no modo dev", async () => {
     const dev = await app.inject({ method:"POST", url:"/admin/login", payload:{ ...ownerBody, secret:"sosyout" } });
     expect(dev.statusCode).toBe(200);
     expect((await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Rafael0"}})).statusCode).toBe(401);

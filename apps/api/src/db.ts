@@ -308,6 +308,9 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("submissions", "author_channel_title", "TEXT");
   addColumn("submissions", "author_channel_thumbnail_url", "TEXT");
   addColumn("submissions", "author_admin_role", "TEXT");
+  // Duração confirmada pela YouTube Data API no momento da contribuição.
+  // NULL = contribuição anterior a esta migração ou sem YOUTUBE_API_KEY.
+  addColumn("submissions", "video_duration_seconds", "REAL");
   addColumn("payments", "product_code", "TEXT NOT NULL DEFAULT 'LEGACY'");
   addColumn("youtube_connections", "channel_id", "TEXT");
   addColumn("youtube_connections", "channel_title", "TEXT");

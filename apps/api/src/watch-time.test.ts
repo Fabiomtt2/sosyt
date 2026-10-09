@@ -35,12 +35,14 @@ describe("tempo verificado de acompanhamento",()=>{
     return {token:verified.json().token as string,userId:verified.json().user.id as string};
   }
 
-  async function readyRound(userId:string){
+  // AUDITORIA M-01: a duração passou a ser a confirmada pelo YouTube na contribuição.
+  // Os testes semeiam video_duration_seconds para refletir esse contrato.
+  async function readyRound(userId:string,durationSeconds=100){
     const round=db.prepare("SELECT id FROM rounds WHERE status='OPEN'").get() as {id:string};
     const stamp=new Date().toISOString();
     for(let slot=1;slot<=10;slot++) db.prepare(
-      "INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at) VALUES (?,?,?,?,?,?,?)"
-    ).run(randomUUID(),round.id,slot,userId,`https://youtu.be/time${String(slot).padStart(7,"0")}`,`time${String(slot).padStart(7,"0")}`,stamp);
+      "INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES (?,?,?,?,?,?,?,?)"
+    ).run(randomUUID(),round.id,slot,userId,`https://youtu.be/time${String(slot).padStart(7,"0")}`,`time${String(slot).padStart(7,"0")}`,stamp,durationSeconds);
     db.prepare("UPDATE rounds SET status='READY',completed_at=? WHERE id=?").run(stamp,round.id);
     db.prepare("INSERT INTO youtube_connections(user_id,refresh_token_cipher,scope,updated_at) VALUES (?,?,?,?)")
       .run(userId,encryptToken("refresh",config),"youtube",stamp);
@@ -100,7 +102,7 @@ describe("tempo verificado de acompanhamento",()=>{
   });
 
   it("concede uma moeda somente ao cruzar 20 minutos globais verificados e mantém ledger idempotente",async()=>{
-    const user=await register("71999999113"),roundId=await readyRound(user.userId),sessionId=randomUUID();
+    const user=await register("71999999113"),roundId=await readyRound(user.userId,300),sessionId=randomUUID();
     const base={sessionId,videoIndex:0,duration:300,playbackRate:1,playing:true,visible:true};
     await observe(user.token,roundId,{...base,playerSeconds:0});
     db.prepare("INSERT OR REPLACE INTO watch_time_totals(user_id,verified_millis,rewarded_coins,updated_at) VALUES (?,?,0,?)")
@@ -155,7 +157,7 @@ describe("tempo verificado de acompanhamento",()=>{
   });
 
   it("a última observação natural conclui a fila somente com cobertura dos dez vídeos",async()=>{
-    const user=await register("71999999117"),roundId=await readyRound(user.userId),sessionId=randomUUID();
+    const user=await register("71999999117"),roundId=await readyRound(user.userId,10),sessionId=randomUUID();
     const base={sessionId,videoIndex:9,duration:10,playbackRate:1,playing:true,visible:true};
     await observe(user.token,roundId,{...base,playerSeconds:0});
     const intervals=Object.fromEntries(Array.from({length:9},(_,index)=>[String(index),[[0,10]]]));

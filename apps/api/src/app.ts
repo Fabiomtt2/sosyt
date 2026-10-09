@@ -16,6 +16,7 @@ import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwner
 import { effectivePaymentConfig, effectiveWhatsAppConfig, initializeWhatsAppIntegration } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
+import { devAuthEnabled } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
 import { PAYMENT_PRODUCTS, createPixPayment, fetchPagBankWebhookPublicKey, fetchProviderPayment, verifyAsaasWebhookToken, verifyPagBankWebhookSignature, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
 import {
@@ -386,7 +387,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const user=getUser(db,request.user.sub);
     if(!user)return reply.code(401).send({message:"Sessão inválida ou expirada."});
     if(request.user.adminRole && !administrativeSessionValid(db,config,request.user)) return reply.code(401).send({message:"A permissão administrativa mudou. Entre novamente no painel Owner."});
-    if (!config.AUTH_DEV_MODE && !request.user.adminRole) {
+    if (!devAuthEnabled(config) && !request.user.adminRole) {
       const proof=request.user.authMethod;
       if (!proof || request.user.authPhone!==user.phone) return reply.code(401).send({message:"Confirme seu acesso por código WhatsApp ou por uma identidade Google já vinculada."});
       if (proof==="google" && !db.prepare("SELECT 1 FROM google_identities WHERE user_id=? AND google_sub=?").get(request.user.sub,request.user.googleSubject??"")) return reply.code(401).send({message:"A identidade Google mudou. Entre novamente."});
@@ -423,7 +424,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/health", async () => ({ ok: true }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    if (!config.AUTH_DEV_MODE) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
+    if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
     const body=requestCodeSchema.parse(request.body);
     const resolved=resolveGroupForPhone(db,body.phone);
     const groupCode=resolved.groupCode;
@@ -446,7 +447,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const runtimeWhatsApp=effectiveWhatsAppConfig(db,config);
-    if (!config.AUTH_DEV_MODE && (!whatsappConfigured(runtimeWhatsApp) || !runtimeWhatsApp.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({message:"A entrega WhatsApp ainda precisa ser configurada pelos Owners."});
+    if (!devAuthEnabled(config) && (!whatsappConfigured(runtimeWhatsApp) || !runtimeWhatsApp.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({message:"A entrega WhatsApp ainda precisa ser configurada pelos Owners."});
     const body=requestCodeSchema.extend({registration:z.boolean().default(false),consent:z.literal(true).optional()}).parse(request.body);
     if(body.registration&&!body.consent)return reply.code(400).send({message:"Autorize o uso do seu nome e WhatsApp para solicitar o cadastro."});
     const resolved=resolveGroupForPhone(db,body.phone);
@@ -464,11 +465,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     db.prepare(`INSERT INTO login_codes (id, phone, name, group_code, code_hash, expires_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(randomUUID(),body.phone,body.name,approved?groupCode!:"",codeHash(config,body.phone,code),new Date(now.getTime()+5*60_000).toISOString(),now.toISOString());
-    if (!config.AUTH_DEV_MODE) {
+    if (!devAuthEnabled(config)) {
       try { await sendWhatsAppOtp(runtimeWhatsApp,body.phone,code); }
       catch { db.prepare("UPDATE login_codes SET used_at=? WHERE phone=? AND used_at IS NULL").run(new Date().toISOString(),body.phone); return reply.code(503).send({ message: "Não foi possível entregar o código pelo WhatsApp. Tente novamente mais tarde." }); }
     }
-    return reply.send({ ok: true, expiresInSeconds: 300, ...(config.AUTH_DEV_MODE ? { devCode: code } : {}) });
+    return reply.send({ ok: true, expiresInSeconds: 300, ...(devAuthEnabled(config) ? { devCode: code } : {}) });
   });
 
   app.post("/auth/verify", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
@@ -520,7 +521,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return reply.send({ token: app.jwt.sign({ sub: user!.id, purpose: "session", aud: "conexao-session", authMethod:"otp", authPhone:row.phone }), user: getUser(db, user!.id) });
   });
 
-  app.delete("/profile/account", { preHandler: authGuard }, async (request, reply) => {
+  app.delete("/profile/account", { preHandler: authGuard, config: { rateLimit: { max: 5, timeWindow: "1 hour" } } }, async (request, reply) => {
     const body=z.object({confirmation:z.literal("DELETE_MY_ACCOUNT")}).parse(request.body);
     void body;
     const user=db.prepare("SELECT id,name,phone,group_code AS groupCode FROM users WHERE id=? AND deleted_at IS NULL").get(request.user.sub) as
@@ -567,7 +568,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return {ok:true,userId:user.id,deletedAt};
   });
 
-  app.put("/profile/avatar", { preHandler: authGuard }, async (request, reply) => {
+  app.put("/profile/avatar", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body=avatarSchema.parse(request.body);
     const now=new Date().toISOString();
     if (body.kind==="PRESET") {
@@ -589,12 +590,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return {avatar:getUser(db,request.user.sub)?.avatar};
   });
 
-  app.delete("/profile/avatar", { preHandler: authGuard }, async (request) => {
+  app.delete("/profile/avatar", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     db.prepare("DELETE FROM user_profiles WHERE user_id=?").run(request.user.sub);
     return {ok:true};
   });
 
-  app.get("/dashboard", { preHandler: authGuard }, async (request) => {
+  app.get("/dashboard", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     ensureOpenRound(db);
     await backfillActiveSubmissionMetadata(db,config.YOUTUBE_API_KEY);
     const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
@@ -673,7 +674,20 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const watchedSeconds=existing ? JSON.parse(existing.watchedSecondsJson) as number[] : Array(10).fill(0);
     const durations=existing ? JSON.parse(existing.durationsJson) as number[] : Array(10).fill(0);
     const intervals=parseWatchIntervals(existing?.observedIntervalsJson);
-    durations[body.videoIndex]=Math.max(durations[body.videoIndex] ?? 0,body.duration);
+
+    // AUDITORIA M-01: a duração nunca pode vir do cliente. Quando a YouTube Data API
+    // confirmou a duração na contribuição, ela é a única fonte de verdade e o valor do
+    // corpo da requisição é descartado. Sem duração verificada o progresso continua
+    // sendo exibido, mas a conclusão automática fica bloqueada (ver observedComplete).
+    const verifiedDurations=Array<number|undefined>(10).fill(undefined);
+    for (const row of db.prepare("SELECT slot, video_duration_seconds AS durationSeconds FROM submissions WHERE round_id=?")
+      .all(roundId) as Array<{slot:number;durationSeconds:number|null}>) {
+      const index=row.slot-1;
+      if (index>=0 && index<10 && typeof row.durationSeconds==="number" && row.durationSeconds>0) verifiedDurations[index]=row.durationSeconds;
+    }
+    const verifiedDuration=verifiedDurations[body.videoIndex];
+    const effectiveDuration=verifiedDuration ?? body.duration;
+    durations[body.videoIndex]=verifiedDuration ?? Math.max(durations[body.videoIndex] ?? 0,body.duration);
 
     const state=db.prepare(`SELECT session_id AS sessionId,round_id AS roundId,video_index AS videoIndex,
       player_seconds AS playerSeconds,duration_seconds AS durationSeconds,playback_rate AS playbackRate,active,observed_at AS observedAt
@@ -694,14 +708,18 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
     let acceptedMillis=0;
     const sameStream=Boolean(state && state.sessionId===body.sessionId && state.roundId===roundId && state.videoIndex===body.videoIndex);
+    // AUDITORIA M-03 (RETRATADO): NAO exigir body.playing aqui. O fim natural de um
+    // video chega como playing:false com playerSeconds==duration; exigir playing
+    // impediria o credito do trecho final e tornaria observedComplete inalcancavel.
+    // Comportamento intencional, coberto por watch-time.test.ts:157.
     if(sameStream && state!.active===1 && body.visible) {
       const serverDeltaMs=Math.max(0,nowMs-Date.parse(state!.observedAt));
       const playerDelta=body.playerSeconds-state!.playerSeconds;
       const rate=Math.max(0.25,Math.min(2,body.playbackRate));
       const maxNaturalAdvance=(serverDeltaMs/1000)*Math.max(rate,state!.playbackRate)+2;
       if(serverDeltaMs>=250 && serverDeltaMs<=WATCH_SESSION_STALE_MILLIS && playerDelta>0 && playerDelta<=maxNaturalAdvance) {
-        const start=Math.max(0,Math.min(state!.playerSeconds,body.duration));
-        const end=Math.max(start,Math.min(body.playerSeconds,body.duration));
+        const start=Math.max(0,Math.min(state!.playerSeconds,effectiveDuration));
+        const end=Math.max(start,Math.min(body.playerSeconds,effectiveDuration));
         const key=String(body.videoIndex);
         const merged=mergeWatchInterval(intervals[key] ?? [],start,end);
         if(merged.addedSeconds>0) {
@@ -710,7 +728,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           acceptedMillis=Math.max(0,Math.min(serverDeltaMs,uniqueWallMillis));
           watchedSeconds[body.videoIndex]=Math.max(
             watchedSeconds[body.videoIndex] ?? 0,
-            Math.min(durations[body.videoIndex] ?? body.duration,intervalCoverage(merged.intervals))
+            Math.min(durations[body.videoIndex] ?? effectiveDuration,intervalCoverage(merged.intervals))
           );
         }
       }
@@ -757,7 +775,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     })();
 
     const rewards=watchRewardView(db,request.user.sub);
-    const observedComplete=durations.every((duration,index)=>duration>0&&intervalCoverage(intervals[String(index)]??[])>=duration);
+    // AUDITORIA M-01: exige duração confirmada pelo YouTube nos dez slots. Antes, a
+    // conclusão era forjável declarando duration:1 em cada vídeo.
+    const observedComplete=verifiedDurations.every((duration,index)=>
+      typeof duration==="number" && duration>0 && intervalCoverage(intervals[String(index)]??[])>=duration);
     const finalization=observedComplete && acceptedMillis>0 ? db.transaction(()=>finalizeRoundTask(db,request.user.sub,roundId,"COMPLETE"))() : undefined;
     return {
       watchedSeconds,durations,percent,acceptedSeconds:acceptedMillis/1000,
@@ -807,7 +828,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     };
   });
 
-  app.post("/rounds/:id/watch-progress/abandon", { preHandler: authGuard }, async (request, reply) => {
+  app.post("/rounds/:id/watch-progress/abandon", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId=z.string().uuid().parse((request.params as {id:string}).id);
     const eligible=db.prepare(`SELECT 1 FROM submissions s JOIN rounds r ON r.id=s.round_id
       JOIN playlist_exports e ON e.round_id=r.id AND e.user_id=? AND e.status='SUCCESS'
@@ -822,7 +843,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return {...result,nextOpenRound:open};
   });
 
-  app.post("/rounds/:id/watch-progress/finalize", { preHandler: authGuard }, async (request, reply) => {
+  app.post("/rounds/:id/watch-progress/finalize", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId = z.string().uuid().parse((request.params as { id: string }).id);
     const eligible = db.prepare(`SELECT 1 FROM submissions s JOIN rounds r ON r.id=s.round_id
       JOIN playlist_exports e ON e.round_id=r.id AND e.user_id=? AND e.status='SUCCESS'
@@ -835,7 +856,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return db.transaction(() => finalizeRoundTask(db,request.user.sub,roundId,"MANUAL"))();
   });
 
-  app.post("/rounds/current/submissions", { preHandler: authGuard }, async (request, reply) => {
+  app.post("/rounds/current/submissions", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const body = submitSchema.parse(request.body);
     let verified: Awaited<ReturnType<typeof verifyYouTubeVideo>>;
     try { verified = await verifyYouTubeVideo(body.url, config.YOUTUBE_API_KEY); }
@@ -863,13 +884,15 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         const author=getUser(db,request.user.sub)!;
         db.prepare(`INSERT INTO submissions (
           id,round_id,slot,user_id,youtube_url,video_id,video_title,video_channel_title,video_thumbnail_url,
-          author_channel_title,author_channel_thumbnail_url,author_admin_role,created_at,author_name,author_group
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          author_channel_title,author_channel_thumbnail_url,author_admin_role,created_at,author_name,author_group,
+          video_duration_seconds
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(
             submissionId,open.id,next.slot,request.user.sub,verified.canonicalUrl,verified.videoId,
             verified.title ?? null,verified.channelTitle ?? null,verified.thumbnailUrl ?? null,
             author.youtubeChannel?.title ?? null,author.youtubeChannel?.thumbnailUrl ?? null,request.user.adminRole ?? null,
-            now,String(author.name),String(author.groupCode)
+            now,String(author.name),String(author.groupCode),
+            verified.durationSeconds ?? null
           );
         db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'SUBMISSION', -1000, ?, ?)")
           .run(randomUUID(), request.user.sub, submissionId, now);
@@ -1035,7 +1058,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return { ok:true };
   });
 
-  app.get("/youtube/connect", { preHandler: authGuard }, async (request) => {
+  app.get("/youtube/connect", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const query = z.object({ returnTo: z.enum(["app","web"]).default("web"), roundId: z.string().uuid().optional() }).parse(request.query);
     const returnTo = query.returnTo;
     if (query.roundId && !db.prepare("SELECT 1 FROM rounds r JOIN submissions s ON s.round_id=r.id WHERE r.id=? AND r.status='READY' AND s.user_id=?").get(query.roundId,request.user.sub)) throw Object.assign(new Error("Somente participantes de um ciclo completo podem criar sua playlist."),{statusCode:403});
@@ -1046,7 +1069,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return { url };
   });
 
-  app.get("/youtube/callback", async (request, reply) => {
+  app.get("/youtube/callback", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const query = z.object({ code: z.string().optional(), state: z.string(), error: z.string().optional() }).parse(request.query);
     const state = app.jwt.verify<{ sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string }>(query.state);
     if (state.purpose !== "youtube-oauth" || state.aud !== "conexao-oauth") return reply.code(400).send("Estado OAuth inválido.");
@@ -1068,7 +1091,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return reply.redirect(state.returnTo === "app" ? "conexaoyoutube://oauth?status=connected" : `${config.WEB_APP_URL}?youtube=connected${intent?.round_id ? `&round=${encodeURIComponent(intent.round_id)}` : ""}`);
   });
 
-  app.post("/rounds/:id/export", { preHandler: authGuard }, async (request, reply) => {
+  app.post("/rounds/:id/export", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const roundId = z.string().uuid().parse((request.params as { id: string }).id);
     const round = db.prepare("SELECT sequence, status FROM rounds WHERE id = ?").get(roundId) as { sequence: number; status: string } | undefined;
     if (!round || round.status !== "READY") return reply.code(409).send({ message: "Este ciclo ainda não está pronto." });

@@ -3,6 +3,7 @@ import { OAuth2Client } from "google-auth-library";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Config } from "./config.js";
+import { devAuthEnabled } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { normalizePhone } from "./phone.js";
 import { hasMembership, resolveGroupForPhone } from "./owner.js";
@@ -41,7 +42,7 @@ export function registerGoogleLogin(app:FastifyInstance,db:AppDatabase,config:Co
       :"Sua identidade Google foi confirmada. Um Owner vai conferir a associação com seu WhatsApp e grupo."});
   app.get("/auth/options",async()=>{
     const whatsapp=effectiveWhatsAppConfig(db,config);
-    return {googleRequired:false,proofRequired:!config.AUTH_DEV_MODE,googleConfigured:configured(),whatsappConfigured:Boolean(whatsappConfigured(whatsapp)&&whatsapp.WHATSAPP_OTP_TEMPLATE)};
+    return {googleRequired:false,proofRequired:!devAuthEnabled(config),googleConfigured:configured(),whatsappConfigured:Boolean(whatsappConfigured(whatsapp)&&whatsapp.WHATSAPP_OTP_TEMPLATE)};
   });
   app.post("/auth/google/start",{config:{rateLimit:{max:10,timeWindow:"10 minutes"}}},async(request,reply)=>{
     const body=z.object({name:z.string().trim().min(2).max(80),phone:z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/)),

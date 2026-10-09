@@ -33,7 +33,19 @@ export type YouTubeVideoInfo = {
   title?: string;
   channelTitle?: string;
   thumbnailUrl?: string;
+  /** Duração real informada pelo YouTube. Ausente quando não há YOUTUBE_API_KEY. */
+  durationSeconds?: number;
 };
+
+/** Converte a duração ISO-8601 da YouTube Data API (ex.: PT1H2M3S) em segundos. */
+export function parseIsoDurationSeconds(value?: string): number | undefined {
+  if (!value) return undefined;
+  const match = /^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(value.trim());
+  if (!match) return undefined;
+  const [, days, hours, minutes, seconds] = match;
+  const total = Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes ?? 0) * 60 + Number(seconds ?? 0);
+  return Number.isFinite(total) && total > 0 ? total : undefined;
+}
 
 export async function verifyYouTubeVideo(input: string, apiKey?: string): Promise<YouTubeVideoInfo> {
   const videoId = parseYouTubeVideoId(input);
@@ -43,20 +55,35 @@ export async function verifyYouTubeVideo(input: string, apiKey?: string): Promis
 
   if (apiKey) {
     const endpoint = new URL("https://www.googleapis.com/youtube/v3/videos");
-    endpoint.search = new URLSearchParams({ part: "id,status,snippet", id: videoId, key: apiKey }).toString();
+    endpoint.search = new URLSearchParams({ part: "id,status,snippet,contentDetails", id: videoId, key: apiKey }).toString();
     const response = await fetch(endpoint, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error("Não foi possível validar o vídeo no YouTube.");
-    const payload = (await response.json()) as { items?: Array<{ status?: { embeddable?: boolean }; snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; high?: { url?: string } } } }> };
+    const payload = (await response.json()) as { items?: Array<{
+      status?: { embeddable?: boolean; privacyStatus?: string; uploadStatus?: string };
+      contentDetails?: { duration?: string };
+      snippet?: { title?: string; channelTitle?: string; thumbnails?: { medium?: { url?: string }; high?: { url?: string } } } }> };
     const item=payload.items?.[0];
     if (!item) throw new Error("O vídeo não existe ou não está acessível.");
+    // A fila é assistida dentro do player incorporado: um vídeo sem incorporação
+    // ocuparia um slot pago e deixaria a rodada permanentemente inconcluível.
+    if (item.status?.embeddable === false) throw new Error("Este vídeo não permite reprodução incorporada. Escolha outro link.");
+    if (item.status?.privacyStatus === "private") throw new Error("Este vídeo é privado e não pode ser assistido pela fila.");
+    if (item.status?.uploadStatus && item.status.uploadStatus !== "processed") throw new Error("Este vídeo ainda não está disponível no YouTube. Tente novamente mais tarde.");
+    const durationSeconds=parseIsoDurationSeconds(item.contentDetails?.duration);
+    if (durationSeconds === undefined) throw new Error("Não foi possível confirmar a duração do vídeo no YouTube.");
     return {
-      videoId,canonicalUrl,
+      videoId,canonicalUrl,durationSeconds,
       title:item.snippet?.title,
       channelTitle:item.snippet?.channelTitle,
       thumbnailUrl:item.snippet?.thumbnails?.high?.url ?? item.snippet?.thumbnails?.medium?.url ?? fallbackThumbnail
     };
   }
 
+  // AUDITORIA M-06: sem YOUTUBE_API_KEY este era o único caminho, e o catch vazio
+  // aceitava o vídeo mesmo quando o oEmbed falhava — bastava um ID de 11 caracteres
+  // sintaticamente válido para ocupar um slot pago com um vídeo inexistente, tornando
+  // a rodada inconcluível. Agora exige-se confirmação positiva de existência.
+  let oembedFailure: "MISSING" | "UNAVAILABLE" = "UNAVAILABLE";
   try {
     const endpoint=new URL("https://www.youtube.com/oembed");
     endpoint.search=new URLSearchParams({url:canonicalUrl,format:"json"}).toString();
@@ -65,8 +92,11 @@ export async function verifyYouTubeVideo(input: string, apiKey?: string): Promis
       const payload=await response.json() as { title?:string; author_name?:string; thumbnail_url?:string };
       return {videoId,canonicalUrl,title:payload.title,channelTitle:payload.author_name,thumbnailUrl:payload.thumbnail_url ?? fallbackThumbnail};
     }
-  } catch { /* Metadata enrichment is optional when no API key is configured. */ }
-  return {videoId,canonicalUrl,thumbnailUrl:fallbackThumbnail};
+    // 401/403/404 do oEmbed indicam vídeo inexistente, privado ou sem incorporação.
+    if (response.status===404 || response.status===401 || response.status===403) oembedFailure="MISSING";
+  } catch { /* falha de rede ou timeout: tratada como indisponibilidade temporária */ }
+  if (oembedFailure==="MISSING") throw new Error("O vídeo não existe, é privado ou não permite incorporação.");
+  throw new Error("Não foi possível confirmar este vídeo no YouTube agora. Tente novamente em instantes.");
 }
 
 function encryptionKey(config: Config): Buffer {
