@@ -1855,69 +1855,94 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .watch-time-summary span{font-size:.82rem;font-weight:700}.watch-time-summary strong{font-size:1.5rem}.watch-time-summary small,.watch-time-summary p{font-size:.8rem;line-height:1.55;margin:0;color:#675973}
 .watch-time-summary progress{width:100%;height:8px;accent-color:#8551a7}
 
-/* ===== AUDITORIA / Chat global translúcido, sempre visível ===== */
-.global-chat{position:fixed;right:18px;bottom:18px;width:min(360px,92vw);z-index:60;
-  display:flex;flex-direction:column;max-height:min(70vh,560px);
-  background:rgba(255,253,250,.72);backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1);
-  border:1px solid rgba(23,32,51,.10);border-radius:18px;box-shadow:0 18px 50px -20px rgba(23,32,51,.45);overflow:hidden}
-:root[data-theme="dark"] .global-chat,.global-chat.dark{background:rgba(18,22,32,.66);border-color:rgba(255,255,255,.08)}
-.global-chat.closed{max-height:none}
-.gc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
-  padding:11px 14px;border:0;background:rgba(231,43,59,.08);color:var(--ink);cursor:pointer;font:inherit}
-.gc-title{display:flex;align-items:center;gap:7px;font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.95rem}
-.gc-head-right{display:flex;align-items:center;gap:8px}
-.gc-live{font-style:normal;font-size:.62rem;font-weight:700;color:#179a5b;background:rgba(23,154,91,.12);padding:2px 7px;border-radius:999px;text-transform:uppercase;letter-spacing:.06em}
-.gc-live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#19b267;margin-right:5px;vertical-align:middle;animation:gc-pulse 1.6s infinite}
-@keyframes gc-pulse{0%,100%{opacity:1}50%{opacity:.35}}
-.gc-badge{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--red);color:#fff;font-size:.72rem;font-weight:800;display:grid;place-items:center}
-.gc-pinned{display:flex;flex-direction:column;gap:4px;padding:8px 12px;background:rgba(214,167,61,.12);border-bottom:1px solid rgba(214,167,61,.25)}
-.gc-pinned-item{display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--ink);min-width:0}
-.gc-pinned-item .gc-name{white-space:nowrap;flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;font-size:.78rem}
-.gc-pinned-item .gc-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
-.gc-pinned-item svg{flex:0 0 auto}
-.gc-stream{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 12px 16px;display:flex;flex-direction:column;gap:11px;scroll-behavior:smooth;overscroll-behavior:contain}
-.gc-empty{color:var(--muted);text-align:center;font-size:.85rem;margin:18px 0}
-.gc-msg{display:flex;gap:9px;align-items:flex-start}
+/* ===== AUDITORIA / Chat global: faixa fixa full-width, vidro preto =====
+   Canal GLOBAL ocupa a largura da pagina, fixo no rodape (nao acompanha o
+   scroll) e abaixo das filas na hierarquia visual: a fila e a prioridade, o
+   chat e companhia. Vidro preto translucido + blur + sangria nas bordas para
+   nao competir com o conteudo e permitir mensagens longas sem quebra estreita. */
+.global-chat{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;flex-direction:column;
+  color:#eef1f6;
+  background:linear-gradient(180deg,rgba(6,8,13,.88),rgba(3,5,9,.95));
+  backdrop-filter:blur(26px) saturate(1.2);-webkit-backdrop-filter:blur(26px) saturate(1.2);
+  border-top:1px solid rgba(255,255,255,.10);
+  box-shadow:0 -22px 60px -30px rgba(0,0,0,.85);
+  transition:max-height .22s ease}
+.global-chat.open{max-height:min(42vh,420px)}
+.global-chat.closed{max-height:52px}
+/* sangria: as bordas laterais e o topo do stream dissolvem no fundo */
+.global-chat::before{content:"";position:absolute;left:0;right:0;top:-40px;height:40px;pointer-events:none;
+  background:linear-gradient(180deg,transparent,rgba(3,5,9,.55))}
+.gc-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+  padding:0 clamp(14px,4vw,40px);height:52px;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit}
+.gc-title{display:flex;align-items:center;gap:8px;font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.95rem;color:#fff}
+.gc-head-right{display:flex;align-items:center;gap:10px}
+.gc-live{font-style:normal;font-size:.62rem;font-weight:700;color:#7ff0b5;background:rgba(25,178,103,.18);padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.07em}
+.gc-live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#28e089;margin-right:6px;vertical-align:middle;animation:gc-pulse 1.6s infinite}
+@keyframes gc-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.gc-badge{min-width:20px;height:20px;padding:0 7px;border-radius:999px;background:var(--red);color:#fff;font-size:.72rem;font-weight:800;display:grid;place-items:center}
+.gc-pinned{display:flex;gap:18px;padding:8px clamp(14px,4vw,40px);background:rgba(0,0,0,.35);
+  border-top:1px solid rgba(232,196,91,.22);border-bottom:1px solid rgba(232,196,91,.22);
+  box-shadow:inset 3px 0 0 #e8c45b;overflow-x:auto}
+.gc-pinned-item{display:flex;align-items:center;gap:7px;font-size:.79rem;color:#f6e6b8;min-width:0;white-space:nowrap}
+.gc-pinned-item .gc-name{color:#ffe9a8;font-size:.79rem;white-space:nowrap;flex:0 0 auto}
+.gc-pinned-item .gc-text{color:#f1e3bd;overflow:hidden;text-overflow:ellipsis;max-width:46ch}
+.gc-pinned-item svg{flex:0 0 auto;color:#e8c45b}
+/* stream em largura de leitura confortavel, com sangria no topo */
+.gc-stream{flex:1;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:14px;
+  padding:16px clamp(14px,4vw,40px) 18px;scroll-behavior:smooth;overscroll-behavior:contain;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px);mask-image:linear-gradient(180deg,transparent 0,#000 18px)}
+.gc-stream::-webkit-scrollbar{width:8px}
+.gc-stream::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px}
+.gc-empty{color:rgba(238,241,246,.5);text-align:center;font-size:.88rem;margin:14px 0}
+.gc-msg{display:flex;gap:12px;align-items:flex-start;max-width:1180px;width:100%;margin:0 auto}
 .gc-avatar-btn{position:relative;flex:0 0 auto;border:0;background:none;padding:0;cursor:pointer;border-radius:50%}
-.gc-avatar{width:34px;height:34px}
-.gc-avatar-btn.has-admin-badge{box-shadow:0 0 0 2px #e8c45b,0 0 0 4px rgba(232,196,91,.35);border-radius:50%}
-.gc-admin-badge{position:absolute;bottom:-5px;left:50%;transform:translateX(-50%) scale(.68);margin:0}
-.gc-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
-.gc-meta{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
-/* FONTES DISTINTAS: nome em Manrope, texto em DM Sans */
-.gc-name{font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.86rem;color:var(--ink);word-break:break-word}
-.gc-group{font-size:.62rem;font-weight:700;color:var(--muted);background:rgba(23,32,51,.07);padding:1px 6px;border-radius:999px}
-.gc-role-tag{font-size:.62rem;font-weight:800;color:#7a5a00;background:linear-gradient(90deg,#f7e3a1,#e8c45b);padding:1px 7px;border-radius:999px;letter-spacing:.04em;text-transform:uppercase}
-.gc-time{margin-left:auto;font-size:.66rem;color:var(--muted)}
-.gc-text{font-family:"DM Sans",sans-serif;font-size:.9rem;line-height:1.4;color:var(--ink);white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
-/* Faixa dourada do ADMIN: destaque absoluto, à prova de quebra de linha */
-/* Faixa dourada SEMPRE clara (contraste garantido com texto escuro).
-   O brilho anima numa camada separada, nunca escurecendo o fundo do texto. */
-.gc-admin-banner{position:relative;border-radius:12px;padding:9px 13px 9px 16px;overflow:hidden;isolation:isolate;
+.gc-avatar{width:36px;height:36px}
+.gc-avatar-btn.has-admin-badge{box-shadow:0 0 0 2px #e8c45b,0 0 0 5px rgba(232,196,91,.28);border-radius:50%}
+.gc-admin-badge{position:absolute;bottom:-6px;left:50%;transform:translateX(-50%) scale(.7);margin:0}
+.gc-bubble{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.gc-meta{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+/* FONTES DISTINTAS: nome em Manrope, mensagem em DM Sans */
+.gc-name{font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.9rem;color:#fff;word-break:break-word}
+.gc-group{font-size:.62rem;font-weight:700;color:rgba(238,241,246,.72);background:rgba(255,255,255,.10);padding:2px 7px;border-radius:999px}
+.gc-role-tag{font-size:.62rem;font-weight:800;color:#4a3600;background:linear-gradient(90deg,#f7e3a1,#e8c45b);padding:2px 8px;border-radius:999px;letter-spacing:.05em;text-transform:uppercase}
+.gc-time{margin-left:auto;font-size:.68rem;color:rgba(238,241,246,.45)}
+.gc-text{font-family:"DM Sans",sans-serif;font-size:.95rem;line-height:1.5;color:rgba(238,241,246,.92);
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-width:92ch}
+/* Faixa dourada do ADMIN: clara (contraste garantido) com brilho em camada propria */
+.gc-admin-banner{position:relative;border-radius:12px;padding:10px 16px 10px 18px;overflow:hidden;isolation:isolate;max-width:92ch;
   background:linear-gradient(100deg,#fbeec2,#f1d685,#fff6da,#f1d685,#fbeec2);
-  background-size:220% 100%;animation:gc-gold 7s linear infinite;
-  border-left:4px solid #c9a233;
-  box-shadow:inset 0 0 0 1px rgba(201,162,51,.45),0 6px 18px -10px rgba(138,109,18,.45)}
+  background-size:220% 100%;animation:gc-gold 7s linear infinite;border-left:4px solid #c9a233;
+  box-shadow:inset 0 0 0 1px rgba(201,162,51,.45),0 10px 26px -14px rgba(232,196,91,.65)}
 .gc-admin-banner::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
   background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.75) 50%,transparent 70%);
   background-size:220% 100%;animation:gc-sheen 4.5s linear infinite;mix-blend-mode:overlay}
 @keyframes gc-gold{0%{background-position:0% 50%}100%{background-position:220% 50%}}
 @keyframes gc-sheen{0%{background-position:220% 50%}100%{background-position:0% 50%}}
-@media (prefers-reduced-motion:reduce){.gc-admin-banner,.gc-admin-banner::after{animation:none}}
-.gc-text-admin{color:#3a2b00;font-weight:600;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;display:block;position:relative;z-index:1}
-.gc-msg-staff .gc-name{color:#7a5a00}
-.gc-msg-pinned .gc-bubble{outline:1px dashed rgba(214,167,61,.5);outline-offset:4px;border-radius:8px}
-.gc-mod{display:flex;gap:4px;margin-top:4px;opacity:.55;transition:opacity .15s}
-.gc-msg:hover .gc-mod{opacity:1}
-.gc-mod button{border:0;background:rgba(23,32,51,.06);color:var(--ink);border-radius:7px;padding:3px 6px;cursor:pointer;display:grid;place-items:center}
-.gc-mod button:hover{background:rgba(231,43,59,.14);color:var(--red)}
-.gc-admin-tools{padding:6px 12px;border-top:1px solid rgba(23,32,51,.08)}
-.gc-admin-tools button{border:0;background:rgba(231,43,59,.1);color:var(--red);border-radius:8px;padding:5px 10px;font-size:.76rem;font-weight:700;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
-.gc-input{display:flex;gap:7px;padding:10px 12px;border-top:1px solid rgba(23,32,51,.08);background:rgba(255,255,255,.35)}
-.gc-input input{flex:1;min-width:0;border:1px solid rgba(23,32,51,.14);border-radius:10px;padding:9px 11px;font:inherit;font-size:.88rem;background:rgba(255,255,255,.7)}
-.gc-send{flex:0 0 auto;border:0;border-radius:10px;width:40px;display:grid;place-items:center;background:var(--red);color:#fff;cursor:pointer}
-.gc-send:disabled{opacity:.45;cursor:not-allowed}
-.gc-error{color:var(--red);font-size:.78rem;padding:0 12px 8px;display:flex;align-items:center;gap:5px}
-.gc-note{color:var(--muted);font-size:.68rem;padding:0 12px 10px;display:block}
-.gc-removed{display:flex;align-items:center;gap:8px;padding:12px 14px;color:var(--muted);font-size:.84rem}
-@media (max-width:560px){.global-chat{right:0;left:0;bottom:0;width:100%;max-height:60vh;border-radius:16px 16px 0 0}}
+@media (prefers-reduced-motion:reduce){.gc-admin-banner,.gc-admin-banner::after,.gc-live::before{animation:none}}
+.gc-text-admin{color:#3a2b00;font-weight:600;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;display:block;position:relative;z-index:1;font-size:.95rem;line-height:1.5}
+.gc-msg-staff .gc-name{color:#ffe9a8}
+.gc-msg-pinned .gc-bubble{outline:1px dashed rgba(232,196,91,.45);outline-offset:6px;border-radius:10px}
+.gc-mod{display:flex;gap:5px;margin-top:5px;opacity:0;transition:opacity .15s}
+.gc-msg:hover .gc-mod,.gc-msg:focus-within .gc-mod{opacity:1}
+.gc-mod button{border:0;background:rgba(255,255,255,.10);color:rgba(238,241,246,.85);border-radius:7px;padding:4px 7px;cursor:pointer;display:grid;place-items:center}
+.gc-mod button:hover{background:rgba(231,43,59,.35);color:#fff}
+.gc-admin-tools{padding:8px clamp(14px,4vw,40px);background:rgba(0,0,0,.40);border-top:1px solid rgba(255,255,255,.07);flex:0 0 auto}
+.gc-admin-tools button{border:0;background:rgba(231,43,59,.22);color:#ffb3ba;border-radius:8px;padding:6px 12px;font-size:.76rem;font-weight:700;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.gc-input{display:flex;gap:10px;padding:10px clamp(14px,4vw,40px) 14px;border-top:1px solid rgba(255,255,255,.08)}
+.gc-input input{flex:1;min-width:0;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px 14px;font:inherit;font-size:.92rem;
+  background:rgba(255,255,255,.07);color:#fff}
+.gc-input input::placeholder{color:rgba(238,241,246,.45)}
+.gc-input input:focus{outline:2px solid rgba(231,43,59,.55);outline-offset:1px;background:rgba(255,255,255,.1)}
+.gc-send{flex:0 0 auto;border:0;border-radius:12px;width:52px;display:grid;place-items:center;background:var(--red);color:#fff;cursor:pointer}
+.gc-send:disabled{opacity:.4;cursor:not-allowed}
+.gc-error{color:#ff9aa4;font-size:.8rem;padding:0 clamp(14px,4vw,40px) 10px;display:flex;align-items:center;gap:6px}
+.gc-note{color:rgba(238,241,246,.5);font-size:.7rem;padding:0 clamp(14px,4vw,40px) 12px;display:block}
+.global-chat.removed{padding:0}
+.gc-removed{display:flex;align-items:center;gap:9px;padding:16px clamp(14px,4vw,40px);color:rgba(238,241,246,.75);font-size:.88rem}
+/* o conteudo da pagina nunca fica escondido atras da faixa fixa */
+.app-shell{padding-bottom:clamp(64px,14vh,150px)}
+@media (max-width:560px){
+  .global-chat.open{max-height:52vh}
+  .gc-text,.gc-text-admin{font-size:.92rem}
+  .gc-pinned-item .gc-text{max-width:30ch}
+}
