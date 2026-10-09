@@ -43,7 +43,11 @@ export const api = {
   login: (body: { name: string; phone: string }) => request<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   requestCode: (body: { name: string; phone: string; registration?:boolean; consent?:true }) => request<{ devCode?: string; expiresInSeconds:number }>("/auth/request-code", { method: "POST", body: JSON.stringify(body) }),
   verifyCode: (body: { phone: string; code: string }) => request<{ token?: string; participation?:ParticipationStatus }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
-  dashboard: () => request<Dashboard>("/dashboard"),
+  dashboard: (roundId?: string) => request<Dashboard>("/dashboard" + (roundId ? ("?roundId=" + encodeURIComponent(roundId)) : "")),
+  queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number }>("/queues/mine"),
+  queueSkip: () => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST" }),
+  giftItem: (toUserId: string, itemCode: string, quantity = 1) =>
+    request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity }) }),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
   createPix: (email: string, cpf: string, product: string) => request<Pix>("/payments/pix", { method: "POST", body: JSON.stringify({ email, cpf, product }) }),
   chatList: (afterId?: string) => request<ChatState>("/chat/global" + (afterId ? ("?afterId=" + encodeURIComponent(afterId)) : "")),
@@ -75,6 +79,8 @@ export type UserAvatar =
   | { kind:"PRESET"; presetId:string }
   | { kind:"CUSTOM"; dataUrl:string };
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
+export type MyQueue = { id: string; number: number; status: string; vacancies: number };
+export type QueuesState = { current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number };
 export type ChatRole = "USER" | "ADMIN" | "OWNER";
 export type ChatSender = { id: string; name: string; groupCode: string; avatar: UserAvatar | null };
 export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
@@ -94,7 +100,7 @@ export type WatchRewards = {verifiedSeconds:number;coins:number;secondsToNextRew
 export type WatchObservationResult = WatchProgressState & WatchRewards & {
   acceptedSeconds:number;sessionConflict?:boolean;
 };
-export type Round = { id:string;sequence:number;status:"OPEN"|"READY";slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
+export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
 export type UserProfileSummary = {
   activity:{ submissions:number; rounds:number; playlists:number; completedTasks:number };
   adminAccess?:{role:"ROOT_OWNER"|"ADMIN_OWNER"};
@@ -115,6 +121,7 @@ export type Dashboard = {
   viewer: { contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
   profile?: UserProfileSummary;
   watchRewards:WatchRewards;
+  queues:QueuesState;
   commerce:{pixAvailable:boolean;provider:"MERCADO_PAGO"|"ASAAS"|"PAGBANK"|"DISABLED"|"DEMO";products:CommerceProduct[]};
 };
 export type Pix = {

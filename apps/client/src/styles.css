@@ -1966,3 +1966,27 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .avatar-lightbox-actions button{border:0;border-radius:10px;padding:9px 14px;font:inherit;font-size:.85rem;font-weight:700;cursor:pointer;
   background:var(--red);color:#fff}
 .avatar-lightbox-actions button.secondary{background:rgba(23,32,51,.08);color:var(--ink)}
+
+/* ===== AUDITORIA / seletor de filas (tema creme/vermelho do ASTRA) ===== */
+.queue-switcher{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;
+  display:flex;flex-direction:column;gap:11px}
+.qs-head{display:flex;align-items:center;gap:8px;color:var(--ink)}
+.qs-head strong{font-family:Manrope,sans-serif;letter-spacing:-.02em;font-size:.95rem}
+.qs-head svg{color:var(--red)}
+.qs-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.qs-tab{display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1px solid var(--line);background:#fff;
+  border-radius:12px;padding:8px 14px;cursor:pointer;font:inherit;color:var(--ink);transition:border-color .15s,box-shadow .15s}
+.qs-tab b{font-family:Manrope,sans-serif;font-size:.92rem;letter-spacing:-.02em}
+.qs-tab small{color:var(--muted);font-size:.7rem}
+.qs-tab:hover{border-color:rgba(231,43,59,.45)}
+.qs-tab.active{border-color:var(--red);box-shadow:0 0 0 3px rgba(231,43,59,.12)}
+.qs-tab.active b{color:var(--red)}
+.qs-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.qs-skip{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:11px;padding:9px 14px;cursor:pointer;
+  font:inherit;font-size:.86rem;font-weight:700;background:var(--red);color:#fff}
+.qs-skip:disabled{opacity:.6;cursor:not-allowed}
+.qs-skip-count{background:rgba(255,255,255,.22);border-radius:999px;padding:1px 8px;font-size:.72rem}
+.qs-locked{margin:0;color:var(--muted);font-size:.8rem;display:flex;align-items:center;gap:7px;line-height:1.4}
+.qs-locked svg{flex:0 0 auto}
+.qs-error{margin:0;color:var(--red);font-size:.8rem}
+@media (max-width:560px){.qs-tabs{overflow-x:auto;flex-wrap:nowrap}.qs-tab{flex:0 0 auto}}

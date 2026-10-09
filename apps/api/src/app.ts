@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, n
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
-import { myRounds, currentRoundFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
+import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -274,7 +274,8 @@ function finalizeRoundTask(db: AppDatabase, userId: string, roundId: string, rea
 }
 
 function roundView(db: AppDatabase, roundId: string, includeAdminPrivate=false) {
-  const round = db.prepare("SELECT id, sequence, status, created_at AS createdAt, completed_at AS completedAt FROM rounds WHERE id = ?").get(roundId) as Row;
+  // AUDITORIA / multi-fila: `number` e o rotulo que o usuario ve; `sequence` segue interno.
+  const round = db.prepare("SELECT id, sequence, COALESCE(display_number, sequence) AS number, status, created_at AS createdAt, completed_at AS completedAt FROM rounds WHERE id = ?").get(roundId) as Row;
   const raw = db.prepare(`SELECT s.id,s.slot,s.youtube_url AS youtubeUrl,s.video_id AS videoId,
     s.video_title AS videoTitle,s.video_channel_title AS videoChannelTitle,
     COALESCE(s.video_thumbnail_url,'https://i.ytimg.com/vi/' || s.video_id || '/hqdefault.jpg') AS videoThumbnailUrl,
@@ -820,7 +821,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/dashboard", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     ensureOpenRound(db);
     await backfillActiveSubmissionMetadata(db,effectiveYouTubeApiKey(db,config));
-    const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
+    // AUDITORIA / multi-fila: o quadro mostra a fila DO USUARIO (ou a que ele pediu
+    // pelo seletor), nunca "a fila mais nova do sistema". Leitura pura: olhar a tela
+    // nao inscreve ninguem em fila alguma.
+    const preferId = typeof (request.query as { roundId?: string }).roundId === "string" ? (request.query as { roundId: string }).roundId : undefined;
+    const viewRound = currentRoundViewFor(db, request.user.sub, preferId);
+    const open = viewRound ? { id: viewRound.id } : db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
     const ready = request.user.adminRole
       ? db.prepare("SELECT id FROM rounds WHERE status='READY' ORDER BY sequence DESC LIMIT 8").all() as Array<{id:string}>
       : db.prepare(`SELECT DISTINCT r.id FROM rounds r
@@ -875,6 +881,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       viewer: { contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
       profile: profileSummary(db,request.user.sub),
       watchRewards: watchRewardView(db,request.user.sub),
+      // AUDITORIA / multi-fila: navegacao entre as filas do proprio usuario.
+      queues: {
+        current: viewRound ? { id: viewRound.id, number: viewRound.displayNumber, status: viewRound.status } : null,
+        mine: myRounds(db, request.user.sub).map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
+        skipsAvailable: itemQuantity(db, request.user.sub, ITEM_SKIP)
+      },
       commerce
     };
   });

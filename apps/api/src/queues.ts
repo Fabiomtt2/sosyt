@@ -126,6 +126,23 @@ export function currentRoundFor(db: AppDatabase, userId: string): QueueRow | und
 }
 
 /**
+ * Variante de leitura de `currentRoundFor`: NÃO inscreve ninguém. O dashboard
+ * precisa disso — só de olhar a tela, ninguém deve entrar numa fila.
+ * `preferId` permite ao cliente pedir uma fila específica entre as dele.
+ */
+export function currentRoundViewFor(db: AppDatabase, userId: string, preferId?: string): QueueRow | undefined {
+  const mine = myRounds(db, userId);
+  if (preferId) {
+    const chosen = mine.find((r) => r.id === preferId);
+    if (chosen) return chosen;
+  }
+  const open = mine.find((r) => r.status === "OPEN");
+  if (open) return open;
+  if (mine.length) return mine[0];
+  return activeRounds(db).find((r) => r.status === "OPEN" && vacanciesIn(db, r.id) > 0);
+}
+
+/**
  * Destino do "Pular": a próxima fila OPEN com vaga em que o usuário AINDA não
  * está; se não houver, cria uma nova. Não consome o item — quem consome é a rota.
  */

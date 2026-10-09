@@ -418,7 +418,7 @@ export function createDatabase(filename: string): AppDatabase {
     seed.run("PASS_SINGLE","1 passe","Um passe avulso (legado).",2000,0,1,0,91,"pass-single",now);
     // Item "Pular": permite entrar em outra fila sem ter concluido 100% da atual.
     db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
-      VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas.',500,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);
+      VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas e pode alternar entre elas.',2000,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);
   }
 
   db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (

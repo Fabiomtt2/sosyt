@@ -122,7 +122,12 @@ describe("regressões de domínio e segurança", () => {
       expect(result.statusCode).toBe(201); expect(result.json().slot).toBe(index);
     }
     const view = await dashboard(users[0].token);
-    expect(view.openRound.sequence).toBe(2); expect(view.readyRounds[0].slots).toHaveLength(10);
+    // AUDITORIA / multi-fila: ao encher, o participante continua vendo A PROPRIA fila
+    // (agora READY). A Fila 2 existe no sistema, mas NAO aparece para quem nao usou
+    // o item "Pular" — regra de visibilidade confirmada pelo owner.
+    expect(view.openRound.number).toBe(1);
+    expect(view.queues.mine.map((q: { number: number }) => q.number)).toEqual([1]);
+    expect(view.readyRounds[0].slots).toHaveLength(10);
     expect(view.wallet).toMatchObject({ promo: 9, reward: 1, total: 10, extraPasses: 0 });
     await dashboard(users[0].token);
     expect((await dashboard(users[0].token)).wallet.reward).toBe(1);

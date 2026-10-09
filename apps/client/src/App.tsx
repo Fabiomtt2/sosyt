@@ -11,6 +11,7 @@ import { AvatarModal, UserAvatarView } from "./AvatarModal";
 import { PurchaseModal } from "./PurchaseModal";
 import { StoreModal } from "./StoreModal";
 import { GlobalChat } from "./GlobalChat";
+import { QueueSwitcher } from "./QueueSwitcher";
 import { UserWelcomeCarousel } from "./UserWelcomeCarousel";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { UserWallet } from "./UserWallet";
@@ -422,7 +423,8 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
   const [adminGroups,setAdminGroups]=useState<OwnerOverview["groups"]>([]);
   const returnedIntentHandled = useRef(false);
   const creationModalRef=useModalLifecycle(()=>setCreationRound(undefined),Boolean(creationRound),!busy);
-  const load = useCallback(async () => { try { setData(await api.dashboard()); setError(""); } catch (cause) { if (cause instanceof ApiError && cause.status === 423 && typeof cause.data.cooldownUntil === "string") onCooldown(cause.data.cooldownUntil); else if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) onLogout(); else setError(cause instanceof Error ? cause.message : "Falha ao carregar."); } }, [onLogout,onCooldown]);
+  const [selectedQueue,setSelectedQueue]=useState<string|undefined>();   // AUDITORIA: fila escolhida no seletor
+  const load = useCallback(async () => { try { setData(await api.dashboard(selectedQueue)); setError(""); } catch (cause) { if (cause instanceof ApiError && cause.status === 423 && typeof cause.data.cooldownUntil === "string") onCooldown(cause.data.cooldownUntil); else if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) onLogout(); else setError(cause instanceof Error ? cause.message : "Falha ao carregar."); } }, [onLogout,onCooldown,selectedQueue]);
   useEffect(() => { void load(); const timer = window.setInterval(load, 20_000); return () => window.clearInterval(timer); }, [load]);
   useEffect(() => { if (!Capacitor.isNativePlatform()) return; const listener = CapacitorApp.addListener("appUrlOpen", async ({ url }) => { if (url.startsWith("conexaoyoutube://oauth")) { await Browser.close(); await load(); } }); return () => { void listener.then((handle) => handle.remove()); }; }, [load]);
 
@@ -483,12 +485,13 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
     <main className="dashboard">
       {(!hasPendingTask || administrativeParticipant) ? <>
         <UserWelcomeCarousel/>
+        <QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>
         <section className="hero-row queue-hero">
-          <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.sequence}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>
+          <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.number}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>
           <UserWallet wallet={data.wallet} onOpenStore={()=>setShowStore(true)}/>
         </section>
         <section className="progress-card"><div className="progress-copy"><strong>{filled} de 10 vídeos</strong><span>{10 - filled} espaços restantes</span></div><div className="progress-track"><i style={{ width: `${filled * 10}%` }} /></div></section>
-        {data.openRound.sequence > 1 && <div className="queue-context" role="status"><div className="queue-pill">FILA {data.openRound.sequence}</div><div><strong>A Fila {data.openRound.sequence - 1} já foi concluída.</strong><span>Você está agora na Fila {data.openRound.sequence}. Contribua com sua URL quando o próximo espaço estiver disponível ou aguarde os demais participantes completarem esta seleção para liberar sua playlist customizável e novas recompensas.</span></div></div>}
+        {data.openRound.number > 1 && <div className="queue-context" role="status"><div className="queue-pill">FILA {data.openRound.number}</div><div><strong>A Fila {data.openRound.number - 1} já foi concluída.</strong><span>Você está agora na Fila {data.openRound.number}. Contribua com sua URL quando o próximo espaço estiver disponível ou aguarde os demais participantes completarem esta seleção para liberar sua playlist customizável e novas recompensas.</span></div></div>}
         {!eligible && !data.wallet.paymentHold && <div className="notice"><LockKeyhole size={19} /><span>{data.wallet.total<1 ? "Você precisa de pelo menos 1 moeda para salvar uma URL." : "Você já participou desta fila. Aguarde os demais ou use um passe comprado para contribuir novamente."}</span></div>}
         {administrativeParticipant && <div className="admin-participant-note"><ShieldCheck size={18}/><div><strong>Modo ADMIN ativo</strong><span>Você pode contribuir novamente nesta fila sem consumir passe. Cada URL continua usando 1 moeda e vídeos duplicados continuam bloqueados.</span></div></div>}
         {data.wallet.paymentHold && <div className="notice" role="status"><ShieldCheck size={19} /><span>Carteira em revisão por atualização de um pagamento. Novas contribuições ficam suspensas até a conciliação.</span></div>}
