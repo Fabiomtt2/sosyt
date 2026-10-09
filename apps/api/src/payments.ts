@@ -18,11 +18,9 @@ export type PixResult = {
   ticketUrl?: string;
 };
 
-export type PaymentProductCode = "COINS_LAUNCH" | "PASS_SINGLE";
-export const PAYMENT_PRODUCTS: Record<PaymentProductCode,{ amountCents:number; creditsMillis:number; extraPasses:number; description:string; itemReference:string }> = {
-  COINS_LAUNCH:{amountCents:2000,creditsMillis:10000,extraPasses:1,description:"Promoção de lançamento — 10 moedas + 1 passe bônus",itemReference:"coins-launch-10"},
-  PASS_SINGLE:{amountCents:2000,creditsMillis:0,extraPasses:1,description:"Passe SOS YouTuber — 1 passe",itemReference:"pass-single"}
-};
+// AUDITORIA / loja configurável: o produto é resolvido no servidor (store.ts) e
+// passado ao motor de pagamento. Não há mais catálogo fixo no código.
+export type PaymentProduct = { code:string; amountCents:number; creditsMillis:number; extraPasses:number; description:string; itemReference:string };
 
 type MercadoPagoPayment = {
   id?: number | string;
@@ -182,10 +180,10 @@ export async function ensureAsaasWebhook(runtime: PaymentRuntimeConfig): Promise
   return {id:payload.id,created:!existing?.id};
 }
 
-async function createMercadoPagoPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
+async function createMercadoPagoPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; product:PaymentProduct }): Promise<PixResult> {
   if (!runtime.mercadoPagoAccessToken) throw new Error("Mercado Pago ainda não configurado.");
   const nameParts=input.name.trim().split(/\s+/);
-  const product=PAYMENT_PRODUCTS[input.productCode];
+  const product=input.product;
   const response=await fetch(`${baseUrl(runtime,"MERCADO_PAGO")}/v1/payments`,{
     method:"POST",signal:AbortSignal.timeout(15_000),
     headers:jsonHeaders({authorization:`Bearer ${runtime.mercadoPagoAccessToken}`,"x-idempotency-key":input.paymentId}),
@@ -201,7 +199,7 @@ async function createMercadoPagoPix(runtime: PaymentRuntimeConfig, input: { paym
   const payload=await response.json() as MercadoPagoPayment;
   if (!response.ok || !payload.id) throw new Error("Não foi possível gerar o Pix pelo Mercado Pago.");
   const verified=mercadoPagoConfirmation(payload);
-  assertPackage(verified,input.paymentId);
+  assertPackage(verified,input.paymentId,product.amountCents);
   const data=payload.point_of_interaction?.transaction_data;
   return {providerPaymentId:verified.providerPaymentId,status:verified.status,qrCode:data?.qr_code,qrCodeBase64:data?.qr_code_base64,ticketUrl:data?.ticket_url};
 }
@@ -223,9 +221,9 @@ async function findOrCreateAsaasCustomer(runtime: PaymentRuntimeConfig, input: {
   if (!created.ok || !payload.id) throw new Error("Não foi possível cadastrar o pagador no Asaas.");
   return payload.id;
 }
-async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
+async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; product:PaymentProduct }): Promise<PixResult> {
   const headers=await asaasHeaders(runtime), base=baseUrl(runtime,"ASAAS");
-  const product=PAYMENT_PRODUCTS[input.productCode];
+  const product=input.product;
   const customer=await findOrCreateAsaasCustomer(runtime,input);
   const dueDate=new Date(Date.now()+24*60*60_000).toISOString().slice(0,10);
   const created=await fetch(`${base}/payments`,{
@@ -235,16 +233,16 @@ async function createAsaasPix(runtime: PaymentRuntimeConfig, input: { paymentId:
   const payment=await created.json().catch(()=>({})) as AsaasPayment;
   if (!created.ok || !payment.id) throw new Error("Não foi possível gerar a cobrança Pix no Asaas.");
   const verified=asaasConfirmation(payment);
-  assertPackage(verified,input.paymentId);
+  assertPackage(verified,input.paymentId,product.amountCents);
   const qrResponse=await fetch(`${base}/payments/${encodeURIComponent(payment.id)}/pixQrCode`,{signal:AbortSignal.timeout(15_000),headers});
   const qr=await qrResponse.json().catch(()=>({})) as { encodedImage?:string; payload?:string };
   if (!qrResponse.ok) throw new Error("Cobrança criada, mas o Asaas não retornou o QR Code Pix.");
   return {providerPaymentId:payment.id,status:verified.status,qrCode:qr.payload,qrCodeBase64:qr.encodedImage,ticketUrl:payment.invoiceUrl};
 }
 
-async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
+async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; product:PaymentProduct }): Promise<PixResult> {
   if (!runtime.pagBankToken) throw new Error("PagBank ainda não configurado.");
-  const product=PAYMENT_PRODUCTS[input.productCode];
+  const product=input.product;
   const expires=new Date(Date.now()+60*60_000).toISOString();
   const response=await fetch(`${baseUrl(runtime,"PAGBANK")}/orders`,{
     method:"POST",signal:AbortSignal.timeout(15_000),
@@ -265,19 +263,19 @@ async function createPagBankPix(runtime: PaymentRuntimeConfig, input: { paymentI
   const order=await response.json().catch(()=>({})) as PagBankOrder;
   if (!response.ok || !order.id) throw new Error("Não foi possível gerar o Pix pelo PagBank.");
   const verified=pagBankConfirmation(order);
-  assertPackage(verified,input.paymentId);
+  assertPackage(verified,input.paymentId,product.amountCents);
   const charge=order.charges?.[0];
   const ticketUrl=charge?.links?.find((item)=>["QRCODE.PNG","PAY","SELF"].includes(item.rel ?? ""))?.href;
   return {providerPaymentId:order.id,status:verified.status,qrCode:charge?.qr_code?.text,ticketUrl};
 }
 
-function assertPackage(result: PaymentConfirmation, paymentId: string) {
-  if (result.internalId!==paymentId || result.amountCents!==2000 || result.currency!=="BRL" || result.paymentMethod!=="pix") {
+function assertPackage(result: PaymentConfirmation, paymentId: string, expectedCents: number) {
+  if (result.internalId!==paymentId || result.amountCents!==expectedCents || result.currency!=="BRL" || result.paymentMethod!=="pix") {
     throw new Error("O pagamento retornado não corresponde ao pacote solicitado.");
   }
 }
 
-export async function createPixPayment(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; productCode:PaymentProductCode }): Promise<PixResult> {
+export async function createPixPayment(runtime: PaymentRuntimeConfig, input: { paymentId:string; email:string; cpf:string; name:string; product:PaymentProduct }): Promise<PixResult> {
   if (runtime.provider==="MERCADO_PAGO") return createMercadoPagoPix(runtime,input);
   if (runtime.provider==="ASAAS") return createAsaasPix(runtime,input);
   if (runtime.provider==="PAGBANK") return createPagBankPix(runtime,input);

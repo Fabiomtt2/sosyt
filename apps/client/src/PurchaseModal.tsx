@@ -1,33 +1,32 @@
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useState, type FormEvent } from "react";
 import { Check, Copy, Gift, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
-import { api, type CommerceProduct, type PaymentProductCode, type Pix } from "./api";
+import { api, type CommerceProduct, type Pix } from "./api";
 
-const COPY:Record<PaymentProductCode,{eyebrow:string;title:(product:CommerceProduct)=>string;description:string;benefit:string;image:string;alt:string;success:(product:CommerceProduct)=>string}> = {
-  COINS_LAUNCH:{
-    eyebrow:"PROMOÇÃO DE LANÇAMENTO",
-    title:(item)=>item.credits+" moedas + "+item.extraPasses+" passe bônus",
-    description:"As moedas são créditos internos usados para salvar URLs na fila. Elas ficam registradas na sua carteira do SOS.",
-    benefit:"O passe bônus libera uma contribuição extra em uma fila na qual você já participou. A URL extra continua usando 1 moeda.",
-    image:"/assets/user/coins.webp",
-    alt:"Ilustração do pacote de moedas SOS YouTuber",
-    success:(item)=>"Pagamento confirmado: "+item.credits+" moedas e "+item.extraPasses+" passe bônus foram adicionados."
-  },
-  PASS_SINGLE:{
-    eyebrow:"MAIS FLEXIBILIDADE NA FILA",
-    title:(item)=>item.extraPasses+" passe",
-    description:"O passe libera uma contribuição extra em uma fila na qual você já participou. O saldo de passes fica persistido na sua conta.",
-    benefit:"O passe não substitui a moeda: ao usar a posição extra, salvar a nova URL ainda consome 1 moeda.",
-    image:"/assets/user/pass.webp",
-    alt:"Ilustração do passe SOS YouTuber",
-    success:(item)=>"Pagamento confirmado: "+item.extraPasses+" passe foi adicionado à sua conta."
-  }
-};
+// AUDITORIA / loja configurável: a cópia é derivada do produto que o servidor
+// informou (título, moedas, passes), com imagem conforme o benefício.
+function describe(item:CommerceProduct){
+  const parts:string[]=[];
+  if(item.credits>0) parts.push(item.credits+(item.credits===1?" moeda":" moedas"));
+  if(item.extraPasses>0) parts.push(item.extraPasses+(item.extraPasses===1?" passe":" passes"));
+  const benefit=parts.join(" + ")||item.title;
+  const isPassOnly=item.extraPasses>0 && item.credits===0;
+  return {
+    eyebrow:isPassOnly?"MAIS FLEXIBILIDADE NA FILA":"LOJA SOS YOUTUBER",
+    title:item.title||benefit,
+    description:item.description||(item.credits>0?"As moedas são créditos internos usados para salvar URLs na fila. Ficam registradas na sua carteira do SOS.":"O passe libera uma contribuição extra em uma fila na qual você já participou."),
+    benefit:item.extraPasses>0?"O passe libera uma contribuição extra; a nova URL ainda consome 1 moeda.":"Use as moedas para salvar URLs na fila. Cada URL salva consome 1 moeda.",
+    image:isPassOnly?"/assets/user/pass.webp":"/assets/user/coins.webp",
+    alt:isPassOnly?"Ilustração do passe SOS YouTuber":"Ilustração do pacote de moedas SOS YouTuber",
+    success:"Pagamento confirmado: "+benefit+" adicionado à sua conta."
+  };
+}
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const providerName=(value?:string)=>value==="MERCADO_PAGO"?"Mercado Pago":value==="ASAAS"?"Asaas":value==="PAGBANK"?"PagBank":value==="DEMO"?"Simulação":"provedor Pix";
 
-export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:PaymentProductCode;productInfo:CommerceProduct;onClose:()=>void;onApproved:(message:string)=>void}) {
-  const copy=COPY[product];
+export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:string;productInfo?:CommerceProduct;onClose:()=>void;onApproved:(message:string)=>void}) {
+  if(!productInfo) return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}><section className="modal purchase-modal" role="dialog" aria-modal="true"><button className="close" aria-label="Fechar" onClick={onClose}><X size={20}/></button><p className="muted" style={{padding:"2rem"}}>Este item não está mais disponível. Atualize a loja.</p></section></div>;
+  const copy=describe(productInfo);
   const [form,setForm]=useState({email:"",cpf:""});
   const [pix,setPix]=useState<Pix>();
   const [busy,setBusy]=useState(false);
@@ -40,7 +39,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
     event.preventDefault();setBusy(true);setError("");
     try {
       const result=await api.createPix(form.email,form.cpf,product);
-      if(result.status==="APPROVED") onApproved(copy.success(productInfo)); else setPix(result);
+      if(result.status==="APPROVED") onApproved(copy.success); else setPix(result);
     } catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível gerar o Pix.");}
     finally{setBusy(false);}
   }
@@ -53,7 +52,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
         const result=await api.paymentStatus(pix.id);
         if(cancelled) return;
         setError("");
-        if(result.status==="APPROVED") onApproved(copy.success(productInfo));
+        if(result.status==="APPROVED") onApproved(copy.success);
         else if(result.status!=="PENDING") setPix((current)=>current?{...current,status:result.status}:current);
       }catch(cause){if(!cancelled)setError(cause instanceof Error?cause.message:"Não conseguimos consultar o pagamento agora.");}
     };
@@ -64,7 +63,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
 
   async function demoApprove(){
     if(!pix)return;setBusy(true);setError("");
-    try{await api.approveDemoPix(pix.id);onApproved(copy.success(productInfo));}
+    try{await api.approveDemoPix(pix.id);onApproved(copy.success);}
     catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível concluir a simulação.");}
     finally{setBusy(false);}
   }
@@ -76,11 +75,11 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
   }
 
   return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}>
-    <section ref={modalRef} className="modal purchase-modal" role="dialog" aria-modal="true" aria-label={product==="COINS_LAUNCH"?"Comprar moedas":"Comprar passe"} onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="modal purchase-modal" role="dialog" aria-modal="true" aria-label={"Comprar "+copy.title} onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar compra" onClick={onClose}><X size={20}/></button>
       <div className="purchase-hero">
         <img className="purchase-product-image" src={copy.image} alt={copy.alt}/>
-        <div><p className="eyebrow dark">{copy.eyebrow}</p><h2>{copy.title(productInfo)}</h2><div className="purchase-price"><strong>{money(productInfo.amountCents)}</strong></div><small className="purchase-server-note">Preço e benefício confirmados pelo servidor</small></div>
+        <div><p className="eyebrow dark">{copy.eyebrow}</p><h2>{copy.title}</h2><div className="purchase-price"><strong>{money(productInfo.amountCents)}</strong></div><small className="purchase-server-note">Preço e benefício confirmados pelo servidor</small></div>
       </div>
       <div className="purchase-explain">
         <p>{copy.description}</p>

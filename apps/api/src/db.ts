@@ -322,6 +322,29 @@ export function createDatabase(filename: string): AppDatabase {
   );`);
   // AUDITORIA C-01 / portão híbrido: código de setup emitido pelo Owner, resgatável
   // uma vez para definir a primeira senha SEM depender de entrega automática por WhatsApp.
+  // AUDITORIA / loja configurável: catálogo de produtos editável pelo painel.
+  db.exec(`CREATE TABLE IF NOT EXISTS store_products (
+    code TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    credits_millis INTEGER NOT NULL DEFAULT 0 CHECK (credits_millis >= 0),
+    extra_passes INTEGER NOT NULL DEFAULT 0 CHECK (extra_passes >= 0),
+    active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    item_reference TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );`);
+  // Seed uma única vez. Item de lançamento pedido pelo owner: 20 moedas por R$10,00.
+  if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
+    const now = new Date().toISOString();
+    const seed = db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
+    seed.run("COINS_20","20 moedas","20 moedas para salvar URLs na fila. Cada moeda salva uma URL.",1000,20000,0,1,1,"coins-20",now);
+    // Produtos legados preservados inativos (não aparecem na loja, mas resolvem histórico).
+    seed.run("COINS_LAUNCH","Pacote de lançamento","10 moedas + 1 passe bônus (legado).",2000,10000,1,0,90,"coins-launch-10",now);
+    seed.run("PASS_SINGLE","1 passe","Um passe avulso (legado).",2000,0,1,0,91,"pass-single",now);
+  }
+
   db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (
     phone TEXT PRIMARY KEY,
     code_hash TEXT NOT NULL,

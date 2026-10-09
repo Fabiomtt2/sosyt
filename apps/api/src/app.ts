@@ -1,6 +1,7 @@
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, normalizeSetupCode, passwordSchemaMin, passwordSchemaMax } from "./password.js";
+import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -19,7 +20,7 @@ import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
 import { createDatabase, ensureOpenRound, type AppDatabase } from "./db.js";
-import { PAYMENT_PRODUCTS, createPixPayment, fetchPagBankWebhookPublicKey, fetchProviderPayment, verifyAsaasWebhookToken, verifyPagBankWebhookSignature, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
+import { createPixPayment, fetchPagBankWebhookPublicKey, fetchProviderPayment, verifyAsaasWebhookToken, verifyPagBankWebhookSignature, verifyWebhookSignature, type PaymentConfirmation } from "./payments.js";
 import {
   createPrivatePlaylist,
   decryptToken,
@@ -52,7 +53,7 @@ const submitSchema = z.object({ url: z.string().trim().min(1).max(500), expected
 const pixSchema = z.object({
   email: z.string().email(),
   cpf: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().length(11)),
-  product: z.enum(["COINS_LAUNCH","PASS_SINGLE"]).default("COINS_LAUNCH")
+  product: z.string().trim().regex(/^[A-Z0-9_]{2,40}$/).default("COINS_20")
 });
 const watchVectorSchema = z.array(z.number().finite().min(0).max(86_400)).length(10);
 const watchProgressSchema = z.object({ watchedSeconds: watchVectorSchema, durations: watchVectorSchema });
@@ -763,9 +764,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const commerce={
       pixAvailable:paymentRuntime.provider!=="DISABLED" || demoPayments,
       provider:demoPayments ? "DEMO" as const : paymentRuntime.provider,
-      products:Object.fromEntries(Object.entries(PAYMENT_PRODUCTS).map(([code,item])=>[code,{
-        code,amountCents:item.amountCents,credits:item.creditsMillis/1000,extraPasses:item.extraPasses,description:item.description
-      }]))
+      products:listStoreProducts(db,{activeOnly:true}).map((item)=>({
+        code:item.code,title:item.title,amountCents:item.amountCents,credits:item.creditsMillis/1000,extraPasses:item.extraPasses,description:item.description
+      }))
     };
     return {
       user: currentUser,
@@ -1068,18 +1069,19 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const paymentConfig = effectivePaymentConfig(db,config);
     const provider = paymentConfig.provider === "DISABLED" && config.PAYMENTS_DEV_MODE && config.NODE_ENV !== "production" ? "DEMO" : paymentConfig.provider;
     if (provider === "DISABLED") return reply.code(409).send({ message:"O Owner ainda não configurou um provedor Pix ativo." });
-    const product=PAYMENT_PRODUCTS[body.product];
+    const product=getActiveStoreProduct(db,body.product);
+    if (!product) return reply.code(409).send({ message:"Este item não está disponível na loja." });
     db.prepare(`INSERT INTO payments (id, user_id, provider, product_code, status, amount_cents, credits_millis, extra_passes, created_at)
       VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)`)
-      .run(paymentId, request.user.sub, provider, body.product, product.amountCents, product.creditsMillis, product.extraPasses, now);
+      .run(paymentId, request.user.sub, provider, product.code, product.amountCents, product.creditsMillis, product.extraPasses, now);
     try {
       const pix = provider === "DEMO"
         ? { providerPaymentId:`demo_${paymentId}`, status:"PENDING" as const }
-        : await createPixPayment(paymentConfig, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name), productCode:body.product });
+        : await createPixPayment(paymentConfig, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name), product });
       db.prepare(`UPDATE payments SET provider_payment_id = ?, status = ?, qr_code = ?, qr_code_base64 = ?, ticket_url = ? WHERE id = ?`)
         .run(pix.providerPaymentId, pix.status === "APPROVED" ? "PENDING" : pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
       if (pix.status === "APPROVED") settlePayment(db, paymentId);
-      return reply.code(201).send({ id: paymentId, ...pix, provider, product:body.product, credits:product.creditsMillis/1000, extraPasses:product.extraPasses });
+      return reply.code(201).send({ id: paymentId, ...pix, provider, product:product.code, credits:product.creditsMillis/1000, extraPasses:product.extraPasses });
     } catch (error) {
       db.prepare("UPDATE payments SET status = 'REJECTED' WHERE id = ?").run(paymentId);
       throw error;

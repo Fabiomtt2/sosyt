@@ -55,9 +55,9 @@ describe("regressões de domínio e segurança", () => {
   const headers = (token: string) => ({ authorization: `Bearer ${token}` });
   async function dashboard(token: string) { return (await app.inject({ method: "GET", url: "/dashboard", headers: headers(token) })).json(); }
   async function submit(token: string, id: string) { return app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(token), payload: { url: `https://youtu.be/${id}` } }); }
-  async function pix(token: string, product: "COINS_LAUNCH"|"PASS_SINGLE" = "COINS_LAUNCH") { return app.inject({ method: "POST", url: "/payments/pix", headers: headers(token), payload: { email: "test@example.com", cpf: "12345678901", product } }); }
+  async function pix(token: string, product = "COINS_20") { return app.inject({ method: "POST", url: "/payments/pix", headers: headers(token), payload: { email: "test@example.com", cpf: "12345678901", product } }); }
   function providerResult(paymentId: string, status = "approved", extra: Record<string, unknown> = {}) {
-    return { id: 901, external_reference: paymentId, status, transaction_amount: 20, currency_id: "BRL", payment_method_id: "pix", ...extra };
+    return { id: 901, external_reference: paymentId, status, transaction_amount: 10, currency_id: "BRL", payment_method_id: "pix", ...extra };
   }
   function webhookHeaders() {
     const ts = String(Date.now()), requestId = "test-request-id";
@@ -330,27 +330,37 @@ describe("regressões de domínio e segurança", () => {
     expect((await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(user.token), payload: { url: "https://youtube.example/watch?v=dQw4w9WgXcQ" } })).statusCode).toBe(400);
     expect((await dashboard(user.token)).wallet.total).toBe(10);
   });
-  it("pacote de lançamento credita 10 moedas + 1 passe bônus e o passe libera uma única contribuição extra", async () => {
+  it("COINS_20 credita 20 moedas por R$10 sem passe, confirmado server-side", async () => {
     const user = await register();
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(201);
     const payment = await pix(user.token);
+    expect(payment.json()).toMatchObject({product:"COINS_20",credits:20,extraPasses:0});
     const approve = () => app.inject({ method: "POST", url: `/payments/${payment.json().id}/demo-approve`, headers: headers(user.token) });
-    expect((await approve()).statusCode).toBe(200); await approve();
+    expect((await approve()).statusCode).toBe(200); await approve(); // idempotente
     const purchasedView=await dashboard(user.token);
-    expect(purchasedView.wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
+    expect(purchasedView.wallet).toMatchObject({ purchased: 20, extraPasses: 0 });
     expect(purchasedView.profile).toMatchObject({
-      purchases:{coinsPurchased:10,passesPurchased:0,bonusPasses:1,approvedSpendCents:2000},
+      purchases:{coinsPurchased:20,passesPurchased:0,bonusPasses:0,approvedSpendCents:1000},
       activity:{submissions:1,rounds:1}
     });
-    expect(purchasedView.profile.purchases.history[0]).toMatchObject({productCode:"COINS_LAUNCH",amountCents:2000,creditsMillis:10000,extraPasses:1});
-    expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409);
+    expect(purchasedView.profile.purchases.history[0]).toMatchObject({productCode:"COINS_20",amountCents:1000,creditsMillis:20000,extraPasses:0});
+  });
+  it("produto de passe configurado credita passe e libera UMA contribuição extra", async () => {
+    const user = await register();
+    // A loja é configurável: ativa-se um produto de passe (antes estático no código).
+    db.prepare("UPDATE store_products SET active=1 WHERE code='PASS_SINGLE'").run();
+    expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(201);
+    const payment = await pix(user.token, "PASS_SINGLE");
+    expect((await app.inject({ method: "POST", url: `/payments/${payment.json().id}/demo-approve`, headers: headers(user.token) })).statusCode).toBe(200);
     expect((await dashboard(user.token)).wallet.extraPasses).toBe(1);
-    expect((await submit(user.token, "9bZkp7q19f0")).statusCode).toBe(201);
-    expect((await submit(user.token, "next0000001")).statusCode).toBe(409);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, promo: 8, extraPasses: 0 });
+    expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409); // mesmo vídeo não repete
+    expect((await submit(user.token, "9bZkp7q19f0")).statusCode).toBe(201); // passe libera a extra
+    expect((await submit(user.token, "next0000001")).statusCode).toBe(409); // só uma extra
+    expect((await dashboard(user.token)).wallet.extraPasses).toBe(0);
   });
   it("compra avulsa de passe credita 1 passe sem adicionar moedas", async () => {
     const user=await register();
+    db.prepare("UPDATE store_products SET active=1 WHERE code='PASS_SINGLE'").run();
     const before=await dashboard(user.token);
     const payment=await pix(user.token,"PASS_SINGLE");
     expect(payment.statusCode).toBe(201);
@@ -422,10 +432,10 @@ describe("regressões de domínio e segurança", () => {
     });
     const payment = await pix(user.token);
     expect(payment.statusCode).toBe(201);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, extraPasses: 0 });
     const webhook = () => app.inject({ method: "POST", url: "/payments/webhooks/mercado-pago?data.id=901", headers: webhookHeaders(), payload: { data: { id: "901" } } });
     expect((await webhook()).statusCode).toBe(200); await webhook();
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, extraPasses: 1 });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, extraPasses: 0 });
   });
   it("consulta Pix confirma pendente; outro usuário não acessa pagamento", async () => {
     const user = await register(), other = await register("71999999002"); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";
@@ -438,7 +448,7 @@ describe("regressões de domínio e segurança", () => {
     const url = `/payments/${payment.json().id}`;
     expect((await app.inject({ method: "GET", url, headers: headers(other.token) })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url, headers: headers(user.token) })).json().status).toBe("APPROVED");
-    expect((await dashboard(user.token)).wallet.purchased).toBe(10);
+    expect((await dashboard(user.token)).wallet.purchased).toBe(20);
   });
   it.each([{ transaction_amount: 1 }, { currency_id: "USD" }, { payment_method_id: "credit_card" }, { external_reference: "wrong" }])("recusa confirmação divergente %j", async (extra) => {
     const user = await register(); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";
@@ -466,7 +476,7 @@ describe("regressões de domínio e segurança", () => {
     await pix(user.token); refunded = true;
     const webhook = await app.inject({ method: "POST", url: "/payments/webhooks/mercado-pago?data.id=901", headers: webhookHeaders(), payload: { data: { id: "901" } } });
     expect(webhook.statusCode).toBe(200);
-    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 10, paymentHold: true });
+    expect((await dashboard(user.token)).wallet).toMatchObject({ purchased: 20, paymentHold: true });
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409);
   });
   it("serializa exportação por usuário/ciclo e libera trava ao concluir", async () => {

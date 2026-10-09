@@ -45,7 +45,7 @@ export const api = {
   verifyCode: (body: { phone: string; code: string }) => request<{ token?: string; participation?:ParticipationStatus }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
   dashboard: () => request<Dashboard>("/dashboard"),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
-  createPix: (email: string, cpf: string, product: PaymentProductCode) => request<Pix>("/payments/pix", { method: "POST", body: JSON.stringify({ email, cpf, product }) }),
+  createPix: (email: string, cpf: string, product: string) => request<Pix>("/payments/pix", { method: "POST", body: JSON.stringify({ email, cpf, product }) }),
   saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="PRESET" ? {kind:"PRESET",presetId:avatar.presetId} : {kind:"CUSTOM",dataUrl:avatar.dataUrl}) }),
   clearAvatar: () => request<{ok:true}>("/profile/avatar", { method:"DELETE" }),
   elevateAdmin: () => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST"}),
@@ -67,8 +67,8 @@ export const api = {
 export type UserAvatar =
   | { kind:"PRESET"; presetId:string }
   | { kind:"CUSTOM"; dataUrl:string };
-export type PaymentProductCode = "COINS_LAUNCH" | "PASS_SINGLE";
-export type CommerceProduct={code:PaymentProductCode;amountCents:number;credits:number;extraPasses:number;description:string};
+export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
+export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string};
 export type Slot = {
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;
   videoTitle?: string; videoChannelTitle?: string; videoThumbnailUrl?: string;
@@ -103,7 +103,7 @@ export type Dashboard = {
   viewer: { contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
   profile?: UserProfileSummary;
   watchRewards:WatchRewards;
-  commerce:{pixAvailable:boolean;provider:"MERCADO_PAGO"|"ASAAS"|"PAGBANK"|"DISABLED"|"DEMO";products:Record<PaymentProductCode,CommerceProduct>};
+  commerce:{pixAvailable:boolean;provider:"MERCADO_PAGO"|"ASAAS"|"PAGBANK"|"DISABLED"|"DEMO";products:CommerceProduct[]};
 };
 export type Pix = {
   id: string; providerPaymentId: string; status: string; qrCode?: string; qrCodeBase64?: string; ticketUrl?: string;

@@ -1,3 +1,4 @@
+import { listStoreProducts, upsertStoreProduct, setStoreProductActive } from "./store.js";
 import { generateSetupCode, normalizeSetupCode, hashPassword } from "./password.js";
 import { watchRewardView } from "./watch-rewards.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
@@ -379,6 +380,27 @@ export async function registerOwnerRoutes(
   // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
   app.get("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async () => readYouTubeIntegration(db,config));
   app.post("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async (request) => saveYouTubeIntegration(db,config,request.body));
+  // AUDITORIA / loja configurável: CRUD de produtos pelo ROOT_OWNER, aplicado em tempo real.
+  app.get("/admin/store/products", { preHandler: ownerGuard }, async () => ({ products: listStoreProducts(db) }));
+  const storeProductSchema = z.object({
+    code: z.string(), title: z.string(), description: z.string().optional(),
+    amountCents: z.number(), credits: z.number().optional(), creditsMillis: z.number().optional(),
+    extraPasses: z.number().optional(), active: z.boolean().optional(), sortOrder: z.number().optional(),
+    itemReference: z.string().optional()
+  });
+  app.post("/admin/store/products", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const parsed = storeProductSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "Dados do produto inválidos." });
+    try { return { product: upsertStoreProduct(db, parsed.data) }; }
+    catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Produto inválido." }); }
+  });
+  app.post("/admin/store/products/:code/active", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const code = String((request.params as { code: string }).code);
+    const body = z.object({ active: z.boolean() }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ message: "Informe active (booleano)." });
+    setStoreProductActive(db, code, body.data.active);
+    return { ok: true, products: listStoreProducts(db) };
+  });
   app.get("/admin/integrations/payments", { preHandler: rootOwnerGuard }, async () => readPaymentIntegration(db,config));
   app.post("/admin/integrations/payments", { preHandler: rootOwnerGuard }, async (request) => {
     const state=savePaymentIntegration(db,config,request.body);

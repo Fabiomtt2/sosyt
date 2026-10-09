@@ -1,18 +1,19 @@
 import { Coins, History, ShieldCheck, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
-import type { Dashboard, PaymentProductCode } from "./api";
+import type { Dashboard } from "./api";
 
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const provider=(value:Dashboard["commerce"]["provider"])=>value==="MERCADO_PAGO"?"Mercado Pago":value==="ASAAS"?"Asaas":value==="PAGBANK"?"PagBank":value==="DEMO"?"simulação de teste":"não configurado";
 const status=(value:string)=>value==="APPROVED"?"Confirmado":value==="PENDING"?"Aguardando Pix":value==="CANCELLED"?"Cancelado":value==="REJECTED"?"Não aprovado":value;
 
-
-export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>void;onChoose:(product:PaymentProductCode)=>void}) {
+// AUDITORIA / loja configurável: os produtos vêm do servidor (editáveis no painel),
+// então a loja renderiza uma lista dinâmica em vez de dois cards fixos.
+export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>void;onChoose:(product:string)=>void}) {
   const modalRef=useModalLifecycle(onClose);
-  const coinsProduct=data.commerce.products.COINS_LAUNCH;
-  const passProduct=data.commerce.products.PASS_SINGLE;
+  const products=data.commerce.products;
   const history=data.profile?.purchases.history.slice(0,5) ?? [];
   const blocked=!data.commerce.pixAvailable||Boolean(data.wallet.paymentHold);
+  const titleFor=(code:string)=>products.find((item)=>item.code===code)?.title ?? (code==="LEGACY"?"Compra anterior":code);
   const paymentCopy=data.commerce.pixAvailable
     ? "Pagamento por Pix via "+provider(data.commerce.provider)+". O benefício entra na sua conta somente depois da confirmação do servidor."
     : "As compras ficam disponíveis quando o Owner concluir a configuração do Pix. Suas moedas e recompensas atuais continuam normais.";
@@ -34,29 +35,23 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
       </div>
 
       <div className="store-products store-products-v2">
-        <article className="store-product store-product-v2 coins-product">
-          <div className="store-product-visual coins-visual">
-            <img className="store-editorial-art" src={import.meta.env.BASE_URL+"assets/user/coins-editorial-v2.webp"} alt="Moedas com símbolo de vídeo e fita ameixa"/>
-          </div>
-          <div className="store-product-copy store-product-copy-v2">
-            <span className="store-badge launch">Promoção de lançamento</span>
-            <h3>{coinsProduct.credits} moedas <em>+ {coinsProduct.extraPasses} passe bônus</em></h3>
-            <p>Use as moedas para salvar URLs na fila. O passe bônus libera uma contribuição extra na mesma fila; essa nova URL ainda usa 1 moeda.</p>
-            <div className="store-buy-row"><strong className="store-price">{money(coinsProduct.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose("COINS_LAUNCH")}>Quero este pacote</button></div>
-          </div>
-        </article>
-
-        <article className="store-product store-product-v2 pass-product">
-          <div className="store-product-visual pass-visual">
-            <img className="store-editorial-art" src={import.meta.env.BASE_URL+"assets/user/pass-editorial-v2.webp"} alt="Passe em papel marfim com detalhe dourado"/>
-          </div>
-          <div className="store-product-copy store-product-copy-v2">
-            <span className="store-badge">Mais flexibilidade</span>
-            <h3>{passProduct.extraPasses} passe</h3>
-            <p>O passe abre mais uma posição para você na mesma fila. Ele não substitui a moeda necessária para salvar a nova URL.</p>
-            <div className="store-buy-row"><strong className="store-price">{money(passProduct.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose("PASS_SINGLE")}>Quero 1 passe</button></div>
-          </div>
-        </article>
+        {products.length===0 && <p className="muted">Nenhum item disponível na loja no momento.</p>}
+        {products.map((item)=>(
+          <article key={item.code} className="store-product store-product-v2 coins-product">
+            <div className="store-product-visual coins-visual">
+              <img className="store-editorial-art" src={import.meta.env.BASE_URL+"assets/user/coins-editorial-v2.webp"} alt="Moedas SOS YouTuber"/>
+            </div>
+            <div className="store-product-copy store-product-copy-v2">
+              <h3>{item.title}</h3>
+              <p>{item.description || (item.credits>0?`${item.credits} moedas para salvar URLs na fila.`:`${item.extraPasses} passe para uma contribuição extra.`)}</p>
+              <ul className="store-product-benefits">
+                {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
+                {item.extraPasses>0 && <li><Ticket size={15}/> {item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
+              </ul>
+              <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
+            </div>
+          </article>
+        ))}
       </div>
 
       <div className="store-meaning-row" aria-label="Como funcionam moedas e passes">
@@ -71,7 +66,7 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
       <details className="store-history store-history-collapsed">
         <summary><History size={17}/><span><strong>Compras recentes</strong><small>{history.length ? history.length+" registro"+(history.length===1?"":"s")+" recente"+(history.length===1?"":"s") : "Nenhuma compra ainda"}</small></span></summary>
         {!history.length?<p className="muted">Quando você fizer uma compra, ela aparecerá aqui e também em Minha conta.</p>:<div className="store-history-list">
-          {history.map((item)=><article key={item.id}><div><strong>{item.productCode==="COINS_LAUNCH"?"Pacote de moedas + passe":"Passe avulso"}</strong><span>{new Date(item.approvedAt ?? item.createdAt).toLocaleString("pt-BR")}</span></div><div><strong>{money(item.amountCents)}</strong><span>{status(item.status)}</span></div></article>)}
+          {history.map((item)=><article key={item.id}><div><strong>{titleFor(item.productCode)}</strong><span>{new Date(item.approvedAt ?? item.createdAt).toLocaleString("pt-BR")}</span></div><div><strong>{money(item.amountCents)}</strong><span>{status(item.status)}</span></div></article>)}
         </div>}
       </details>
     </section>
