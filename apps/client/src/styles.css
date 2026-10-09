@@ -2069,3 +2069,90 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .comms-sub{margin:16px 0 8px;font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
 .comms-mail-body{display:block;max-width:52ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.84rem}
 .comms-mail-deleted{opacity:.45;text-decoration:line-through}
+
+/* ===== AUDITORIA / SUPER: paleta vaporwave, abaixo do destaque do ADMIN =====
+   O ADMIN usa faixa dourada opaca e larga; o SUPER usa contorno e brilho em
+   rosa/ciano. Assim o SUPER se destaca do comum SEM competir com o ADMIN. */
+:root{
+  --super-a:#ff6ec7;   /* rosa */
+  --super-b:#8a7bff;   /* lilás */
+  --super-c:#4de0ff;   /* ciano */
+}
+.super-badge{display:inline-flex;align-items:center;gap:3px;font-family:Manrope,sans-serif;font-weight:800;
+  font-size:.56rem;letter-spacing:.1em;padding:2px 7px;border-radius:999px;color:#1a0b2e;
+  background:linear-gradient(90deg,var(--super-a),var(--super-b),var(--super-c),var(--super-b),var(--super-a));
+  background-size:300% 100%;animation:super-flow 5s linear infinite;
+  box-shadow:0 0 0 1px rgba(255,255,255,.5) inset,0 0 10px -2px var(--super-a)}
+.super-badge.small{font-size:.46rem;padding:1px 5px;transform:scale(.92)}
+@keyframes super-flow{0%{background-position:0% 50%}100%{background-position:300% 50%}}
+@media (prefers-reduced-motion:reduce){.super-badge{animation:none}}
+/* anel no avatar, em qualquer lugar que ele apareça */
+.has-super-ring{border-radius:50%;box-shadow:0 0 0 2px var(--super-b),0 0 0 4px rgba(255,110,199,.35),0 0 12px -2px var(--super-c)}
+
+/* --- texto do SUPER no chat: contorno vaporwave, sem a faixa cheia do admin --- */
+.gc-msg-super .gc-name{color:#ffd6f2}
+.gc-super-text{position:relative;display:block;border-radius:11px;padding:8px 13px;max-width:92ch;
+  font-family:"DM Sans",sans-serif;font-size:.95rem;line-height:1.5;color:#f6ecff;
+  white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;
+  background:linear-gradient(135deg,rgba(255,110,199,.14),rgba(77,224,255,.12));
+  border-left:3px solid transparent;
+  border-image:linear-gradient(180deg,var(--super-a),var(--super-b),var(--super-c)) 1;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.gc-role-tag.super{background:linear-gradient(90deg,var(--super-a),var(--super-c));color:#1a0b2e}
+
+/* --- vitrine --- */
+.super-panel{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px}
+.super-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.super-head-title{display:flex;align-items:center;gap:7px;font-family:Manrope,sans-serif;font-weight:800;letter-spacing:-.02em;font-size:.95rem}
+.super-head-title svg{color:var(--super-b)}
+.super-slots{font-size:.72rem;font-weight:700;color:var(--muted);background:rgba(23,32,51,.06);padding:2px 9px;border-radius:999px}
+.super-empty{color:var(--muted);font-size:.84rem;margin:6px 0 10px}
+.super-pins{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.super-pin{border:1px solid var(--line);border-radius:13px;padding:11px 13px;background:#fff;position:relative;overflow:hidden}
+.super-pin::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--super-a),var(--super-b),var(--super-c))}
+.super-pin-who{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.super-pin-avatar{position:relative;flex:0 0 auto}
+.super-pin-avatar .user-avatar{width:32px;height:32px}
+.super-pin-avatar .super-badge{position:absolute;bottom:-6px;left:50%;transform:translateX(-50%) scale(.8)}
+.super-pin-who b{font-family:Manrope,sans-serif;font-size:.86rem;display:block;line-height:1.2}
+.super-pin-who small{color:var(--muted);font-size:.7rem}
+.super-pin-time{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:.7rem;color:var(--muted);
+  font-variant-numeric:tabular-nums;flex:0 0 auto}
+.super-pin-body{margin:0;font-size:.86rem;line-height:1.45;color:var(--ink)}
+.super-mine{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.super-status{display:flex;align-items:center;gap:9px;font-size:.85rem;margin-bottom:9px;flex-wrap:wrap}
+.super-form{display:flex;gap:8px;flex-wrap:wrap}
+.super-form input{flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:.88rem;background:#fff}
+.super-form input:focus{outline:2px solid var(--super-b);outline-offset:1px}
+.super-form .primary{display:inline-flex;align-items:center;gap:7px}
+.super-note{margin:8px 0 0;color:var(--muted);font-size:.8rem}
+.super-cta{margin-top:12px;width:100%;display:flex;align-items:center;gap:11px;text-align:left;cursor:pointer;
+  border:1px solid transparent;border-radius:13px;padding:12px 14px;font:inherit;color:var(--ink);
+  background:linear-gradient(135deg,rgba(255,110,199,.12),rgba(77,224,255,.12));
+  box-shadow:inset 0 0 0 1px rgba(138,123,255,.35)}
+.super-cta:hover{box-shadow:inset 0 0 0 1px var(--super-b),0 6px 18px -10px var(--super-b)}
+.super-cta b{display:block;font-family:Manrope,sans-serif;font-size:.95rem}
+.super-cta small{color:var(--muted);font-size:.78rem}
+@media (max-width:560px){.super-pins{grid-template-columns:1fr}}
+
+/* Marcador de ilustração ausente: mantém o layout da loja intacto até o Owner subir a arte. */
+.store-art-placeholder{display:grid;place-items:center;width:100%;aspect-ratio:1/1;border-radius:14px;
+  background:repeating-linear-gradient(45deg,#f3eee6,#f3eee6 10px,#ece5da 10px,#ece5da 20px);
+  border:1px dashed var(--line)}
+.store-art-placeholder span{font-family:Manrope,sans-serif;font-weight:800;font-size:.8rem;letter-spacing:.08em;
+  color:var(--muted);text-align:center;line-height:1.15}
+
+/* Loja no painel: miniatura, upload e pré-visualização da ilustração. */
+.store-thumb-cell{width:56px}
+.store-thumb{display:grid;place-items:center;width:46px;height:46px;border-radius:10px;object-fit:cover;background:#f3eee6}
+.store-thumb-empty{font-family:Manrope,sans-serif;font-weight:800;font-size:.46rem;letter-spacing:.06em;color:var(--muted);
+  text-align:center;line-height:1.1;border:1px dashed var(--line);
+  background:repeating-linear-gradient(45deg,#f6f2eb,#f6f2eb 6px,#ece5da 6px,#ece5da 12px)}
+.store-thumb-empty.large{width:96px;height:96px;font-size:.66rem;border-radius:14px}
+.store-image-row{display:flex;gap:14px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.store-image-preview{width:96px;height:96px;border-radius:14px;object-fit:cover;border:1px solid var(--line)}
+.store-upload{display:inline-flex;align-items:center;gap:7px;cursor:pointer;border:1px solid var(--line);border-radius:10px;
+  padding:8px 13px;font-size:.84rem;font-weight:700;color:var(--ink);background:#fff}
+.store-upload:hover{border-color:var(--red);color:var(--red)}
+.store-image-row small{display:block;margin-top:5px;font-size:.74rem;max-width:34ch}

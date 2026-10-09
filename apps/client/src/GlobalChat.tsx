@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MessagesSquare, Send, Pin, PinOff, Trash2, ShieldAlert, VolumeX, UserX, X, ChevronDown } from "lucide-react";
 import { api, type ChatMessage, type ChatRole, type ChatSender } from "./api";
 import { UserAvatarView, AvatarLightbox } from "./AvatarModal";
+import { SuperBadge } from "./SuperPanel";
 
 const POLL_MS = 5000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -90,21 +91,25 @@ export function GlobalChat({ onOpenProfile }: { onOpenProfile?: (userId: string)
           {state.messages.length === 0 && <p className="gc-empty">Seja o primeiro a dizer olá 👋</p>}
           {state.messages.map((m) => {
             const staff = m.role === "ADMIN" || m.role === "OWNER";
+            const isSuper = m.role === "SUPER";
             return (
-              <div key={m.id} className={"gc-msg" + (staff ? " gc-msg-staff" : "") + (m.pinned ? " gc-msg-pinned" : "")}>
-                <button type="button" className={"gc-avatar-btn" + (staff ? " has-admin-badge" : "")} onClick={() => setZoom(m.sender)} aria-label={"Ver " + m.sender.name} title={"Ver " + m.sender.name}>
+              <div key={m.id} className={"gc-msg" + (staff ? " gc-msg-staff" : isSuper ? " gc-msg-super" : "") + (m.pinned ? " gc-msg-pinned" : "")}>
+                <button type="button" className={"gc-avatar-btn" + (staff ? " has-admin-badge" : isSuper ? " has-super-ring" : "")} onClick={() => setZoom(m.sender)} aria-label={"Ver " + m.sender.name} title={"Ver " + m.sender.name}>
                   <UserAvatarView avatar={m.sender.avatar ?? undefined} name={m.sender.name} className="gc-avatar" />
                   {staff && <b className="admin-badge gc-admin-badge">ADMIN</b>}
+                  {isSuper && <span className="gc-admin-badge"><SuperBadge small /></span>}
                 </button>
                 <div className="gc-bubble">
                   <div className="gc-meta">
                     <b className="gc-name">{m.sender.name}</b>
                     {staff ? <span className="gc-role-tag">{m.role === "OWNER" ? "Owner" : "Admin"}</span>
+                      : isSuper ? <span className="gc-role-tag super">SUPER</span>
                       : m.sender.groupCode ? <span className="gc-group">SOS {m.sender.groupCode}</span> : null}
                     <time className="gc-time">{time(m.createdAt)}</time>
                   </div>
                   {staff
                     ? <div className="gc-admin-banner"><span className="gc-text gc-text-admin">{m.body}</span></div>
+                    : isSuper ? <span className="gc-super-text">{m.body}</span>
                     : <span className="gc-text">{m.body}</span>}
                   {isStaff && (
                     <div className="gc-mod">

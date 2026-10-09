@@ -1,11 +1,36 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Store, Plus, Eye, EyeOff, Coins, Ticket, Package, RefreshCw } from "lucide-react";
+import { Store, Plus, Eye, EyeOff, Coins, Ticket, Package, RefreshCw, ImagePlus, Sparkles } from "lucide-react";
 import { ownerApi, type StoreProduct } from "./api";
 
 const money = (cents: number) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-type Draft = { code: string; title: string; description: string; price: string; credits: string; extraPasses: string; grantsItem: string; grantsItemQty: string; sortOrder: string };
-const emptyDraft: Draft = { code: "", title: "", description: "", price: "", credits: "0", extraPasses: "0", grantsItem: "", grantsItemQty: "1", sortOrder: "10" };
+type Draft = { code: string; title: string; description: string; price: string; credits: string; extraPasses: string; grantsItem: string; grantsItemQty: string; sortOrder: string; subscriptionDays: string; imageDataUrl: string };
+const emptyDraft: Draft = { code: "", title: "", description: "", price: "", credits: "0", extraPasses: "0", grantsItem: "", grantsItemQty: "1", sortOrder: "10", subscriptionDays: "0", imageDataUrl: "" };
+
+/** Reduz a imagem no navegador antes de enviar: o servidor aceita ~300 KB. */
+async function toCompactDataUrl(file: File): Promise<string> {
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Não foi possível ler a imagem."));
+    reader.readAsDataURL(file);
+  });
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Arquivo de imagem inválido."));
+    el.src = raw;
+  });
+  const side = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = side; canvas.height = side;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return raw;
+  // corta no centro, mantendo proporção, e exporta em WEBP (leve)
+  const crop = Math.min(image.width, image.height);
+  ctx.drawImage(image, (image.width - crop) / 2, (image.height - crop) / 2, crop, crop, 0, 0, side, side);
+  return canvas.toDataURL("image/webp", 0.82);
+}
 
 /**
  * AUDITORIA / painel da loja: produtos editáveis em tempo real. O preço é lei do
@@ -32,7 +57,8 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
       code: p.code, title: p.title, description: p.description,
       price: (p.amountCents / 100).toFixed(2).replace(".", ","),
       credits: String(p.creditsMillis / 1000), extraPasses: String(p.extraPasses),
-      grantsItem: p.grantsItem ?? "", grantsItemQty: String(p.grantsItemQty || 1), sortOrder: String(p.sortOrder)
+      grantsItem: p.grantsItem ?? "", grantsItemQty: String(p.grantsItemQty || 1), sortOrder: String(p.sortOrder),
+      subscriptionDays: String(p.subscriptionDays || 0), imageDataUrl: p.imageDataUrl ?? ""
     });
   }
 
@@ -46,7 +72,9 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
         amountCents, credits: Number(draft.credits || 0), extraPasses: Number(draft.extraPasses || 0),
         grantsItem: draft.grantsItem.trim() ? draft.grantsItem.trim().toUpperCase() : undefined,
         grantsItemQty: draft.grantsItem.trim() ? Number(draft.grantsItemQty || 1) : 0,
-        sortOrder: Number(draft.sortOrder || 10)
+        sortOrder: Number(draft.sortOrder || 10),
+        subscriptionDays: Number(draft.subscriptionDays || 0),
+        imageDataUrl: draft.imageDataUrl || undefined
       });
       setDraft(emptyDraft); setEditing(undefined);
       setNotice("Salvo — já está valendo na loja.");
@@ -71,16 +99,22 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
       </div>
 
       <div className="table-scroll">
-        <table><thead><tr><th>Item</th><th>Preço</th><th>Concede</th><th>Estado</th>{canEdit && <th></th>}</tr></thead>
+        <table><thead><tr><th></th><th>Item</th><th>Preço</th><th>Concede</th><th>Estado</th>{canEdit && <th></th>}</tr></thead>
           <tbody>
             {products.map((p) => (
               <tr key={p.code}>
+                <td className="store-thumb-cell">
+                  {p.imageDataUrl
+                    ? <img className="store-thumb" src={p.imageDataUrl} alt="" />
+                    : <span className="store-thumb store-thumb-empty">NOVO<br/>ITEM</span>}
+                </td>
                 <td><strong>{p.title}</strong><small>{p.code}{p.description ? " · " + p.description : ""}</small></td>
                 <td><strong>{money(p.amountCents)}</strong></td>
                 <td className="store-grants">
                   {p.creditsMillis > 0 && <span><Coins size={13} /> {p.creditsMillis / 1000} moedas</span>}
                   {p.extraPasses > 0 && <span><Ticket size={13} /> {p.extraPasses} passe{p.extraPasses > 1 ? "s" : ""}</span>}
                   {p.grantsItem && <span><Package size={13} /> {p.grantsItemQty}× {p.grantsItem}</span>}
+                  {p.subscriptionDays > 0 && <span><Sparkles size={13} /> assinatura de {p.subscriptionDays} dias</span>}
                 </td>
                 <td>{p.active ? <span className="table-status on">Na loja</span> : <span className="table-status off">Oculto</span>}</td>
                 {canEdit && <td className="store-row-actions">
@@ -108,8 +142,28 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
             <label>Item concedido<input value={draft.grantsItem} onChange={(e) => setDraft({ ...draft, grantsItem: e.target.value })} placeholder="SKIP" /></label>
             <label>Qtd. do item<input value={draft.grantsItemQty} onChange={(e) => setDraft({ ...draft, grantsItemQty: e.target.value })} inputMode="numeric" /></label>
             <label>Ordem<input value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} inputMode="numeric" /></label>
+            <label>Assinatura (dias)<input value={draft.subscriptionDays} onChange={(e) => setDraft({ ...draft, subscriptionDays: e.target.value })} inputMode="numeric" placeholder="0 = não é assinatura" /></label>
           </div>
           <label className="store-form-wide">Descrição<input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="O que o participante recebe" /></label>
+          <div className="store-image-row">
+            {draft.imageDataUrl
+              ? <img className="store-image-preview" src={draft.imageDataUrl} alt="Pré-visualização" />
+              : <span className="store-thumb store-thumb-empty large">NOVO<br/>ITEM</span>}
+            <div>
+              <label className="store-upload">
+                <ImagePlus size={15} /> Enviar ilustração
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={async (e) => {
+                  const file = e.target.files?.[0]; if (!file) return;
+                  setError("");
+                  try { setDraft((d) => ({ ...d, imageDataUrl: "" })); const compact = await toCompactDataUrl(file); setDraft((d) => ({ ...d, imageDataUrl: compact })); }
+                  catch (cause) { setError(cause instanceof Error ? cause.message : "Imagem inválida."); }
+                  finally { e.target.value = ""; }
+                }} />
+              </label>
+              <small className="muted">Recortada em quadrado e otimizada aqui no navegador. Vale em todas as telas na hora.</small>
+              {draft.imageDataUrl && <button type="button" className="text-button" onClick={() => setDraft({ ...draft, imageDataUrl: "" })}>Remover</button>}
+            </div>
+          </div>
           <div className="store-form-actions">
             <button className="primary" disabled={busy}><Plus size={15} /> {editing ? "Salvar alterações" : "Criar item"}</button>
             {editing && <button type="button" className="secondary" onClick={() => { setEditing(undefined); setDraft(emptyDraft); }}>Cancelar</button>}

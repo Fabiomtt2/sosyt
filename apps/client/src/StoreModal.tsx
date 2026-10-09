@@ -39,7 +39,11 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
         {products.map((item)=>(
           <article key={item.code} className="store-product store-product-v2 coins-product">
             <div className="store-product-visual coins-visual">
-              <img className="store-editorial-art" src={import.meta.env.BASE_URL+"assets/user/coins-editorial-v2.webp"} alt="Moedas SOS YouTuber"/>
+              {/* AUDITORIA: a ilustracao vem do painel. Sem imagem definida, um
+                  marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
+              {item.imageDataUrl
+                ? <img className="store-editorial-art" src={item.imageDataUrl} alt={item.title}/>
+                : <div className="store-art-placeholder" aria-label="Item sem ilustração definida"><span>NOVO<br/>ITEM</span></div>}
             </div>
             <div className="store-product-copy store-product-copy-v2">
               <h3>{item.title}</h3>

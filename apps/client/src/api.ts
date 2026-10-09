@@ -45,6 +45,9 @@ export const api = {
   verifyCode: (body: { phone: string; code: string }) => request<{ token?: string; participation?:ParticipationStatus }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
   dashboard: (roundId?: string) => request<Dashboard>("/dashboard" + (roundId ? ("?roundId=" + encodeURIComponent(roundId)) : "")),
   queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number }>("/queues/mine"),
+  superMe: () => request<SuperState>("/super/me"),
+  superPins: () => request<{ pins: SuperPin[]; slotsFree: number; slots: number }>("/super/pins"),
+  createSuperPin: (body: string) => request<{ id: string; expiresInSeconds: number }>("/super/pins", { method: "POST", body: JSON.stringify({ body }) }),
   queueSkip: () => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST" }),
   giftItem: (toUserId: string, itemCode: string, quantity = 1) =>
     request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity }) }),
@@ -81,12 +84,21 @@ export type UserAvatar =
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
 export type MyQueue = { id: string; number: number; status: string; vacancies: number };
 export type QueuesState = { current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number };
-export type ChatRole = "USER" | "ADMIN" | "OWNER";
+export type ChatRole = "USER" | "SUPER" | "ADMIN" | "OWNER";
+export type SuperState = {
+  active:boolean; expiresAt?:string; secondsRemaining:number; autoRenew:boolean; source?:string;
+  uploadsPerRound:number; chatCooldownSeconds:number; canPin:boolean;
+  pinMinutes:number; pinSlotsFree:number; myPins:Array<{id:string;body:string;createdAt:string}>;
+};
+export type SuperPin = {
+  id:string; body:string; createdAt:string; expiresInSeconds:number;
+  author:{ id:string; name:string; avatar?:UserAvatar; channel?:{title?:string;thumbnailUrl?:string}|null } | null;
+};
 export type ChatSender = { id: string; name: string; groupCode: string; avatar: UserAvatar | null };
 export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
 export type ChatState = { removed: boolean; messages: ChatMessage[]; pinned: ChatMessage[]; cooldownSeconds: number; viewerRole: ChatRole };
 export type ChatModerateAction = "MUTE" | "UNMUTE" | "COOLDOWN" | "REMOVE" | "RESTORE";
-export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string};
+export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string;imageDataUrl?:string;subscriptionDays?:number};
 export type Slot = {
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;
   videoTitle?: string; videoChannelTitle?: string; videoThumbnailUrl?: string;
@@ -232,7 +244,7 @@ export type OwnerParticipantSession={
 };
 
 // AUDITORIA / painel: loja configuravel, cerebro do bot, saude do numero e correio.
-export type StoreProduct = { code:string;title:string;description:string;amountCents:number;creditsMillis:number;extraPasses:number;active:boolean;sortOrder:number;itemReference:string;grantsItem?:string;grantsItemQty:number };
+export type StoreProduct = { code:string;title:string;description:string;amountCents:number;creditsMillis:number;extraPasses:number;active:boolean;sortOrder:number;itemReference:string;grantsItem?:string;grantsItemQty:number;imageDataUrl?:string;subscriptionDays:number };
 export type BotFeature = { code:string;label:string;engine:"messaging"|"group";enabled:boolean;active:boolean;blockedReason:string|null;riskNote:string|null };
 export type BotStatus = {
   mode:"DISABLED"|"OFFICIAL"|"EVOLUTION"|"HYBRID";

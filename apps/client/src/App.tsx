@@ -12,6 +12,7 @@ import { PurchaseModal } from "./PurchaseModal";
 import { StoreModal } from "./StoreModal";
 import { GlobalChat } from "./GlobalChat";
 import { QueueSwitcher } from "./QueueSwitcher";
+import { SuperPanel } from "./SuperPanel";
 import { UserWelcomeCarousel } from "./UserWelcomeCarousel";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { UserWallet } from "./UserWallet";
@@ -486,6 +487,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
       {(!hasPendingTask || administrativeParticipant) ? <>
         <UserWelcomeCarousel/>
         <QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>
+        <SuperPanel onOpenStore={()=>setShowStore(true)}/>
         <section className="hero-row queue-hero">
           <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.number}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>
           <UserWallet wallet={data.wallet} onOpenStore={()=>setShowStore(true)}/>
