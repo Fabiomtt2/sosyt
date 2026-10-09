@@ -45,6 +45,32 @@ export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;na
   return <span className={`user-avatar initials ${className}`} aria-hidden="true">{initials(name)}</span>;
 }
 
+/**
+ * AUDITORIA / avatar ampliado: clicar no avatar (chat, fila, correio) abre o
+ * retrato em tamanho grande, sempre CIRCULAR e sem corte — o mesmo enquadramento
+ * da tela de escolha. Fecha no Escape, no fundo ou no botao.
+ */
+export function AvatarLightbox({avatar,name,subtitle,onClose,actions}:{
+  avatar?:UserAvatar;name:string;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;
+}) {
+  useEffect(()=>{
+    const onKey=(event:KeyboardEvent)=>{ if(event.key==="Escape") onClose(); };
+    window.addEventListener("keydown",onKey);
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{ window.removeEventListener("keydown",onKey); document.body.style.overflow=previous; };
+  },[onClose]);
+  return <div className="avatar-lightbox-backdrop" onMouseDown={onClose} role="presentation">
+    <section className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
+      <button type="button" className="avatar-lightbox-close" onClick={onClose} aria-label="Fechar">×</button>
+      <UserAvatarView avatar={avatar} name={name} className="avatar-lightbox-image"/>
+      <h3>{name}</h3>
+      {subtitle && <p className="avatar-lightbox-sub">{subtitle}</p>}
+      {actions && <div className="avatar-lightbox-actions">{actions}</div>}
+    </section>
+  </div>;
+}
+
 type SaveAvatar=(avatar:UserAvatar)=>Promise<{avatar:UserAvatar}>;
 
 export function AvatarModal({

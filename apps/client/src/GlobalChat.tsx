@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MessagesSquare, Send, Pin, PinOff, Trash2, ShieldAlert, VolumeX, UserX, X, ChevronDown } from "lucide-react";
-import { api, type ChatMessage, type ChatRole } from "./api";
-import { UserAvatarView } from "./AvatarModal";
+import { api, type ChatMessage, type ChatRole, type ChatSender } from "./api";
+import { UserAvatarView, AvatarLightbox } from "./AvatarModal";
 
 const POLL_MS = 5000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -18,6 +18,7 @@ export function GlobalChat({ onOpenProfile }: { onOpenProfile?: (userId: string)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [cooldownLeft, setCooldownLeft] = useState(0);
+  const [zoom, setZoom] = useState<ChatSender | null>(null);   // avatar ampliado
   const lastIdRef = useRef<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -91,7 +92,7 @@ export function GlobalChat({ onOpenProfile }: { onOpenProfile?: (userId: string)
             const staff = m.role === "ADMIN" || m.role === "OWNER";
             return (
               <div key={m.id} className={"gc-msg" + (staff ? " gc-msg-staff" : "") + (m.pinned ? " gc-msg-pinned" : "")}>
-                <button type="button" className={"gc-avatar-btn" + (staff ? " has-admin-badge" : "")} onClick={() => onOpenProfile?.(m.sender.id)} aria-label={"Ver " + m.sender.name} title={"Ver " + m.sender.name}>
+                <button type="button" className={"gc-avatar-btn" + (staff ? " has-admin-badge" : "")} onClick={() => setZoom(m.sender)} aria-label={"Ver " + m.sender.name} title={"Ver " + m.sender.name}>
                   <UserAvatarView avatar={m.sender.avatar ?? undefined} name={m.sender.name} className="gc-avatar" />
                   {staff && <b className="admin-badge gc-admin-badge">ADMIN</b>}
                 </button>
@@ -141,6 +142,15 @@ export function GlobalChat({ onOpenProfile }: { onOpenProfile?: (userId: string)
         {error && <p className="gc-error" role="alert"><X size={13} /> {error}</p>}
         {!isStaff && <small className="gc-note">Respeito sempre · sem links · 1 mensagem a cada {Math.round(state.cooldownSeconds / 60)} min</small>}
       </>}
+      {zoom && (
+        <AvatarLightbox
+          avatar={zoom.avatar ?? undefined}
+          name={zoom.name}
+          subtitle={zoom.groupCode === "#" ? "Participação administrativa" : zoom.groupCode ? `SOS YOUTUBER ${zoom.groupCode}` : undefined}
+          onClose={() => setZoom(null)}
+          actions={onOpenProfile ? <button type="button" onClick={() => { const id = zoom.id; setZoom(null); onOpenProfile(id); }}>Abrir conversa</button> : undefined}
+        />
+      )}
     </aside>
   );
 }
