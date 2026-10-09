@@ -8,7 +8,7 @@ import type { AppDatabase } from "./db.js";
 import { administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
-import { effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
+import { effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
 import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 
@@ -375,6 +375,9 @@ export async function registerOwnerRoutes(
   app.get("/admin/version", { preHandler: ownerGuard }, async () => gitVersionInfo());
   app.get("/admin/integrations/whatsapp", { preHandler: rootOwnerGuard }, async () => readWhatsAppIntegration(db,config));
   app.post("/admin/integrations/whatsapp", { preHandler: rootOwnerGuard }, async (request) => saveWhatsAppIntegration(db,config,request.body));
+  // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
+  app.get("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async () => readYouTubeIntegration(db,config));
+  app.post("/admin/integrations/youtube", { preHandler: rootOwnerGuard }, async (request) => saveYouTubeIntegration(db,config,request.body));
   app.get("/admin/integrations/payments", { preHandler: rootOwnerGuard }, async () => readPaymentIntegration(db,config));
   app.post("/admin/integrations/payments", { preHandler: rootOwnerGuard }, async (request) => {
     const state=savePaymentIntegration(db,config,request.body);

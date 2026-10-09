@@ -322,6 +322,44 @@ export function effectivePaymentConfig(db: AppDatabase, config: Config): Payment
   };
 }
 
+// ===================== AUDITORIA I-01: YouTube gerenciavel pelo painel =====================
+// O painel ja gerenciava WhatsApp e pagamentos em tempo real pelo banco, mas a
+// YOUTUBE_API_KEY so era lida do ambiente (app.ts), exigindo variavel no Railway e
+// reinicio. Isso contrariava a expectativa do produto de gerenciar as tres APIs no
+// painel. Aqui a chave passa a seguir exatamente o mesmo padrao: valor cifrado em
+// integration_settings, com o ambiente como fallback.
+const youtubeKeys = { apiKey: "youtube.api_key" } as const;
+
+const youtubeSettingsSchema = z.object({
+  apiKey: z.string().trim().min(20).max(255).optional(),
+  clear: z.boolean().optional()
+});
+
+export function readYouTubeIntegration(db: AppDatabase, config: Config) {
+  const apiKeyConfigured = configuredSecret(db, config, youtubeKeys.apiKey, config.YOUTUBE_API_KEY);
+  const source = unseal(config, get(db, youtubeKeys.apiKey)) ? "PANEL" : config.YOUTUBE_API_KEY ? "ENVIRONMENT" : "NONE";
+  return {
+    apiKeyConfigured,
+    source,
+    // STRUCTURAL_ONLY: sem chave o servidor nao confirma existencia, duracao nem
+    // incorporacao do video; a conclusao de tarefa nao pode ser verificada.
+    verification: apiKeyConfigured ? "VERIFIED" : "STRUCTURAL_ONLY",
+    ready: apiKeyConfigured
+  };
+}
+
+export function saveYouTubeIntegration(db: AppDatabase, config: Config, raw: unknown) {
+  const body = youtubeSettingsSchema.parse(raw);
+  if (body.clear) db.prepare("DELETE FROM integration_settings WHERE key=?").run(youtubeKeys.apiKey);
+  else if (body.apiKey) set(db, youtubeKeys.apiKey, seal(config, body.apiKey));
+  return readYouTubeIntegration(db, config);
+}
+
+/** Chave efetiva: painel tem precedencia, ambiente e fallback. */
+export function effectiveYouTubeApiKey(db: AppDatabase, config: Config): string | undefined {
+  return effectiveSecret(db, config, youtubeKeys.apiKey, config.YOUTUBE_API_KEY);
+}
+
 export function gitVersionInfo() {
   let sha="unknown", dirty=false;
   try {

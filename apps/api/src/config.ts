@@ -99,9 +99,10 @@ export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {
       if (!url.startsWith("https://")) throw new Error("URLs públicas devem usar HTTPS em produção.");
     }
     if (!parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY || Buffer.from(parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY, "base64").length !== 32) throw new Error("Configure uma chave de cifra de 32 bytes em produção.");
-    // AUDITORIA M-01/M-06: o motor depende da duração confirmada pela YouTube Data API.
-    // Sem a chave, nenhuma tarefa pode ser concluída e vídeos não são verificados.
-    if (!parsed.YOUTUBE_API_KEY) throw new Error("Configure YOUTUBE_API_KEY em produção: o motor de acompanhamento depende da duração verificada do vídeo.");
+    // AUDITORIA M-01/M-06: o motor depende da duração confirmada pela YouTube Data API,
+    // mas a chave agora pode vir do painel ROOT_OWNER (integrations.ts), persistida no
+    // banco. Travar o boot pelo ambiente puniria justamente o fluxo correto, então a
+    // prontidão é reportada em readYouTubeIntegration().verification e não bloqueia aqui.
     if (parsed.MERCADO_PAGO_ACCESS_TOKEN && !parsed.MERCADO_PAGO_WEBHOOK_SECRET) throw new Error("Configure a assinatura dos webhooks de pagamento.");
     for (const [label, secret] of [["OWNER_FABIO_SECRET", parsed.OWNER_FABIO_SECRET], ["OWNER_RAFAEL_SECRET", parsed.OWNER_RAFAEL_SECRET]] as const) {
       if (secret && secret.length < 32) throw new Error(`${label} deve ter pelo menos 32 caracteres em produção.`);

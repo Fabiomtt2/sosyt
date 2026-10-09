@@ -7,6 +7,7 @@ import { buildApp } from "./app.js";
 import { loadConfig, devAuthEnabled, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { encryptToken, verifyYouTubeVideo, parseIsoDurationSeconds } from "./youtube.js";
+import { readYouTubeIntegration, saveYouTubeIntegration, effectiveYouTubeApiKey } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 
 const response = (data: unknown, status = 200) =>
@@ -149,6 +150,38 @@ describe("auditoria externa — motor e verificação de vídeo", () => {
     expect(parseIsoDurationSeconds("P0D")).toBeUndefined();
     expect(parseIsoDurationSeconds("abacaxi")).toBeUndefined();
     expect(parseIsoDurationSeconds(undefined)).toBeUndefined();
+  });
+
+  // ===================== I-01: YouTube gerenciavel pelo painel =====================
+  it("I-01: sem chave, a integracao YouTube reporta STRUCTURAL_ONLY", () => {
+    const state = readYouTubeIntegration(db, config);
+    expect(state.apiKeyConfigured).toBe(false);
+    expect(state.verification).toBe("STRUCTURAL_ONLY");
+    expect(state.source).toBe("NONE");
+    expect(effectiveYouTubeApiKey(db, config)).toBeUndefined();
+  });
+
+  it("I-01: chave salva pelo painel persiste cifrada e passa a valer sem reiniciar", () => {
+    const saved = saveYouTubeIntegration(db, config, { apiKey: "AIzaSyExemploDeChaveDeTeste123456" });
+    expect(saved.apiKeyConfigured).toBe(true);
+    expect(saved.verification).toBe("VERIFIED");
+    expect(saved.source).toBe("PANEL");
+    // vale imediatamente, sem reiniciar o processo
+    expect(effectiveYouTubeApiKey(db, config)).toBe("AIzaSyExemploDeChaveDeTeste123456");
+    // o valor guardado no banco esta cifrado, nao em texto claro
+    const stored = db.prepare("SELECT value FROM integration_settings WHERE key='youtube.api_key'").get() as { value: string };
+    expect(stored.value).not.toContain("AIzaSyExemploDeChaveDeTeste123456");
+    expect(stored.value.startsWith("v1.")).toBe(true);
+  });
+
+  it("I-01: o painel tem precedencia sobre o ambiente, e clear volta ao ambiente", () => {
+    const withEnv = { ...config, YOUTUBE_API_KEY: "chave-do-ambiente-para-teste" };
+    expect(effectiveYouTubeApiKey(db, withEnv)).toBe("chave-do-ambiente-para-teste");
+    expect(readYouTubeIntegration(db, withEnv).source).toBe("ENVIRONMENT");
+    saveYouTubeIntegration(db, withEnv, { apiKey: "AIzaSyChaveDoPainelPrevalece123" });
+    expect(effectiveYouTubeApiKey(db, withEnv)).toBe("AIzaSyChaveDoPainelPrevalece123");
+    saveYouTubeIntegration(db, withEnv, { clear: true });
+    expect(effectiveYouTubeApiKey(db, withEnv)).toBe("chave-do-ambiente-para-teste");
   });
 
   // ===================== A-01 =====================

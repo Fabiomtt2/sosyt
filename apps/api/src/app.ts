@@ -13,7 +13,7 @@ import { registerGoogleLogin } from "./google-login.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
-import { effectivePaymentConfig, effectiveWhatsAppConfig, initializeWhatsAppIntegration } from "./integrations.js";
+import { effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, initializeWhatsAppIntegration } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
@@ -299,16 +299,20 @@ async function backfillActiveSubmissionMetadata(db:AppDatabase,apiKey?:string) {
   const rows=db.prepare(`SELECT s.id,s.youtube_url AS youtubeUrl
     FROM submissions s JOIN rounds r ON r.id=s.round_id
     WHERE r.status IN ('OPEN','READY')
-      AND (s.video_title IS NULL OR s.video_channel_title IS NULL OR s.video_thumbnail_url IS NULL)
+      AND (s.video_title IS NULL OR s.video_channel_title IS NULL OR s.video_thumbnail_url IS NULL
+           OR s.video_duration_seconds IS NULL)
     ORDER BY s.created_at DESC LIMIT 20`).all() as Array<{id:string;youtubeUrl:string}>;
   if (!rows.length) return;
   await Promise.allSettled(rows.map(async(row)=>{
     const info=await verifyYouTubeVideo(row.youtubeUrl,apiKey);
+    // AUDITORIA M-01: preenche tambem a duracao verificada, para que ligar a chave
+    // do YouTube DEPOIS desbloqueie a conclusao das filas abertas sem perder nada.
     db.prepare(`UPDATE submissions SET
       video_title=COALESCE(video_title,?),
       video_channel_title=COALESCE(video_channel_title,?),
-      video_thumbnail_url=COALESCE(video_thumbnail_url,?)
-      WHERE id=?`).run(info.title ?? null,info.channelTitle ?? null,info.thumbnailUrl ?? null,row.id);
+      video_thumbnail_url=COALESCE(video_thumbnail_url,?),
+      video_duration_seconds=COALESCE(video_duration_seconds,?)
+      WHERE id=?`).run(info.title ?? null,info.channelTitle ?? null,info.thumbnailUrl ?? null,info.durationSeconds ?? null,row.id);
   }));
 }
 
@@ -597,7 +601,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.get("/dashboard", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     ensureOpenRound(db);
-    await backfillActiveSubmissionMetadata(db,config.YOUTUBE_API_KEY);
+    await backfillActiveSubmissionMetadata(db,effectiveYouTubeApiKey(db,config));
     const open = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
     const ready = request.user.adminRole
       ? db.prepare("SELECT id FROM rounds WHERE status='READY' ORDER BY sequence DESC LIMIT 8").all() as Array<{id:string}>
@@ -859,7 +863,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/rounds/current/submissions", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const body = submitSchema.parse(request.body);
     let verified: Awaited<ReturnType<typeof verifyYouTubeVideo>>;
-    try { verified = await verifyYouTubeVideo(body.url, config.YOUTUBE_API_KEY); }
+    try { verified = await verifyYouTubeVideo(body.url, effectiveYouTubeApiKey(db,config)); }
     catch { return reply.code(400).send({ message: "Informe um vídeo válido e acessível do YouTube." }); }
     try {
       const result = db.transaction(() => {
