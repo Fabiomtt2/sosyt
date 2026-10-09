@@ -21,9 +21,9 @@ describe("loja configurável", () => {
   afterEach(async () => { await app.close(); db.close(); });
   const ownerToken = async () => (await app.inject({ method: "POST", url: "/admin/login", payload: ownerBody })).json().token as string;
 
-  it("seed traz o item pedido: 20 moedas por R$10, sem passe, ativo", () => {
-    const p = getActiveStoreProduct(db, "COINS_20")!;
-    expect(p).toMatchObject({ amountCents: 1000, creditsMillis: 20000, extraPasses: 0, active: true });
+  it("seed traz o item pedido: 10 moedas por R$20, sem passe, ativo", () => {
+    const p = getActiveStoreProduct(db, "COINS_10")!;
+    expect(p).toMatchObject({ amountCents: 2000, creditsMillis: 10000, extraPasses: 0, active: true });
     // legados preservados, porém inativos
     expect(getActiveStoreProduct(db, "COINS_LAUNCH")).toBeUndefined();
     expect(listStoreProducts(db).some((x) => x.code === "COINS_LAUNCH")).toBe(true);
@@ -63,7 +63,7 @@ describe("loja configurável", () => {
     // valida diretamente a montagem server-side:
     const products = listStoreProducts(db, { activeOnly: true });
     expect(products.every((p) => p.active)).toBe(true);
-    expect(products.find((p) => p.code === "COINS_20")).toBeTruthy();
+    expect(products.find((p) => p.code === "COINS_10")).toBeTruthy();
     expect(products.find((p) => p.code === "COINS_LAUNCH")).toBeFalsy();
   });
 });

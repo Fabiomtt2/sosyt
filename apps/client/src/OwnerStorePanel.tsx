@@ -100,9 +100,9 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
         <form className="store-form" onSubmit={submit}>
           <h3>{editing ? `Editando ${editing}` : "Novo item"}</h3>
           <div className="store-form-grid">
-            <label>Código<input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} placeholder="COINS_20" required disabled={Boolean(editing)} /></label>
-            <label>Título<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="20 moedas" required /></label>
-            <label>Preço (R$)<input value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="10,00" inputMode="decimal" required /></label>
+            <label>Código<input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} placeholder="COINS_10" required disabled={Boolean(editing)} /></label>
+            <label>Título<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="10 moedas" required /></label>
+            <label>Preço (R$)<input value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} placeholder="20,00" inputMode="decimal" required /></label>
             <label>Moedas<input value={draft.credits} onChange={(e) => setDraft({ ...draft, credits: e.target.value })} inputMode="numeric" /></label>
             <label>Passes<input value={draft.extraPasses} onChange={(e) => setDraft({ ...draft, extraPasses: e.target.value })} inputMode="numeric" /></label>
             <label>Item concedido<input value={draft.grantsItem} onChange={(e) => setDraft({ ...draft, grantsItem: e.target.value })} placeholder="SKIP" /></label>

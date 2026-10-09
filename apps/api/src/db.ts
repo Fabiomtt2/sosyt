@@ -412,7 +412,7 @@ export function createDatabase(filename: string): AppDatabase {
   if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
     const now = new Date().toISOString();
     const seed = db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
-    seed.run("COINS_20","20 moedas","20 moedas para salvar URLs na fila. Cada moeda salva uma URL.",1000,20000,0,1,1,"coins-20",now);
+    seed.run("COINS_10","10 moedas","10 moedas para salvar URLs na fila. Cada moeda salva uma URL.",2000,10000,0,1,1,"coins-10",now);
     // Produtos legados preservados inativos (não aparecem na loja, mas resolvem histórico).
     seed.run("COINS_LAUNCH","Pacote de lançamento","10 moedas + 1 passe bônus (legado).",2000,10000,1,0,90,"coins-launch-10",now);
     seed.run("PASS_SINGLE","1 passe","Um passe avulso (legado).",2000,0,1,0,91,"pass-single",now);

@@ -57,7 +57,7 @@ const submitSchema = z.object({ url: z.string().trim().min(1).max(500), expected
 const pixSchema = z.object({
   email: z.string().email(),
   cpf: z.string().transform((value) => value.replace(/\D/g, "")).pipe(z.string().length(11)),
-  product: z.string().trim().regex(/^[A-Z0-9_]{2,40}$/).default("COINS_20")
+  product: z.string().trim().regex(/^[A-Z0-9_]{2,40}$/).default("COINS_10")
 });
 const watchVectorSchema = z.array(z.number().finite().min(0).max(86_400)).length(10);
 const watchProgressSchema = z.object({ watchedSeconds: watchVectorSchema, durations: watchVectorSchema });
