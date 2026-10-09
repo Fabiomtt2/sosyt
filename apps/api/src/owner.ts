@@ -1,3 +1,4 @@
+import { generateSetupCode, normalizeSetupCode, hashPassword } from "./password.js";
 import { watchRewardView } from "./watch-rewards.js";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -617,6 +618,44 @@ export async function registerOwnerRoutes(
     db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(new Date().toISOString(),phone);
     return { ok: true };
   });
+  // AUDITORIA C-01 / portão híbrido: Owner emite uma credencial de setup para um
+  // número já aprovado. Entregue pelo próprio Owner (o link wa.me abre a mensagem
+  // pronta; o Owner clica e envia). Não depende da API Meta nem de bot automático.
+  app.post("/admin/participants/:phone/setup-code", { preHandler: ownerGuard }, async (request, reply) => {
+    const account = resolveOwnerContext(request)!;
+    const phone = normalizePhone(String((request.params as { phone: string }).phone));
+    if (!/^[1-9]\d{7,14}$/.test(phone)) return reply.code(400).send({ message: "Telefone inválido." });
+    const detected = resolveGroupForPhone(db, phone);
+    const groupCode = detected.groupCode;
+    if (!groupCode || !hasMembership(db, phone, groupCode)) {
+      return reply.code(409).send({ code: "GROUP_NOT_CONFIRMED", message: "Aprove este número em um grupo SOS YOUTUBER antes de emitir a credencial de setup." });
+    }
+    const existingUser = db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as { name: string } | undefined;
+    const pendingName = db.prepare("SELECT name FROM participation_requests WHERE phone=? ORDER BY created_at DESC LIMIT 1").get(phone) as { name: string } | undefined;
+    const name = existingUser?.name ?? pendingName?.name ?? null;
+    const code = generateSetupCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 72 * 60 * 60_000).toISOString();
+    db.prepare(`INSERT INTO setup_codes (phone,code_hash,group_code,name,issued_by_owner_id,attempts,expires_at,used_at,created_at)
+      VALUES (?,?,?,?,?,0,?,NULL,?)
+      ON CONFLICT(phone) DO UPDATE SET code_hash=excluded.code_hash,group_code=excluded.group_code,name=excluded.name,
+        issued_by_owner_id=excluded.issued_by_owner_id,attempts=0,expires_at=excluded.expires_at,used_at=NULL,created_at=excluded.created_at`)
+      .run(phone, hashPassword(normalizeSetupCode(code)), groupCode, name, account.id, expiresAt, now.toISOString());
+    const webAppUrl = config.WEB_APP_URL.replace(/\/$/, "");
+    const message = `SOS YOUTUBER: seu acesso foi liberado no grupo ${groupCode}. Entre em ${webAppUrl} e use o código de ativação ${code} para criar sua senha. O código vale 72 horas e é de uso único.`;
+    return reply.send({
+      ok: true,
+      // O código em texto claro é devolvido UMA vez, para o Owner entregar. Não fica legível depois.
+      setupCode: code,
+      phone, groupCode, name, expiresAt,
+      deliver: {
+        // Link que o Owner clica para enviar manualmente pelo WhatsApp — sem API Meta.
+        whatsappUrl: `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+        message
+      }
+    });
+  });
+
   app.post("/admin/requests/:id/decision", { preHandler: ownerGuard }, async (request, reply) => {
     const id = z.string().uuid().parse((request.params as { id: string }).id);
     const body=z.object({status:z.enum(["APPROVED","DECLINED"])}).parse(request.body);

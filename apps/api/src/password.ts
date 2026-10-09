@@ -32,5 +32,21 @@ export function generateBotPassword(): string {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
+/**
+ * AUDITORIA C-01 / portão híbrido: credencial de setup emitida pelo Owner.
+ * Desacopla o primeiro acesso de um canal WhatsApp automático — o Owner entrega
+ * o código pelo próprio grupo (manual ou via link wa.me que ele mesmo envia).
+ * Formato legível em três grupos de 4, sem caracteres ambíguos (0/O, 1/I/l).
+ */
+export function generateSetupCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(12);
+  const raw = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  return `${raw.slice(0,4)}-${raw.slice(4,8)}-${raw.slice(8,12)}`;
+}
+export function normalizeSetupCode(input: string): string {
+  return input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 export const passwordSchemaMin = 8;
 export const passwordSchemaMax = 128;

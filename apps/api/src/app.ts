@@ -1,6 +1,6 @@
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
-import { hashPassword, verifyPassword, generateBotPassword, passwordSchemaMin, passwordSchemaMax } from "./password.js";
+import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, normalizeSetupCode, passwordSchemaMin, passwordSchemaMax } from "./password.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -35,8 +35,8 @@ declare module "fastify" {
 }
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"; authPhone?:string; googleSubject?:string };
-    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"; authPhone?:string; googleSubject?:string };
+    payload: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"|"setup"; authPhone?:string; googleSubject?:string };
+    user: { sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string; displayName?: string; ownerRole?: "ROOT_OWNER"|"ADMIN_OWNER"; ownerId?:string; adminRole?: "ROOT_OWNER"|"ADMIN_OWNER"; authMethod?: "google"|"otp"|"password"|"setup"; authPhone?:string; googleSubject?:string };
   }
 }
 
@@ -538,9 +538,60 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     groupCode: z.string().trim().regex(/^[1-9]\d{0,2}$/).optional(),
     password: z.string().min(1).max(passwordSchemaMax)
   });
+  const setupRedeemSchema = z.object({
+    phone: z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país.")),
+    code: z.string().min(6).max(40),
+    newPassword: z.string().min(passwordSchemaMin).max(passwordSchemaMax),
+    groupCode: z.string().trim().regex(/^[1-9]\d{0,2}$/).optional()
+  });
   const passwordSetSchema = z.object({
     newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
     currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
+  });
+
+  // AUDITORIA C-01 / portão híbrido: resgate da credencial de setup emitida pelo Owner.
+  // Primeiro acesso SEM dependência de WhatsApp: prova-se posse pelo código que o Owner
+  // entregou, define-se a senha, e a sessão nasce já autenticada. Resposta uniforme e
+  // bloqueio por tentativas evitam adivinhação do código.
+  app.post("/auth/setup/redeem", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = setupRedeemSchema.parse(request.body);
+    const now = new Date();
+    const row = db.prepare("SELECT code_hash AS codeHash, group_code AS groupCode, name, attempts, expires_at AS expiresAt, used_at AS usedAt FROM setup_codes WHERE phone=?")
+      .get(body.phone) as { codeHash: string; groupCode?: string; name?: string; attempts: number; expiresAt: string; usedAt?: string } | undefined;
+    const invalid = { code: "SETUP_INVALID", message: "Código de ativação inválido, expirado ou já utilizado. Peça um novo ao Owner." };
+    if (!row || row.usedAt || Date.parse(row.expiresAt) <= now.getTime()) return reply.code(401).send(invalid);
+    if (row.attempts >= 5) return reply.code(429).send({ code: "SETUP_LOCKED", message: "Muitas tentativas. Peça um novo código de ativação ao Owner." });
+    // A autorização (grupo) é reconfirmada no resgate: revogar o grupo invalida o código.
+    const resolved = resolveGroupForPhone(db, body.phone);
+    const groupCode = body.groupCode ?? resolved.groupCode ?? row.groupCode;
+    if (!groupCode || (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, groupCode))) {
+      return reply.code(403).send({ code: "GROUP_NOT_CONFIRMED", message: "Seu número não está mais aprovado em um grupo SOS YOUTUBER." });
+    }
+    if (!verifyPassword(normalizeSetupCode(body.code), row.codeHash)) {
+      db.prepare("UPDATE setup_codes SET attempts=attempts+1 WHERE phone=?").run(body.phone);
+      return reply.code(401).send(invalid);
+    }
+    const existing = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
+    if (existing) {
+      const cooldown = cooldownState(db, existing.id);
+      if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
+    }
+    establishUserSession(row.name ?? "Participante", body.phone, groupCode);
+    const account = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string };
+    const stamp = now.toISOString();
+    db.transaction(() => {
+      db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+        VALUES (?,?,0,0,NULL,?)
+        ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+        .run(account.id, hashPassword(body.newPassword), stamp);
+      db.prepare("UPDATE setup_codes SET used_at=? WHERE phone=?").run(stamp, body.phone);
+    })();
+    db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(stamp, account.id);
+    return reply.send({
+      token: app.jwt.sign({ sub: account.id, purpose: "session", aud: "conexao-session", authMethod: "setup", authPhone: body.phone }),
+      user: getUser(db, account.id),
+      mustChangePassword: false
+    });
   });
 
   app.post("/auth/password/login", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {

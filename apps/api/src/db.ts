@@ -320,6 +320,19 @@ export function createDatabase(filename: string): AppDatabase {
     locked_until TEXT,
     updated_at TEXT NOT NULL
   );`);
+  // AUDITORIA C-01 / portão híbrido: código de setup emitido pelo Owner, resgatável
+  // uma vez para definir a primeira senha SEM depender de entrega automática por WhatsApp.
+  db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (
+    phone TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL,
+    group_code TEXT,
+    name TEXT,
+    issued_by_owner_id TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  );`);
   addColumn("payments", "product_code", "TEXT NOT NULL DEFAULT 'LEGACY'");
   addColumn("youtube_connections", "channel_id", "TEXT");
   addColumn("youtube_connections", "channel_title", "TEXT");
