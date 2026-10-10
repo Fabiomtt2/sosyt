@@ -146,9 +146,12 @@ async function verifySession(request: FastifyRequest, reply: FastifyReply) {
   }
 }
 
-function avatarFromRow(row: Row) {
+function avatarFromRow(db: AppDatabase, row: Row) {
   if (row.avatarKind==="PRESET" && typeof row.avatarPreset==="string") {
-    if (row.avatarPreset.startsWith("cat-")) return {kind:"CATALOG" as const,slug:row.avatarPreset};
+    if (row.avatarPreset.startsWith("cat-")) {
+      const cat=db.prepare("SELECT tier FROM avatar_catalog WHERE slug=? AND active=1").get(row.avatarPreset) as {tier:AvatarTier}|undefined;
+      return cat ? {kind:"CATALOG" as const,slug:row.avatarPreset,tier:cat.tier} : undefined;
+    }
     return {kind:"PRESET" as const,presetId:row.avatarPreset};
   }
   if (row.avatarKind==="CUSTOM" && Buffer.isBuffer(row.avatarImage) && typeof row.avatarMime==="string") {
@@ -168,7 +171,7 @@ function getUser(db: AppDatabase, userId: string) {
   if (!row) return undefined;
   return {
     id:row.id,name:row.name,phone:row.phone,groupCode:row.groupCode,
-    avatar:avatarFromRow(row),
+    avatar:avatarFromRow(db,row),
     youtubeChannel:row.youtubeChannelTitle ? {id:row.youtubeChannelId,title:row.youtubeChannelTitle,thumbnailUrl:row.youtubeChannelThumbnailUrl} : undefined
   };
 }
@@ -302,7 +305,7 @@ function roundView(db: AppDatabase, roundId: string, includeAdminPrivate=false) 
     userId:item.userId,userName:item.userName,groupCode:item.groupCode,userChannelTitle:item.userChannelTitle,
     userChannelThumbnailUrl:item.userChannelThumbnailUrl,adminRole:item.adminRole,
     ...(includeAdminPrivate ? {participantPhone:item.userPhone} : {}),
-    avatar:avatarFromRow(item)
+    avatar:avatarFromRow(db,item)
   }));
   const bySlot = new Map(submissions.map((item) => [item.slot, item]));
   return { ...round, slots: Array.from({ length: 10 }, (_, index) => bySlot.get(index + 1) ?? { slot: index + 1 }) };

@@ -2193,3 +2193,51 @@ td.store-row-actions{display:table-cell;vertical-align:top}
   .owner-access-row{grid-template-columns:1fr;gap:.35rem;}
   .owner-access-row code{font-size:.8rem;}
 }
+
+/* AUDITORIA / molduras de avatar por tier (catálogo gamificado). O box-shadow
+   não é clipado pelo overflow:hidden do círculo, então o glow do OWNER VAZA a
+   borda de propósito, com transparência, sem quebrar o enquadramento. */
+.user-avatar.catalog img{border-radius:50%}
+.user-avatar.avatar-tier-super{box-shadow:0 0 0 2px var(--super-b,#36d6c6),0 0 0 4px rgba(255,110,199,.42),0 0 14px -1px var(--super-c,#b06cff)}
+.user-avatar.avatar-tier-owner{box-shadow:0 0 0 2px #ffde8a,0 0 0 4px rgba(210,162,66,.6),0 0 22px 3px rgba(255,197,74,.55)}
+@media (prefers-reduced-motion:no-preference){
+  .user-avatar.avatar-tier-owner{animation:ownerHalo 3.2s ease-in-out infinite}
+  @keyframes ownerHalo{0%,100%{box-shadow:0 0 0 2px #ffde8a,0 0 0 4px rgba(210,162,66,.6),0 0 18px 2px rgba(255,197,74,.45)}50%{box-shadow:0 0 0 2px #fff0c2,0 0 0 4px rgba(226,180,86,.7),0 0 26px 5px rgba(255,205,96,.65)}}
+}
+
+/* AUDITORIA / avatares de catálogo no seletor: imagem (cover) + cadeado nos
+   bloqueados por tier + moldura de destaque nos liberados. */
+.avatar-choice-img{display:block;width:100%;height:100%;border-radius:50%;background-size:cover;background-position:center;background-repeat:no-repeat}
+.avatar-choice.catalog{background:#f6f1f8}
+.avatar-choice.locked{opacity:.6;filter:grayscale(.3)}
+.avatar-choice.locked:hover{border-color:transparent;box-shadow:none;cursor:not-allowed}
+.avatar-choice .avatar-lock{position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:2px;font-family:Manrope,sans-serif;font-weight:800;font-size:.5rem;letter-spacing:.03em;padding:2px 6px;border-radius:999px;color:#fff;white-space:nowrap;box-shadow:0 2px 6px #0003}
+.avatar-choice .avatar-lock.super{background:linear-gradient(135deg,var(--super-a,#ff6ec7),var(--super-c,#4de0ff))}
+.avatar-choice .avatar-lock.owner{background:linear-gradient(135deg,#e7b74a,#b8860b)}
+.avatar-choice-img.avatar-tier-super{box-shadow:0 0 0 2px var(--super-b,#8a7bff),0 0 0 4px rgba(255,110,199,.4),0 0 12px -1px var(--super-c,#4de0ff)}
+.avatar-choice-img.avatar-tier-owner{box-shadow:0 0 0 2px #ffde8a,0 0 0 4px rgba(210,162,66,.6),0 0 18px 2px rgba(255,197,74,.5)}
+
+/* AUDITORIA / painel de gestão de avatares (ROOT_OWNER). */
+.avatar-upload-form{display:grid;gap:.7rem}
+.avatar-upload-grid{display:grid;grid-template-columns:132px 1fr;gap:16px;align-items:start}
+.avatar-drop{position:relative;width:132px;height:132px;border-radius:50%;border:2px dashed rgba(123,30,24,.3);background:#fffdf8;display:grid;place-items:center;cursor:pointer;overflow:visible}
+.avatar-drop-preview{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.avatar-drop-empty{display:grid;place-items:center;gap:6px;color:var(--ink-soft,#6b5a52);font-size:.72rem;text-align:center}
+.avatar-drop-preview.tier-super{box-shadow:0 0 0 2px var(--super-b,#8a7bff),0 0 0 4px rgba(255,110,199,.4),0 0 14px -1px var(--super-c,#4de0ff)}
+.avatar-drop-preview.tier-owner{box-shadow:0 0 0 2px #ffde8a,0 0 0 4px rgba(210,162,66,.6),0 0 20px 3px rgba(255,197,74,.55)}
+.avatar-upload-fields{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;align-items:end}
+.avatar-upload-fields label{display:flex;flex-direction:column;gap:.3rem;font-size:.78rem;font-weight:700;color:var(--ink-soft,#6b5a52)}
+.avatar-upload-fields label:first-child{grid-column:1/-1}
+.avatar-upload-fields input,.avatar-upload-fields select{padding:.55rem .65rem;border:1px solid rgba(123,30,24,.22);border-radius:.55rem;background:#fffdf8;font:inherit}
+.avatar-upload-fields button.primary{grid-column:1/-1}
+.avatar-tier-title.super{color:#8a5bd0}
+.avatar-tier-title.owner{color:#b8860b}
+.avatar-admin-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:14px;margin-top:.4rem}
+.avatar-admin-cell{position:relative;margin:0;display:grid;justify-items:center;gap:6px}
+.avatar-admin-img{width:76px;height:76px;border-radius:50%;object-fit:cover}
+.avatar-admin-img.tier-super{box-shadow:0 0 0 2px var(--super-b,#8a7bff),0 0 0 3px rgba(255,110,199,.4),0 0 10px -1px var(--super-c,#4de0ff)}
+.avatar-admin-img.tier-owner{box-shadow:0 0 0 2px #ffde8a,0 0 0 3px rgba(210,162,66,.6),0 0 16px 2px rgba(255,197,74,.5)}
+.avatar-admin-cell figcaption{font-size:.72rem;font-weight:700;text-align:center;line-height:1.2}
+.avatar-admin-cell figcaption small{display:block;font-weight:500;color:var(--ink-soft,#6b5a52);font-size:.66rem}
+.avatar-admin-del{position:absolute;top:-4px;right:8px;width:24px;height:24px;border-radius:50%;border:0;background:#c53026;color:#fff;display:grid;place-items:center;cursor:pointer}
+@media (max-width:620px){.avatar-upload-grid{grid-template-columns:1fr;justify-items:center}}

@@ -1,7 +1,7 @@
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { api, type UserAvatar } from "./api";
+import { Check, ChevronLeft, ChevronRight, Lock, X } from "lucide-react";
+import { api, catalogAvatarUrl, type UserAvatar, type CatalogAvatarItem } from "./api";
 
 const PRESET_COUNT=34;
 const COLS=8;
@@ -41,6 +41,12 @@ export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;na
     return()=>{sprite.onload=null;sprite.onerror=null;};
   },[avatar?.kind,avatar?.kind==="PRESET"?avatar.presetId:undefined]);
   if(avatar?.kind==="CUSTOM") return <span className={`user-avatar ${className}`}><img src={avatar.dataUrl} alt=""/></span>;
+  if(avatar?.kind==="CATALOG") {
+    // Avatar do catálogo: imagem servida pela API, com moldura do tier (o glow do
+    // OWNER pode vazar a borda de propósito; o SUPER tem anel vaporwave).
+    const tierClass=avatar.tier==="OWNER"?"avatar-tier-owner":avatar.tier==="SUPER"?"avatar-tier-super":"";
+    return <span className={`user-avatar catalog ${tierClass} ${className}`}><img src={catalogAvatarUrl(avatar.slug)} alt="" loading="lazy"/></span>;
+  }
   if(avatar?.kind==="PRESET"&&presetReady) return <span className={`user-avatar preset ${className}`} style={avatarPresetStyle(avatar.presetId)} aria-hidden="true"/>;
   return <span className={`user-avatar initials ${className}`} aria-hidden="true">{initials(name)}</span>;
 }
@@ -128,6 +134,23 @@ export function AvatarModal({
     }finally{setBusy(false);}
   }
 
+  // AUDITORIA / catálogo: avatares gerenciados pelo painel (comum/SUPER/OWNER).
+  const [catalog,setCatalog]=useState<CatalogAvatarItem[]>([]);
+  useEffect(()=>{ let alive=true; api.avatarCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[]);
+  const visibleCatalog=catalog.filter((item)=> category==="ALL" || item.category===category);
+  async function chooseCatalog(item:CatalogAvatarItem){
+    if(item.locked) return;
+    setBusy(true);setError("");
+    try{
+      const result=await saveAvatar({kind:"CATALOG",slug:item.slug,tier:item.tier});
+      setSelected(result.avatar);
+      onChanged(result.avatar);
+      onClose();
+    }catch(cause){
+      setError(cause instanceof Error?cause.message:"Não foi possível mudar seu avatar.");
+    }finally{setBusy(false);}
+  }
+
   return <div className="modal-backdrop avatar-backdrop" onMouseDown={onClose}>
     <section ref={modalRef} className="modal avatar-modal avatar-modal-compact" role="dialog" aria-modal="true" aria-label="Escolher avatar" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar escolha de avatar" onClick={onClose}><X size={20}/></button>
@@ -144,6 +167,17 @@ export function AvatarModal({
           {visiblePresets.map((presetId)=><button key={presetId} className={selected?.kind==="PRESET"&&selected.presetId===presetId?"avatar-choice selected":"avatar-choice"} disabled={busy} aria-label={`Escolher avatar ${Number(presetId.slice(-2))}`} onClick={()=>void choose(presetId)}>
             <span style={avatarPresetStyle(presetId)}/>{selected?.kind==="PRESET"&&selected.presetId===presetId&&<i><Check size={13}/></i>}
           </button>)}
+          {visibleCatalog.map((item)=>{
+            const tierClass=item.tier==="OWNER"?"avatar-tier-owner":item.tier==="SUPER"?"avatar-tier-super":"";
+            const sel=selected?.kind==="CATALOG"&&selected.slug===item.slug;
+            return <button key={item.slug} className={"avatar-choice catalog"+(sel?" selected":"")+(item.locked?" locked":"")} disabled={busy||item.locked}
+              title={item.locked?`${item.label} — exclusivo ${item.tier==="OWNER"?"dos Owners":"de assinantes SUPER"}`:item.label}
+              aria-label={item.locked?`${item.label}, exclusivo ${item.tier}`:`Escolher ${item.label}`} onClick={()=>void chooseCatalog(item)}>
+              <span className={"avatar-choice-img "+tierClass} style={{backgroundImage:`url(${catalogAvatarUrl(item.slug)})`}}/>
+              {item.locked&&<em className={"avatar-lock "+(item.tier==="OWNER"?"owner":"super")}><Lock size={11}/>{item.tier==="OWNER"?"OWNER":"SUPER"}</em>}
+              {sel&&<i><Check size={13}/></i>}
+            </button>;
+          })}
         </div>
         <button className="carousel-arrow avatar-arrow" type="button" onClick={()=>scrollPresets(1)} aria-label="Próximos avatares"><ChevronRight/></button>
       </div>:<div className="avatar-art-wait"><span>Carregando avatares…</span></div>}

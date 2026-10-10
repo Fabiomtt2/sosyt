@@ -60,8 +60,9 @@ export const api = {
   chatClear: () => request<{ ok: true; cleared: number }>("/admin/chat/global/clear", { method: "POST" }),
   chatModerate: (userId: string, action: ChatModerateAction, opts: { minutes?: number; seconds?: number } = {}) =>
     request<Record<string, unknown>>("/admin/chat/global/moderate", { method: "POST", body: JSON.stringify({ userId, action, ...opts }) }),
-  saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="PRESET" ? {kind:"PRESET",presetId:avatar.presetId} : {kind:"CUSTOM",dataUrl:avatar.dataUrl}) }),
+  saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="CUSTOM" ? {kind:"CUSTOM",dataUrl:avatar.dataUrl} : {kind:"PRESET",presetId:avatar.kind==="CATALOG"?avatar.slug:avatar.presetId}) }),
   clearAvatar: () => request<{ok:true}>("/profile/avatar", { method:"DELETE" }),
+  avatarCatalog: () => request<{ avatars: CatalogAvatarItem[] }>("/avatars"),
   elevateAdmin: () => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST"}),
   deleteAccount: () => request<{ok:true;userId:string;deletedAt:string}>("/profile/account", { method:"DELETE", body:JSON.stringify({confirmation:"DELETE_MY_ACCOUNT"}) }),
   paymentStatus: (id: string) => request<{ id: string; status: string }>(`/payments/${id}`),
@@ -78,9 +79,15 @@ export const api = {
     request<{ finalizedAt:string;percent:number;abandoned:true;nextOpenRound?:{id:string;sequence:number} }>(`/rounds/${id}/watch-progress/abandon`, { method:"POST" })
 };
 
+export type AvatarTier = "COMMON" | "SUPER" | "OWNER";
 export type UserAvatar =
   | { kind:"PRESET"; presetId:string }
-  | { kind:"CUSTOM"; dataUrl:string };
+  | { kind:"CUSTOM"; dataUrl:string }
+  | { kind:"CATALOG"; slug:string; tier?:AvatarTier };
+export type CatalogAvatarItem = { slug:string; tier:AvatarTier; category:string; label:string; locked:boolean };
+export type AdminAvatarItem = { slug:string; tier:AvatarTier; category:string; label:string; active:number; sortOrder:number; createdAt:string };
+/** URL absoluta da imagem de um avatar do catálogo (servida pela API). */
+export const catalogAvatarUrl = (slug:string) => `${API_URL}/avatars/${slug}`;
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
 export type MyQueue = { id: string; number: number; status: string; vacancies: number };
 export type QueuesState = { current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number };
@@ -304,6 +311,11 @@ export const ownerApi = {
   // correio interno
   // acesso: credenciais, telefone dos owners e SUPER
   credentials: () => ownerRequest<CredentialsState>("/admin/credentials"),
+  // AUDITORIA / avatares gerenciáveis: o Owner sobe a ilustração (já normalizada).
+  avatarsAdmin: () => ownerRequest<{ avatars: AdminAvatarItem[] }>("/admin/avatars"),
+  avatarUpload: (body: { tier: AvatarTier; category: string; label: string; dataUrl: string; slug?: string; sortOrder?: number }) =>
+    ownerRequest<{ ok: true; slug: string }>("/admin/avatars", { method: "POST", body: JSON.stringify(body) }),
+  avatarDelete: (slug: string) => ownerRequest<{ ok: true }>(`/admin/avatars/${encodeURIComponent(slug)}`, { method: "DELETE" }),
   saveCredential: (body: { ownerId?: string; password: string; mustChange?: boolean }) =>
     ownerRequest<{ ok: true }>("/admin/credentials", { method: "POST", body: JSON.stringify(body) }),
   generateCredential: (ownerId: string) =>
@@ -322,7 +334,7 @@ export const ownerApi = {
   mailBroadcast: (body: string) => ownerRequest<{ delivered: number; createdAt: string }>("/admin/mail/broadcast", { method: "POST", body: JSON.stringify({ body }) }),
   mailRecent: (limit = 100) => ownerRequest<{ messages: AdminMailMessage[] }>(`/admin/mail?limit=${limit}`),
   mailDelete: (id: string) => ownerRequest<{ ok: true }>(`/admin/mail/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  saveAvatar: (avatar:UserAvatar) => ownerRequest<{avatar:UserAvatar}>("/admin/profile/avatar",{method:"PUT",body:JSON.stringify(avatar.kind==="PRESET"?{kind:"PRESET",presetId:avatar.presetId}:{kind:"CUSTOM",dataUrl:avatar.dataUrl})}),
+  saveAvatar: (avatar:UserAvatar) => ownerRequest<{avatar:UserAvatar}>("/admin/profile/avatar",{method:"PUT",body:JSON.stringify(avatar.kind==="CUSTOM"?{kind:"CUSTOM",dataUrl:avatar.dataUrl}:{kind:"PRESET",presetId:avatar.kind==="CATALOG"?avatar.slug:avatar.presetId})}),
   clearAvatar: () => ownerRequest<{ok:true}>("/admin/profile/avatar",{method:"DELETE"}),
   participantSession: () => ownerRequest<{token:string;user:{id:string;name:string;phone:string;groupCode:string};adminRole:"ROOT_OWNER"|"ADMIN_OWNER";rounds:Array<{id:string;sequence:number;status:"OPEN"|"READY";submissions:number}>}>("/admin/participant-session",{method:"POST"}),
   team: () => ownerRequest<{owners:OwnerTeamEntry[];candidates:OwnerTeamCandidate[]}>("/admin/owners"),

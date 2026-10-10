@@ -6,7 +6,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 
 const money=(cents=0)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
-export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"store"|"bot"|"comms"|"access";
+export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"store"|"bot"|"comms"|"access"|"avatars";
 
 export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onRefresh,onVersion,onLogout,onAvatarChanged,onParticipate,onManageOwners}:{
   data:OwnerOverview;onClose:()=>void;onNavigate:(target:OwnerMenuTarget)=>void;onWhatsApp:()=>void;onPayments:()=>void;onRefresh:()=>void;onVersion:()=>void;onLogout:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;

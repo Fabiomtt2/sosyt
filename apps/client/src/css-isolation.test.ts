@@ -19,6 +19,23 @@ function definedClasses(chunk: string): Set<string> {
   return new Set(Array.from(chunk.matchAll(/\.([A-Za-z][\w-]*)/g), (m) => m[1]));
 }
 
+/**
+ * Classes definidas como seletor STANDALONE de uma única classe (`.X{` ou `.X,`).
+ * É isso que de fato SOBRESCREVE a regra base de outra pessoa (o bug do `.access-form`).
+ * Extensões por seletor composto (`.X.Y`, `.X .Z`, `button.X`) são legítimas: adicionam
+ * especificidade sem redefinir a base, então não contam como colisão.
+ */
+function standaloneClasses(chunk: string): Set<string> {
+  const found = new Set<string>();
+  for (const rule of chunk.matchAll(/([^{}]+)\{/g)) {
+    for (const selector of rule[1].split(",")) {
+      const single = /^\.([A-Za-z][\w-]*)$/.exec(selector.trim());
+      if (single) found.add(single[1]);
+    }
+  }
+  return found;
+}
+
 describe("isolamento do CSS acrescentado pela auditoria", () => {
   const marcador = "/* AUDITORIA / painel de acesso";
 
@@ -26,13 +43,15 @@ describe("isolamento do CSS acrescentado pela auditoria", () => {
     expect(css.indexOf(marcador)).toBeGreaterThan(0);
   });
 
-  it("nenhuma classe do painel de acesso colide com classe anterior do projeto", () => {
+  it("nenhuma classe acrescentada pela auditoria REDEFINE (standalone) uma classe base anterior", () => {
+    // Só conta redefinição standalone (`.X{`), que é o que sobrescreveu o login do
+    // ASTRA. Extensões compostas (`.user-avatar.avatar-tier-super`, `.avatar-choice.catalog`)
+    // são intencionais e seguras.
     const corte = css.indexOf(marcador);
-    const anterior = css.slice(0, corte);
-    const minhas = definedClasses(css.slice(corte));
-    const jaExistentes = definedClasses(anterior);
-    const colisoes = [...minhas].filter((nome) => jaExistentes.has(nome));
-    expect(colisoes, `classes redefinidas: ${colisoes.join(", ")}`).toEqual([]);
+    const anterior = standaloneClasses(css.slice(0, corte));
+    const minhas = standaloneClasses(css.slice(corte));
+    const colisoes = [...minhas].filter((nome) => anterior.has(nome));
+    expect(colisoes, `classes base redefinidas: ${colisoes.join(", ")}`).toEqual([]);
   });
 
   it("o formulário de login do ASTRA continua em coluna, sem interferência", () => {
