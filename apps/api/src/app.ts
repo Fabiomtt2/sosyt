@@ -9,6 +9,7 @@ import { credentialState, setCredential } from "./admin-credentials.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
+import { canUseAvatarTier, catalogTierOf, ensureAvatarCatalog, listCatalog, upsertCatalogAvatar, decodeWebpDataUrl, avatarImageEtag, AVATAR_TIERS, AVATAR_CATEGORIES, type AvatarTier, type AvatarCategory } from "./avatar-tiers.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
@@ -76,7 +77,7 @@ const watchObservationSchema = z.object({
 
 const WATCH_SESSION_STALE_MILLIS = 15_000;
 const avatarSchema = z.discriminatedUnion("kind",[
-  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^avatar-(?:0[1-9]|[12]\d|3[0-4])$/)}),
+  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^(?:avatar-(?:0[1-9]|[12]\d|3[0-4])|cat-[a-z0-9]{12})$/)}),
   z.object({kind:z.literal("CUSTOM"),dataUrl:z.string().max(180_000)})
 ]);
 
@@ -146,7 +147,10 @@ async function verifySession(request: FastifyRequest, reply: FastifyReply) {
 }
 
 function avatarFromRow(row: Row) {
-  if (row.avatarKind==="PRESET" && typeof row.avatarPreset==="string") return {kind:"PRESET" as const,presetId:row.avatarPreset};
+  if (row.avatarKind==="PRESET" && typeof row.avatarPreset==="string") {
+    if (row.avatarPreset.startsWith("cat-")) return {kind:"CATALOG" as const,slug:row.avatarPreset};
+    return {kind:"PRESET" as const,presetId:row.avatarPreset};
+  }
   if (row.avatarKind==="CUSTOM" && Buffer.isBuffer(row.avatarImage) && typeof row.avatarMime==="string") {
     return {kind:"CUSTOM" as const,dataUrl:`data:${row.avatarMime};base64,${row.avatarImage.toString("base64")}`};
   }
@@ -442,6 +446,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   const {ownerGuard,rootOwnerGuard}=await registerOwnerRoutes(app,db,config,participantIdentityGuard);
   registerGoogleLogin(app,db,config,rootOwnerGuard);
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
+  ensureAvatarCatalog(db);
   const stopWhatsApp = await registerWhatsAppRoutes(app,db,config,ownerGuard);
 
   app.setErrorHandler((error, _request, reply) => {
@@ -845,6 +850,13 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const body=avatarSchema.parse(request.body);
     const now=new Date().toISOString();
     if (body.kind==="PRESET") {
+      // AUDITORIA: avatar de catálogo (cat-...) tem tier; o gating vale no SERVIDOR.
+      if (body.presetId.startsWith("cat-")) {
+        const tier=catalogTierOf(db,body.presetId);
+        if (!tier) return reply.code(404).send({message:"Este avatar não está mais disponível."});
+        if (!canUseAvatarTier(db,request.user.sub,tier))
+          return reply.code(403).send({code:"AVATAR_TIER_LOCKED",message:tier==="OWNER"?"Este avatar é exclusivo dos Owners.":"Este avatar é exclusivo de assinantes SUPER ativos."});
+      }
       db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
         VALUES (?, 'PRESET', ?, NULL, NULL, ?)
         ON CONFLICT(user_id) DO UPDATE SET avatar_kind='PRESET',avatar_preset=excluded.avatar_preset,avatar_image=NULL,avatar_mime=NULL,updated_at=excluded.updated_at`)
@@ -866,6 +878,46 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.delete("/profile/avatar", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     db.prepare("DELETE FROM user_profiles WHERE user_id=?").run(request.user.sub);
     return {ok:true};
+  });
+
+  // AUDITORIA / catálogo de avatares (gamificação). Imagem servida com ETag.
+  app.get("/avatars/:slug", async (request,reply) => {
+    const slug=String((request.params as {slug:string}).slug);
+    if(!/^cat-[a-z0-9]{12}$/.test(slug)) return reply.code(404).send();
+    const row=db.prepare("SELECT image,mime FROM avatar_catalog WHERE slug=? AND active=1").get(slug) as {image:Buffer;mime:string}|undefined;
+    if(!row) return reply.code(404).send();
+    const etag=avatarImageEtag(row.image);
+    if(request.headers["if-none-match"]===etag) return reply.code(304).send();
+    return reply.header("etag",etag).type(row.mime).send(row.image);
+  });
+  // Lista para o seletor: tudo que está ativo, com flag de bloqueio por tier.
+  app.get("/avatars", { preHandler: authGuard }, async (request) => ({
+    avatars: listCatalog(db,{activeOnly:true}).map((r)=>({
+      slug:r.slug, tier:r.tier, category:r.category, label:r.label,
+      locked: !canUseAvatarTier(db,request.user.sub,r.tier)
+    }))
+  }));
+  // Gestão (somente ROOT_OWNER): o Owner sobe a ilustração já normalizada no painel.
+  app.get("/admin/avatars", { preHandler: rootOwnerGuard }, async () => ({ avatars: listCatalog(db) }));
+  app.post("/admin/avatars", { preHandler: rootOwnerGuard, config: { rateLimit: { max: 40, timeWindow: "10 minutes" } } }, async (request,reply) => {
+    const parsed=z.object({
+      slug:z.string().regex(/^cat-[a-z0-9]{12}$/).optional(),
+      tier:z.enum(AVATAR_TIERS as [AvatarTier,...AvatarTier[]]),
+      category:z.enum(AVATAR_CATEGORIES as unknown as [AvatarCategory,...AvatarCategory[]]),
+      label:z.string().trim().min(1).max(60),
+      dataUrl:z.string().max(320_000),
+      sortOrder:z.number().int().min(0).max(9999).optional()
+    }).safeParse(request.body);
+    if(!parsed.success) return reply.code(400).send({message:"Preencha tier, categoria, nome e a ilustração."});
+    const bytes=decodeWebpDataUrl(parsed.data.dataUrl);
+    if(!bytes) return reply.code(400).send({message:"A ilustração precisa estar em WEBP (o painel prepara antes de enviar)."});
+    const slug=upsertCatalogAvatar(db,{slug:parsed.data.slug,tier:parsed.data.tier,category:parsed.data.category,label:parsed.data.label,imageWebp:bytes,sortOrder:parsed.data.sortOrder});
+    return { ok:true, slug };
+  });
+  app.delete("/admin/avatars/:slug", { preHandler: rootOwnerGuard }, async (request,reply) => {
+    const slug=String((request.params as {slug:string}).slug);
+    const changed=db.prepare("DELETE FROM avatar_catalog WHERE slug=?").run(slug);
+    return changed.changes ? { ok:true } : reply.code(404).send({ message:"Avatar não encontrado." });
   });
 
   app.get("/dashboard", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
