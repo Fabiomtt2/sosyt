@@ -1,5 +1,54 @@
 # ÂNCORA CANÔNICA — YOUTUBE FINAL
 
+## Retomada imediata — conjunto homologado para merge — 12/10/2026
+- Worktree executável de convergência: YouTube Final/.local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012. Código validado: fc811bad3006f404addc9e931331e2033d9e4166. Usar git rev-parse HEAD para obter a ponta documental atual.
+- Ler docs/CONVERGENCIA-ASTRA-20261012.md. Herda 27 commits Claude sobre 6d09b6f; 6 commits ASTRA por domínio preservam telefone, navegação Owner, Loja, preparação do bot, E2E e proteção de compras.
+- Gate final3: API 237/237, cliente 21/21, TypeScript/build GREEN, E2E 4/4 GREEN. Logs em .local-tmp/gate-20261012/*final3.log; capturas desktop/mobile frescas em docs/evidencias.
+- Catálogo conforme decisão Fábio/Claude (1d8b50d): não restaurar pacote/passe antigos. Campos de arte/item/SUPER persistem pela rota real e chegam ao participante; item oculto não é republicado ao editar. Compras guardam benefícios ofertados; backup SQLite automático anterior à migração.
+- bot-automations.ts/test copiados com hashes idênticos da árvore Claude; catálogo de 19 eventos preservado. OTP/outbox/cadastro/alertas existentes permanecem; ligar preferências/eventos novos e APIs de grupo é a integração ainda aberta. Usuário confirma GREEN do número temporário Meta; não fabricar credenciais definitivas.
+- Original sol/user-premium-20261006 @ 6d09b6f e fonte Claude @ 8a1962f permanecem com seus WIPs preservados. Não iniciar o servidor da árvore original para homologar a convergência.
+- GitHub main antes da publicação ainda c0b8172, PR #1 draft antiga. Próximo: push da convergência, revisar PR/diff, merge preservando histórico.
+- Railway API dddb1c3c/Web 1bf687bd Online SUCCESS 1/1, API /data. Ambos ainda pinados em 65d5b2c na configuração de source, apesar de uploads manuais mais novos. Após main convergir, trocar fonte via staged change no environment production e observar SUCCESS, backup e smoke público. Não usar redeploy que reutiliza o artefato antigo.
+
+
+## Correção explícita do usuário — 12/10/2026 14:10 Bahia — precedência atual
+- A mudança de preço/quantidade de moedas e retirada do passe do pacote foi determinada por Fábio com Claude. NÃO é regressão. Preservar o catálogo aprovado/configurado; não restaurar automaticamente ofertas antigas.
+- Nesta retomada, removida a restauração equivocada feita por ASTRA: COINS_10 padrão permanece R$20, 10 moedas, zero passes; PASS_SINGLE legado inativo. Nenhum banco de produção alterado. Outros valores devem ser conferidos no catálogo real/Owner, sem inferir “20 moedas” apenas do chat.
+- Scripts/estados do Claude são preparação válida para o funcionamento integrado do bot/usuário/Owner. O usuário confirma GREEN do teste com número temporário Meta. Próximo trabalho é integrar caminhos de API/runtime e configuração persistida, preservando rascunhos; não tratar preparação como ausência total do motor nem declarar produção pronta só por credenciais salvas.
+- Continuar na worktree .local-tmp/convergencia-claude-20261012 @ 8a1962f + WIP; original e árvore Claude intactos. E2E anterior falhou em vídeos fictícios agora rejeitados pela verificação de existência; corrigir fixture de teste sem enfraquecer validação real. Chat sobre modal encontrado e z-index corrigido; falta prova fresca.
+
+
+## Reancoragem Claude — 12/10/2026 UTC — prevalece sobre checkpoints abaixo
+- Ler docs/REANCORAGEM-CLAUDE-20261012.md antes de editar/publicar. Claude criou AUDITORIA-CLAUDE-SOSYT e implementação em 01-ESPELHO/trabalho, branch auditoria/correcoes-propostas @ 8a1962f, 27 commits sobre 6d09b6f; ambos sem remote configurado.
+- GitHub main continua c0b8172; PR #1 OPEN/DRAFT head 6d09b6f. Nosso WIP posterior continua preservado e não homologado (último E2E 2/4). Não tratar o GREEN de 08/10 abaixo como status atual de toda a working tree.
+- Railway REAL: API dddb1c3c e Web 1bf687bd, deployments de 10/10, ambos SUCCESS/Online 1/1; /data presente. HTTP health/Web 200. Fonte configurada antiga 65d5b2c não identifica os uploads manuais. SHA dos artefatos atuais ainda não comprovado; não republicar branch antiga.
+- Bot novo: configurações/status não estão conectados ao motor de envio; catálogo bot-automations.ts + teste ainda untracked e sem integração runtime. Novidades reais incluem acesso por senha, múltiplas filas, loja configurável, SUPER, chat/correio e tiers de avatar; exigem revisão e gate conjunto.
+- Preservar as duas árvores. Colisões com nosso WIP: App, OwnerDashboard, OwnerDeskMenu, PhoneField, styles. Nenhuma regra, código ou produção alterada nesta descoberta. Próximo: mapear deploys atuais, revisar novos motores/decisões e integrar com rastreabilidade.
+
+## Retomada ASTRA — 08/10/2026 02:42 -03
+- Conferência final: PR #1 OPEN/DRAFT, sem conflito; não há CI configurado nesta branch (gate local comprovado acima). Railway API/Web online SUCCESS, 1/1, zero ocorrências e zero mudanças pendentes em 08/10. Comparação integral contra main encontrou apenas uma linha extra no EOF de watch-rewards.ts, removida sem alteração de comportamento.
+- PR em rascunho: https://github.com/Fabiomtt2/sosyt/pull/1. Manter sem merge até homologar o login real e coordenar API/Web. Código/evidências em ba1ce1ab; ponta documental da branch obtida com git rev-parse HEAD.
+- Branch sol/user-premium-20261006, base c0b8172. WIP consolidado em 11 commits temáticos; código/evidências validados em ba1ce1abf7e2748131ce1e96e45704dd667c2919. Documentação vem em commit posterior na mesma branch (resolver HEAD com git rev-parse). Main/GitHub ainda c0b8172 e produção 65d5b2c. Branch publicada e conferida no GitHub; push inicial f434ab6d08de0a73666fd874ef066ffdc489053f, seguido deste checkpoint documental. Sem merge/deploy.
+- Gate final GREEN: .local-tmp/gate-reviewed-20261008T053328Z/results.json — 112 testes API, 10 cliente, lint, build, Playwright 3/3, diff e cached-check. Python 5/5 GREEN com OCR/GUI reais em Xvfb isolado. Fixtures de telefone agora sintéticas.
+- Login: chave WhatsApp 5 min/uso único ou Google alternativo; aprovação e carteira preservadas. Business +5571993978956 central/editável/persistido. Alertas e decisões agora consultam templates salvos; contagem inclui associações Google pendentes.
+- Companion novo real em companion/sos_companion.py; opt-in, região explícita, OCR local, metadados apenas, sem automação do player/ledger. API com token restrito, expiração e revogação web/local. E2E executa cliente Python contra API real de teste. Não foi recuperado um runtime IFtp histórico.
+- WATCH_TIME: 1 moeda interna/20 min acumulados, perfil e detalhe Owner usando mesma fonte. Legado preservado sem fabricar tempo. Corrigidas pausa, corrida de inicialização YouTube e conclusão por percentual legado.
+- Visual: intro sem carrossel/background ilustrado; banners só no dashboard; novas artes de loja; lifecycle de modais com foco/Tab/Escape/body lock. Avatar persistente e badge ADMIN auditados. Screenshot do cartão detectou SOS YOUTUBER #; corrigido para Participação administrativa no cartão e no detalhe.
+- Impedimento de publicação: prontidão do login real não comprovada. Google sem variáveis no Railway; Meta pode existir no banco. Credenciais Owner locais retornaram 401 na API de produção (health 200). Não inventar credenciais nem habilitar DEV para contornar.
+- Main dispara publicação Pages automaticamente, então não fazer merge enquanto API/provedores não estiverem prontos. Railway mantém fonte fixada em 65d5b2c e volume /data. Pilha validada como conjunto, não cada commit intermediário como release.
+- Auditoria detalhada: docs/AUDITORIA-ASTRA-20261008.md. Próximo: confirmar configuração real Meta/Google com acesso administrativo de produção, homologar login, só então coordenar merge/publicação e smoke público. Não recriar o número Business nem reabrir decisões já registradas.
+- Snapshot imediatamente anterior aos commits: .local-tmp/astra-precommit-20261008T053653Z (115 arquivos + patches + hashes).
+
+
+## Regra mais recente — Fábio, 07/10/2026 13:25 Bahia
+- WhatsApp Business público inicial aprovado: +5571993978956. Fonte: mensagem explícita do usuário; pode constar no modelo do projeto. Contatos privados/credenciais dos Owners continuam separados.
+- Número central em apps/api/src/project-defaults.ts, seed inicial em integration_settings e edição persistente pelo painel ROOT_OWNER. Valor persistido prevalece após restart/deploy. Links públicos e effectiveWhatsAppConfig consultam o mesmo estado. Mudar telefone não descobre credenciais Meta; conferência cruza telefone público e Phone Number ID antes de liberar envio após alterações.
+- NÃO usar carrossel nem ilustração de background na intro/login: removida a montagem de IntroVisualCarousel. Componente antigo preservado no WIP para rastreabilidade, sem uso na tela.
+- Carrossel aprovado apenas na área do participante, em formato banner informativo sobre o projeto. Artes não são finais: ASTRA autorizado a redesenhar loja e demais ilustrações, afastando estética gamer; motores continuam prioritários.
+- Na retomada, encontrada e lida integralmente docs/AUDITORIA-SOL-MOTOR-20261007.md. Sol implementou watch-observation/WATCH_TIME enquanto ASTRA estava parado. Não reconstruir o motor duplicado: auditar estado atual, inclusive protocolo legado.
+- Snapshot anterior a esta edição: .local-tmp/astra-business-entry-20261007T162833Z (88 arquivos WIP + patches + hashes). HEAD continua c0b8172, branch sol/user-premium-20261006. Sem commit/push/merge/deploy nesta etapa.
+
+
 Data-base: 06/10/2026.
 
 > LEITURA OBRIGATÓRIA. Este arquivo é a fonte de verdade de produto e continuidade do repositório YouTube Final.
@@ -19,10 +68,10 @@ Data-base: 06/10/2026.
 
 ## 2. Identidades e acesso
 
-- Tela de entrada é neutra: nome + WhatsApp internacional + grupo SOS YOUTUBER 1–999.
+- Tela de entrada é neutra: nome + WhatsApp internacional. Participante comum não digita grupo; o servidor resolve o grupo pelo WhatsApp e pelos vínculos/evidências aprovados.
 - Nunca forçar `+55`; telefone é internacional. O login usa um controle único moderno: seletor de país/DDI com bandeira, DDD brasileiro quando aplicável e uma única caixa numérica para o restante do telefone. País/DDD usam popovers, não `<select>` nativo.
 - Nome de Owner é comparado sem diferenciar maiúsculas/minúsculas, acentos e alias final `0`.
-- Owners canônicos: `Fabio0` e `Rafael0`; aliases `Fábio/Fabio` e `Rafael` são válidos quando o WhatsApp correspondente também confere.
+- Owners principais: `Fábio/Fabio` e `Rafael` são ambos `ROOT_OWNER` com acesso total. Nomes configurados com sufixo `0` permanecem aceitos apenas como aliases de compatibilidade quando o WhatsApp correspondente também confere. `ADMIN_OWNER` é reservado a administradores adicionais promovidos e restritos.
 - Telefones Owner reais ficam em `OWNER_FABIO_WHATSAPP` e `OWNER_RAFAEL_WHATSAPP`.
 - Durante homologação, ambos os Owners podem ser usados; a ausência física de Rafael não bloqueia testes com a conta Fábio.
 - Somente Owner identificado vê o campo `Credencial`; em desenvolvimento, `sosyout` é a credencial de teste.
@@ -41,7 +90,7 @@ Data-base: 06/10/2026.
 - A regra dos 120 minutos também vale quando o mesmo número tenta reiniciar o cadastro pelo bot WhatsApp; VPN/IP/navegador novo não zeram o registro porque a chave canônica é o WhatsApp normalizado. Esse prazo é proteção contra **cadastro repetido**, não penalização por senha/credencial errada. O cooldown de 30 minutos é uma regra distinta e só nasce após concluir uma tarefa de Fila.
 - Número já ativo em `group_memberships` não abre nova solicitação: responde `409 ALREADY_REGISTERED` com mensagem amigável “Esse número já foi registrado...”.
 - Aprovação preserva nome, WhatsApp, grupo, saldos e histórico. A tela de acompanhamento passa a exibir a aprovação sem redirecionar automaticamente.
-- Login aprovado exige grupo compatível com o cadastro.
+- Login aprovado resolve o grupo server-side a partir do WhatsApp; não exige que o participante redigite o grupo. Vínculo Owner/manual e prova externa devem continuar semanticamente separados.
 - A meta do modo verificado é dupla checagem: aprovação Owner + presença real no grupo informado + confirmação de que pelo menos um Owner configurado é administrador do grupo. Presença/admin nunca devem conceder aprovação sozinhos.
 
 ## 4. WhatsApp — arquitetura
@@ -55,7 +104,7 @@ Data-base: 06/10/2026.
 - O painel deve deixar explícito, em linguagem amigável, quando a conexão oficial está pendente ou quando a credencial da Meta ainda é necessária; após uma chamada real à Graph API, grava a data da validação e passa a mostrar o estado validado.
 - Números Owner podem estar configurados mesmo quando o transporte Meta ainda não está conectado.
 - `OWNER_WHATSAPP` dedicado é opcional; na ausência, Rafael é o contato público de fallback.
-- Aprovação de participante não gera OTP; após aprovação, nome + WhatsApp + grupo bastam.
+- Aprovação de participante não gera OTP; após aprovação, nome + WhatsApp bastam no fluxo normal e o grupo é resolvido pelo servidor.
 
 ### Provedores
 
@@ -189,7 +238,7 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 - Cooldown de 30 minutos aplicado no servidor.
 - Saldo por origem exposto ao dashboard Owner.
 - Teste de conclusão manual prova 37% → 3 moedas → cooldown 30 min → liberação após prazo.
-- Gate mais recente da branch `sol/owner-control-plane-20261006`: **67/67 API, 9/9 cliente, lint/TypeScript verdes, build API + React/PWA verde e Playwright E2E 1/1** no próprio Inspiron. O E2E cobre DDI por nome, DDD `71` persistindo por >1,2 s, Meta + Grupos ↔ Evolution sem resíduos, popup Pix desktop/mobile com blur/body-lock/scroll interno/`?`, mês PT-BR, aba Owner mobile visível e modal de grupo separando habilitação de prova externa.
+- Gate mais recente do WIP `sol/user-premium-20261006` em 07/10/2026: **73/73 API, 10/10 cliente, `git diff --check`, lint/TypeScript, build API + React/PWA e Playwright E2E 1/1** verdes no Inspiron. O E2E cobre DDI/DDD incremental, Owner → participante administrativo → Owner sem falso cooldown de 120 min, badges ADMIN/OWNER, FILA 1, avatar circular, Loja/Pix demo, segunda URL após compra, fila de 10, criação de playlist e acompanhamento.
 - O launcher Xubuntu canônico é `scripts/launch-xubuntu.sh`: inicia os serviços quando necessário, abre URL com cache-bust e prefere Firefox explicitamente, usando `xdg-open` somente como fallback. O atalho local deve ser apenas um wrapper para esse script versionado.
 
 ## 12. Pendências conscientes
@@ -216,3 +265,96 @@ Mudança visual deve regenerar/revisar evidências em `docs/evidencias/`.
 ## Regra de atualização
 
 Se uma decisão deste arquivo mudar, não apagar silenciosamente a regra anterior: atualizar a seção correspondente, registrar a nova decisão em `PROJECT_STATUS.md` e proteger a mudança com teste quando aplicável.
+
+
+## Reancoragem ASTRA — 07/10/2026 (em execução)
+
+- Leitura integral dos 13 documentos exigidos concluída antes de editar.
+- Local: sol/user-premium-20261006 @ c0b8172; origin/main e GitHub main idênticos após fetch.
+- Railway: API/Web SUCCESS, 1 réplica cada, volume /data; ambos fixados em 65d5b2c (push de main sozinho não troca o pin). Nenhum deploy nesta rodada.
+- WIP original staged/unstaged/untracked preservado em snapshot privado .local-tmp/astra-entry-*/ com patches separados, arquivos e hashes; index não alterado.
+- Assets coins-bag.webp (34940 bytes) e pass-ticket.webp (27094 bytes) presentes; documentos anteriores sobre ausência/tamanho inválido estão superados. Hero community/growth ainda ausentes.
+- Histórico pesquisado nas duas árvores, reflogs/branches/objetos órfãos: nenhum runtime Python, .pyc ou IFtp recuperado; update-watch.py é gerador JSX. Três blobs órfãos são handoffs Markdown. Acompanhamento nasceu em 361c87a (React) e ganhou persistência/ledger em 2365736.
+- Regra explícita nova do usuário: 1 moeda virtual por 20 minutos acumulados entre sessões e filas; regra histórica de 10% deve ser migrada sem apagar ledger. Ainda NÃO implementada/validada nesta rodada.
+- ROOT_OWNER de Fábio e Rafael confirmado no código. Gate antigo não substitui nova validação.
+- Próximo: auditoria de motores/UX, recuperação das artes aprovadas, companion opt-in testável, gate completo, commits por domínio, merge/deploy somente após convergência.
+
+
+### Decisão explícita de identidade — ASTRA 07/10/2026
+- Usuário escolheu Google/YouTube (pergunta identity_proof) para confirmar identidade em aparelho novo. Isso supersede acesso público somente por nome/telefone.
+- Identificação Google deve usar escopo mínimo separado da permissão YouTube para criar playlists.
+- Conta legada sem vínculo Google não pode ser vinculada automaticamente só por telefone: exige aprovação Owner da associação. Sessões posteriores continuam conectadas.
+- RED P0 reproduzido em banco isolado: /auth/login comum com telefone de Owner autorizado como participante -> /admin/elevate 200 ROOT_OWNER sem credencial. Corrigir origem/versão da sessão administrativa; não reduzir privilégios de Fábio/Rafael.
+- E2E baseline fresco passou 1/1 em 94,5 s. Loja visualmente RED: cartaz + objeto sobreposto, repetição de preços e informação.
+
+
+### Ajuste do usuário — 07/10/2026 08:43 (Bahia)
+A decisão mais recente substitui Google obrigatório: acesso principal por número WhatsApp e chave aleatória de uso único com expiração de 5 minutos, entregue pelo bot. Mesma chave serve para confirmar registro ou login; grupo continua derivado do número, com aprovação manual Owner preservada. Google pode continuar opcional e a autorização YouTube permanece separada. Não acrescentar senha própria nem provedor SMS nesta rodada. Sessão autenticada, aprovação de grupo e conexão YouTube são estados distintos do mesmo user_id; não duplicar carteira, URLs ou histórico. Envio real ainda depende de configuração Meta/template; não anunciar funcionamento externo sem confirmação.
+WIP de segurança em andamento: proteção de elevação ROOT e revogação administrativa, módulo Google opcional (ainda sem gate), adaptação OTP 300 s e registro verificado. Nada publicado/deployado.
+
+
+### Checkpoint ASTRA — autenticação validada, 07/10/2026
+Regra confirmada pelo usuário às 08:47 Bahia: Google e chave WhatsApp são alternativas coexistentes; não criar conta/carteira por método. Chave OTP aleatória de 6 dígitos expira em 300 s, uso único, 5 tentativas, reenvio mínimo 60 s. Registro por chave confirma número sem conceder aprovação de grupo. Cadastro manual Owner é preservado. Google exige vínculo aprovado antes de acessar cadastro existente; scopes openid/email separados do YouTube.
+GREEN: lint/TS; API 89/89; client 10/10; cenário E2E anterior passou; novo E2E phone-key.spec.ts passou isolado (4,9 s). Captura login-chave-whatsapp-mobile.png inspecionada. Corrigida infraestrutura E2E: limpeza do banco de fixture movida do playwright.config.ts (reimportado pelos workers) para scripts/browser-tests.mjs antes da API iniciar. Gate completo final ainda pendente; nenhuma publicação.
+Segurança: login nome/telefone sem prova restrito a AUTH_DEV_MODE; sessões OTP/Google em modo real vinculadas ao número; elevação ROOT exige sessão administrativa emitida com credencial Owner válida; rotação/revogação invalida privilégios.
+Próximo: substituir aceitação de vetores arbitrários de watch-progress e recompensa antiga 1 moeda/10% por observações limitadas pelo relógio do servidor, deduplicação de trechos e 1 moeda/20 min acumulados. Histórico e ledger antigos serão preservados sem fabricar tempo observado.
+
+
+### ASTRA — Business e revisão do motor Sol — 07/10/2026 13:46 Bahia
+Business +5571993978956 centralizado, persistido e editável em todos os modos do painel; propagação sem hardcode no frontend. Troca de identidade de remetente exige confirmação de correspondência na Meta, sem alterar telefones dos Owners. Campo/ajuda/edição/reload/wa.me validados E2E desktop/mobile; captura business-numero-mobile.png inspecionada. Intro sem montagem de imagem/carrossel. Botão de contato na solicitação resolve número do servidor a cada 10 s e ao recuperar foco.
+Antes da revisão do watch: API 103/103, client 10/10, lint/build GREEN, E2E 3/3 GREEN. Dois REDs adicionais foram reproduzidos por ASTRA no motor Sol: (1) 100% legado provocava finalização automática na primeira observação, (2) intervalo após amostra pausada podia ser creditado. Correção aplicada: estado anterior active persistido, cobertura de intervalos dos dez vídeos para conclusão, percentuais sem arredondar antecipadamente para 100 e UI deixa de somar reprodução local repetida. Os 6 testes watch-time passaram após correção; acrescentada cobertura do encerramento natural. Novo gate em andamento. Nenhum commit/push/merge/deploy.
+
+
+### Checkpoint ASTRA — 07/10/2026 13:51 Bahia
+- Nova regra Business e visual do usuário incorporada. API 106/106 + cliente 10/10, lint e build GREEN após revisão ASTRA dos dois REDs adicionais no motor Sol. Gate E2E final em conferência; execução PID 287244. Build mantém aviso de bundle ~566 kB (não bloqueante).
+- Pendente de produto/infra: credenciais oficiais Meta e Google não fabricadas; não confundir número Business existente com Cloud API configurada. Todas as alterações ainda locais, sem deploy.
+- Auditoria histórica não encontrou runtime Python IFtp/IFTP nas duas árvores/reflogs/objetos examinados; update-watch.py é gerador JSX, não runtime. Próximo bloco será companion novo, identificado como nova implementação, opt-in, captura apenas região escolhida, sem enviar imagens, com autorização revogável e sinais complementares ao motor web. OCR não provará atenção humana nem autorizará moedas sozinho.
+- Preflight do Inspiron: tkinter/Pillow/OpenCV disponíveis; tesseract e xvfb ausentes. Ainda não foi instalado nada neste bloco nem criado companion. Não alegar recuperação de runtime histórico.
+
+## Convergência ASTRA — 12/10/2026, checkpoint posterior à reancoragem
+- Worktree isolada dentro de YouTube Final: .local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012 @ 8a1962f (27 commits Claude herdados). Original sol/user-premium-20261006 @ 6d09b6f permanece intacto com seu WIP; bot-automations.ts e teste continuam untracked exclusivamente na árvore Claude.
+- Integrados seletivamente 9 arquivos de WIP original com resolução dos conflitos App, OwnerDashboard, OwnerDeskMenu, PhoneField, styles. Seleção DDI/DDD ainda exige clique explícito; preenchimento do número e erros preservados.
+- Gate anterior à correção atual: API 215 testes, cliente 21, lint e build verdes; visual-convergence E2E 1/1 verde em Chromium 1440/390. Teste comunitário ainda em rerun após adaptar navegação à aba Integrações; NÃO declarar gate total verde.
+- Loja Owner: tabela antiga cortava preço e ações no celular e o botão Editar no desktop. Cartões responsivos substituíram a tabela; captura fresca conferida em 390 px, preço, benefícios e ações inteiros; Playwright valida geometria e edição.
+- RED operacional descoberto: as flags de bot.ts não são consumidas pelos fluxos de envio. botStatus e UI da aba Bot agora deixam as funções pendentes mesmo com credenciais prontas; texto não promete automação implantada. Meta teste temporário do usuário não equivale a produção do Business. Claude desenvolve automação em sua árvore própria.
+- Revisão adicional da Loja: catálogo conforme decisão Fábio/Claude, sem migração que acrescente passes. Totais de compras classificam por benefício efetivo, incluindo COINS_10 e produtos configuráveis.
+- Corrigida rota /admin/store/products: o schema descartava imageDataUrl, grantsItem, grantsItemQty e subscriptionDays apesar do formulário. Remoção explícita de arte agora salva NULL. Dashboard participante expõe arte, item e assinatura; Loja apresenta benefícios reais e fallback visual neutro. Testes de banco persistente, rota real e serialização adicionados.
+- Gate unitário do checkpoint anterior passou após atualização de expectativas (API 216, cliente 21); houve novas alterações na rota/Loja desde então, portanto repetir gate integral. E2E community está em execução neste momento. Não publicar até passar.
+- Railway produção API dddb1c3c/Web 1bf687bd SUCCESS antes desta convergência. Nenhum commit/push/merge/deploy feito nesta worktree até este checkpoint. Próximo: fechar community, gate integral, revisar diffs e capturas, commits lógicos, PR e coordenação de release sem sobrescrever /data.
+
+## Checkpoint commit 57825525e1f9 — 12/10/2026
+- fix(auth): preserve complete phone entry and explicit country selection
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit bf06b21af27a — 12/10/2026
+- fix(store): persist product benefits and artwork through owner and participant APIs
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit a047f81c955f — 12/10/2026
+- feat(ui): converge owner navigation and responsive store presentation
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit 17ca6ee9ba11 — 12/10/2026
+- feat(bot): preserve Claude automation catalog and distinguish runtime readiness
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit 30ac52922d64 — 12/10/2026
+- test(e2e): verify approved commerce rules and integrated owner panels
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Última proteção de compra — snapshot e backup — WIP posterior a 30ac529
+- Source atual preserva a decisão de catálogo do commit Claude 1d8b50d, confirmada por Fábio em 12/10. Sem restauração de passe/seed.
+- Pagamentos novos guardam product_benefits_json (item, quantidade, dias SUPER) na criação do Pix; settlement usa o retrato da compra, não o catálogo editado depois. Moedas/passes já eram registrados no pagamento.
+- Migração aditiva captura benefícios das compras antigas pendentes/rejeitadas uma única vez, identificada como LEGACY_AT_MIGRATION. Não altera saldo nem marca pagamento como aprovado.
+- Em produção, server.ts faz backup consistente do SQLite antes desta migração quando a coluna ainda não existe. Backup privado em pasta backups ao lado do banco; se o backup falhar, startup para antes de migrar. Migração compatível com rollback de código.
+- Três regressões novas: edição/ocultação de Pular durante Pix; alteração de dias SUPER e replay; upgrade de SQLite antigo com backup preservado e backfill idempotente. Gate final3 em execução; ainda não publicar este WIP.
+- Snapshots CLI não usados: railway não está instalado no PATH deste DC. Publicação planejada via conector Railway existente, retirando pin antigo 65d5b2c depois do merge auditado em main. Fontes API/Web serão staged no mesmo environment, conferidas antes de accept-deploy.
+
+## Compra protegida — commit fc811bad3006f404addc9e931331e2033d9e4166
+- Gate final3 GREEN: API 237/237, cliente 21/21, lint, build e E2E 4/4. Snapshot de benefícios e backup pré-migração testados.
+- Próximo: push/PR/merge e retirada coordenada do pin antigo Railway, com observação dos dois deploys e do backup no /data.

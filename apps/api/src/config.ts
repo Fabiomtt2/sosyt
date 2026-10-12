@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { PROJECT_DEFAULTS } from "./project-defaults.js";
 
 const booleanString = z
   .enum(["true", "false"])
@@ -12,8 +13,16 @@ const schema = z.object({
   DATABASE_PATH: z.string().default("./apps/api/data/conexao-youtube.db"),
   JWT_SECRET: z.string().min(16).default("dev-secret-change-before-production"),
   AUTH_CODE_PEPPER: z.string().min(8).default("dev-auth-pepper"),
-  AUTH_DEV_MODE: booleanString.default(true),
-  PAYMENTS_DEV_MODE: booleanString.default(true),
+  // AUDITORIA A-01: defaults invertidos para false. Antes, qualquer ambiente sem
+  // NODE_ENV=production subia com bypass de autenticação ligado por omissão.
+  AUTH_DEV_MODE: booleanString.default(false),
+  PAYMENTS_DEV_MODE: booleanString.default(false),
+  // AUDITORIA A-02: a credencial de desenvolvimento sai do código-fonte (repo público).
+  // Sem este valor definido, nenhuma credencial de atalho é aceita.
+  OWNER_DEV_SECRET: z.string().min(6).optional(),
+  // AUDITORIA: credencial inicial do painel para os ROOT. Fica no AMBIENTE, nunca no
+  // codigo — o repositorio e publico. Semeada uma unica vez, com troca sugerida.
+  OWNER_DEFAULT_CREDENTIAL: z.string().min(10).max(128).optional(),
   REQUIRE_GROUP_MEMBERSHIP: booleanString.default(true),
   ALLOWED_GROUP_CODES: z.string().regex(/^[1-9]\d{0,2}(,[1-9]\d{0,2})*$/).default("1,2"),
   OWNER_NAME: z.string().trim().min(2).max(80).default("Owner"),
@@ -29,6 +38,12 @@ const schema = z.object({
   OWNER_RAFAEL_ID: z.string().trim().min(3).max(80).default("rafael0"),
   OWNER_RAFAEL_SECRET: z.string().min(1).optional(),
   OWNER_RAFAEL_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
+  OWNER_BUSINESS_NAME: z.string().trim().min(2).max(80).default("OWNER"),
+  OWNER_BUSINESS_ID: z.string().trim().min(3).max(80).default("owner-business"),
+  OWNER_BUSINESS_SECRET: z.string().min(1).optional(),
+  OWNER_BUSINESS_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
+  WHATSAPP_BUSINESS_PHONE: z.string().regex(/^[1-9]\d{7,14}$/).default(PROJECT_DEFAULTS.whatsappBusinessPhone),
+  WHATSAPP_SENDER_VALIDATION_REQUIRED: booleanString.default(false),
   WHATSAPP_PHONE_NUMBER_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d+$/).optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
@@ -62,9 +77,20 @@ const schema = z.object({
 
 export type Config = z.infer<typeof schema>;
 
+/**
+ * AUDITORIA A-01: ponto único de verdade do modo de autenticação de desenvolvimento.
+ * Os caminhos de pagamento já cruzavam PAYMENTS_DEV_MODE com NODE_ENV; os de
+ * autenticação liam config.AUTH_DEV_MODE direto, então toda a segurança do login
+ * dependia de uma só variável estar correta no painel. Use SEMPRE esta função —
+ * nunca `config.AUTH_DEV_MODE` — para que produção seja segura por construção.
+ */
+export function devAuthEnabled(config: Pick<Config, "AUTH_DEV_MODE" | "NODE_ENV">): boolean {
+  return config.AUTH_DEV_MODE && config.NODE_ENV !== "production";
+}
+
 export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {}): Config {
   const values: Record<string, unknown> = { ...process.env, ...overrides };
-  for (const key of ["YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN", "PAGBANK_TOKEN", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE", "WPP_CONNECT_TOKEN"]) {
+  for (const key of ["OWNER_DEV_SECRET","WHATSAPP_BUSINESS_PHONE", "YOUTUBE_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "YOUTUBE_TOKEN_ENCRYPTION_KEY", "MERCADO_PAGO_ACCESS_TOKEN", "MERCADO_PAGO_WEBHOOK_SECRET", "ASAAS_API_KEY", "ASAAS_WEBHOOK_TOKEN", "PAGBANK_TOKEN", "OWNER_ADMIN_SECRET", "OWNER_WHATSAPP", "OWNER_ALERT_WHATSAPP", "OWNER_FABIO_SECRET", "OWNER_RAFAEL_SECRET", "OWNER_BUSINESS_SECRET", "OWNER_FABIO_WHATSAPP", "OWNER_RAFAEL_WHATSAPP", "OWNER_BUSINESS_WHATSAPP", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "WHATSAPP_OTP_TEMPLATE", "WHATSAPP_OWNER_ALERT_TEMPLATE", "WHATSAPP_DECISION_TEMPLATE", "WPP_CONNECT_TOKEN"]) {
     if (values[key] === "") delete values[key];
   }
   const parsed = schema.parse(values);
@@ -76,6 +102,10 @@ export function loadConfig(overrides: Partial<Record<keyof Config, unknown>> = {
       if (!url.startsWith("https://")) throw new Error("URLs públicas devem usar HTTPS em produção.");
     }
     if (!parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY || Buffer.from(parsed.YOUTUBE_TOKEN_ENCRYPTION_KEY, "base64").length !== 32) throw new Error("Configure uma chave de cifra de 32 bytes em produção.");
+    // AUDITORIA M-01/M-06: o motor depende da duração confirmada pela YouTube Data API,
+    // mas a chave agora pode vir do painel ROOT_OWNER (integrations.ts), persistida no
+    // banco. Travar o boot pelo ambiente puniria justamente o fluxo correto, então a
+    // prontidão é reportada em readYouTubeIntegration().verification e não bloqueia aqui.
     if (parsed.MERCADO_PAGO_ACCESS_TOKEN && !parsed.MERCADO_PAGO_WEBHOOK_SECRET) throw new Error("Configure a assinatura dos webhooks de pagamento.");
     for (const [label, secret] of [["OWNER_FABIO_SECRET", parsed.OWNER_FABIO_SECRET], ["OWNER_RAFAEL_SECRET", parsed.OWNER_RAFAEL_SECRET]] as const) {
       if (secret && secret.length < 32) throw new Error(`${label} deve ter pelo menos 32 caracteres em produção.`);

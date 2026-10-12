@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useModalLifecycle } from "./useModalLifecycle";
+import { useState } from "react";
 import { Check, ExternalLink, HelpCircle, Landmark, PauseCircle, ShieldCheck, X } from "lucide-react";
 import { ownerApi, type PaymentIntegrationState } from "./api";
 
@@ -86,20 +87,7 @@ export function PaymentIntegrationModal({ initial,onClose,onSaved }:{
   const [notice,setNotice]=useState("");
   const [helpTopic,setHelpTopic]=useState<HelpTopic>();
 
-  useEffect(()=>{
-    const previousOverflow=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    const escape=(event:KeyboardEvent)=>{
-      if(event.key!=="Escape") return;
-      if(helpTopic) setHelpTopic(undefined);
-      else onClose();
-    };
-    document.addEventListener("keydown",escape);
-    return ()=>{
-      document.body.style.overflow=previousOverflow;
-      document.removeEventListener("keydown",escape);
-    };
-  },[helpTopic,onClose]);
+  const modalRef=useModalLifecycle(()=>{if(helpTopic)setHelpTopic(undefined);else onClose();});
 
   const activeHelp=helpTopic ? help[helpTopic] : undefined;
   const webhookUrl=provider==="MERCADO_PAGO" ? state.webhookUrls.mercadoPago : provider==="ASAAS" ? state.webhookUrls.asaas : provider==="PAGBANK" ? state.webhookUrls.pagBank : "";
@@ -143,7 +131,7 @@ export function PaymentIntegrationModal({ initial,onClose,onSaved }:{
   }
 
   return <div className="modal-backdrop payment-config-backdrop" onMouseDown={onClose} onWheel={(event)=>event.stopPropagation()}>
-    <section className="modal payment-config-modal" role="dialog" aria-modal="true" aria-label="Configurar pagamentos" onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="modal payment-config-modal" role="dialog" aria-modal="true" aria-label="Configurar pagamentos" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close payment-close" aria-label="Fechar configuração de pagamentos" onClick={onClose}><X size={20}/></button>
 
       <div className="payment-modal-header">

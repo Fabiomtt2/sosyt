@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Search, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from "lucide-react";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString, type CountryCode } from "libphonenumber-js";
 
 const displayNames = new Intl.DisplayNames(["pt-BR"], { type: "region" });
@@ -36,6 +36,13 @@ function normalizeSearch(value:string) {
   return value.normalize("NFD").replace(/\p{M}/gu,"").trim().toLocaleLowerCase("pt-BR");
 }
 
+export function countriesForPhoneSearch(search:string): CountryItem[] {
+  const q=normalizeSearch(search);
+  const digits=search.replace(/\D/g,"");
+  if (digits.length>0) return COUNTRIES.filter((entry)=>entry.callingCode.startsWith(digits));
+  return COUNTRIES.filter((entry)=>!q || normalizeSearch(entry.name).includes(q) || entry.country.toLowerCase().startsWith(q));
+}
+
 function inferCountry(value: string): CountryCode | undefined {
   const digits=value.replace(/\D/g,"");
   if (!digits) return undefined;
@@ -50,8 +57,26 @@ function parseInitial(value: string) {
   if (!country) return { country: undefined as CountryCode|undefined, ddd:"", subscriber:digits };
   const calling=getCountryCallingCode(country);
   const national=digits.startsWith(calling) ? digits.slice(calling.length) : digits;
-  if (country==="BR") return { country, ddd:national.slice(0,2), subscriber:national.slice(2,11) };
+  if (country==="BR") return { country, ddd:national.slice(0,2), subscriber:national.slice(2) };
   return { country, ddd:"", subscriber:national };
+}
+
+// Accept complete, unambiguous numbers from paste/autofill without silently
+// truncating them into a different phone. Partial input stays visible.
+export function splitPhoneEntry(raw:string, country?:CountryCode, ddd="") {
+  const digits=raw.replace(/\D/g,"").slice(0,24);
+  const international=raw.trim().startsWith("+") ? "+"+digits
+    : raw.trim().startsWith("00") ? "+"+digits.slice(2)
+    : (!country || country==="BR") && digits.length===13 && digits.startsWith("55") ? "+"+digits
+    : undefined;
+  if(international) {
+    const parsed=parsePhoneNumberFromString(international);
+    if(parsed?.country && isCompletePhoneField(international)) return parseInitial(international);
+  }
+  if((!country || country==="BR") && digits.length===11 && BRAZIL_DDD_SET.has(digits.slice(0,2)) && /^9\d{8}$/.test(digits.slice(2))) {
+    return {country:"BR" as CountryCode,ddd:digits.slice(0,2),subscriber:digits.slice(2)};
+  }
+  return {country,ddd,subscriber:digits};
 }
 
 export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
@@ -68,14 +93,14 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   const [dddOpen,setDddOpen]=useState(false);
   const [search,setSearch]=useState("");
   const [dddSearch,setDddSearch]=useState("");
+  const lastEmitted=useRef(value);
   const root=useRef<HTMLDivElement>(null);
   const countryListRef=useRef<HTMLDivElement>(null);
   const dddRailRef=useRef<HTMLDivElement>(null);
 
   useEffect(()=>{
-    if (!value) return;
-    const current=compose(country,ddd,subscriber);
-    if (current.replace(/\D/g,"")===value.replace(/\D/g,"")) return;
+    if (value===lastEmitted.current) return;
+    lastEmitted.current=value;
     const next=parseInitial(value);
     setCountry(next.country);
     setDdd(next.ddd);
@@ -101,12 +126,42 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   },[]);
 
   useEffect(()=>{
+    if (!countryOpen) {
+      setSearch("");
+      return;
+    }
+    const incremental=(event:KeyboardEvent)=>{
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target=event.target as HTMLElement | null;
+      if (target?.tagName==="INPUT" || target?.tagName==="TEXTAREA") return;
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+        setSearch((current)=>(current.replace(/\D/g,"")+event.key).slice(-3));
+      } else if (/^[a-zA-ZÀ-ÿ]$/.test(event.key)) {
+        event.preventDefault();
+        setSearch((current)=>(current+event.key).slice(-24));
+      } else if (event.key==="Backspace" && search) {
+        event.preventDefault();
+        setSearch((current)=>current.slice(0,-1));
+      }
+    };
+    document.addEventListener("keydown",incremental);
+    return ()=>document.removeEventListener("keydown",incremental);
+  },[countryOpen,search]);
+
+  useEffect(()=>{
+    if (countryOpen) countryListRef.current?.scrollTo({top:0,behavior:"smooth"});
+  },[search,countryOpen]);
+
+  useEffect(()=>{
     if (!dddOpen) {
       setDddSearch("");
       return;
     }
     const incremental=(event:KeyboardEvent)=>{
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target=event.target as HTMLElement | null;
+      if (target?.tagName==="INPUT" || target?.tagName==="TEXTAREA") return;
       if (/^\d$/.test(event.key)) {
         event.preventDefault();
         setDddSearch((current)=>(current+event.key).slice(-2));
@@ -130,18 +185,21 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   function emit(nextCountry=country,nextDdd=ddd,nextSubscriber=subscriber) {
-    onChange(compose(nextCountry,nextDdd,nextSubscriber));
+    const next=compose(nextCountry,nextDdd,nextSubscriber);
+    lastEmitted.current=next;
+    onChange(next);
   }
 
   function chooseCountry(next:CountryCode) {
-    const keepSubscriber=country===next ? subscriber : "";
+    const keepSubscriber=!country || country===next ? subscriber : "";
+    const keepDdd=country===next ? ddd : "";
     setCountry(next);
-    setDdd("");
+    setDdd(keepDdd);
     setSubscriber(keepSubscriber);
     setCountryOpen(false);
     setDddOpen(false);
     setSearch("");
-    emit(next,"",keepSubscriber);
+    emit(next,keepDdd,keepSubscriber);
   }
 
   function chooseDdd(next:string) {
@@ -162,17 +220,15 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   function changeSubscriber(raw:string) {
-    const digits=raw.replace(/\D/g,"").slice(0,country==="BR" ? 9 : 14);
-    setSubscriber(digits);
-    emit(country,ddd,digits);
+    const next=splitPhoneEntry(raw,country,ddd);
+    setCountry(next.country);
+    setDdd(next.ddd);
+    setSubscriber(next.subscriber);
+    emit(next.country,next.ddd,next.subscriber);
   }
 
   const item=country ? COUNTRIES.find((entry)=>entry.country===country) : undefined;
-  const filtered=COUNTRIES.filter((entry)=>{
-    const q=normalizeSearch(search);
-    const digits=search.replace(/\D/g,"");
-    return !q || normalizeSearch(entry.name).includes(q) || entry.country.toLowerCase().includes(q) || (digits.length>0 && entry.callingCode.includes(digits));
-  });
+  const filtered=countriesForPhoneSearch(search);
   const filteredDdds=dddSearch ? BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch)) : BRAZIL_DDDS;
   const dddInfo=BRAZIL_DDDS.find(([code])=>code===ddd);
   const complete=country==="BR"
@@ -192,24 +248,28 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
       <input
         id={id}
         className="phone-number-input"
-        inputMode="numeric"
-        autoComplete="tel-national"
+        type="tel"
+        inputMode="tel"
+        autoComplete={country==="BR" && ddd ? "tel-local" : "tel-national"}
         value={subscriber}
         onChange={(event)=>changeSubscriber(event.target.value)}
         placeholder={country==="BR" ? "9XXXXXXXX" : country ? "Número do WhatsApp" : "Escolha o país"}
-        maxLength={country==="BR" ? 9 : 14}
+        maxLength={24}
+        aria-describedby={id+"-hint"}
         required={required}
         aria-label="WhatsApp"
       />
     </div>
-    <div className="phone-field-hint">
-      {item ? <span>{item.flag} {item.name} · +{item.callingCode}{country==="BR" && dddInfo ? ` · DDD ${dddInfo[0]} (${dddInfo[1]})` : ""}</span> : <span>Escolha o país para identificar o DDI.</span>}
-      {country==="BR" && subscriber && !/^9\d{0,8}$/.test(subscriber) && <span className="phone-hint-error">No Brasil, o WhatsApp móvel deve começar com 9.</span>}
+    <div className="phone-field-hint" id={id+"-hint"}>
+      {item ? <span>{item.flag} {item.name} · +{item.callingCode}{country==="BR" && dddInfo ? ` · DDD ${dddInfo[0]} (${dddInfo[1]})` : ""}</span> : <span>Selecione o país ou cole o telefone completo com DDI.</span>}
+      {country==="BR" && <span>{ddd ? "Neste campo, digite os 9 números do celular. Também aceitamos o telefone completo." : "Selecione o DDD ou cole o número com DDD."}</span>}
+      {country==="BR" && subscriber && !/^9\d{0,8}$/.test(subscriber) && <span className="phone-hint-error" role="status">Confira o celular: são 9 números, começando com 9. O DDD fica no seletor ao lado.</span>}
     </div>
 
     {countryOpen && <div className="phone-popover country-popover" role="dialog" aria-label="País e DDI">
       <div className="phone-popover-head"><strong>País e DDI</strong><button type="button" onClick={()=>setCountryOpen(false)} aria-label="Fechar lista de países"><X size={17}/></button></div>
-      <label className="phone-search"><Search size={16}/><input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar país ou DDI"/></label>
+      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> mantém Brasil. A escolha só é aplicada quando você toca no país.</p>
+      {search && <div className="phone-incremental-filter" aria-live="polite"><span>Filtro digitado</span><strong>{search}</strong><button type="button" onClick={()=>setSearch("")} aria-label="Limpar filtro">Limpar</button></div>}
       <div className="country-scroll-shell">
         <button type="button" className="popover-scroll-arrow vertical" aria-label="Países anteriores" onClick={()=>scrollCountries(-1)}><ChevronUp size={17}/></button>
         <div className="phone-option-list" ref={countryListRef}>{filtered.map((entry)=><button type="button" key={entry.country} aria-label={`${entry.name} +${entry.callingCode}`} className={entry.country===country ? "selected" : ""} onClick={()=>chooseCountry(entry.country)}>

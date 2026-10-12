@@ -10,7 +10,9 @@
     "lint": "tsc -b --pretty false",
     "android:sync": "vite build --config vite.config.ts --mode android && cap sync android",
     "android:apk": "node ../../scripts/android-build.mjs",
-    "test:e2e": "node ../../scripts/browser-tests.mjs"
+    "test:e2e": "node ../../scripts/browser-tests.mjs",
+    "predev": "node ../../scripts/prepare-companion.mjs",
+    "prebuild": "node ../../scripts/prepare-companion.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",

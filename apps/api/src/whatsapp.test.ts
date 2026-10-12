@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
-import { flushWhatsAppOutbox, publicWhatsAppNumber, queueParticipationDecision, syncOfficialWhatsAppGroups, whatsappJoinUrl } from "./whatsapp.js";
+import { flushWhatsAppOutbox, publicWhatsAppNumber, queueOwnerAlerts, queueParticipationDecision, queueWhatsAppOtp, syncOfficialWhatsAppGroups, whatsappJoinUrl } from "./whatsapp.js";
 
 describe("bot oficial WhatsApp", () => {
   let db: AppDatabase, config: Config, app: Awaited<ReturnType<typeof buildApp>>;
@@ -58,10 +58,10 @@ describe("bot oficial WhatsApp", () => {
     expect(JSON.parse(received.payload).text.body).toContain("já está registrado");
   });
 
-  it("usa Rafael como número público quando não há OWNER_WHATSAPP dedicado", async () => {
+  it("usa o Business aprovado sem expor o contato pessoal de Rafael", async () => {
     config.OWNER_WHATSAPP=undefined;
-    expect(publicWhatsAppNumber(config)).toBe("5571999999102");
-    expect(whatsappJoinUrl(config)).toContain("https://wa.me/5571999999102");
+    expect(publicWhatsAppNumber(config)).toBe("5571993978956");
+    expect(whatsappJoinUrl(config)).toContain("https://wa.me/5571993978956");
   });
 
   it("prioriza o número administrativo configurado para novo registro",async () => {
@@ -74,10 +74,28 @@ describe("bot oficial WhatsApp", () => {
     const params=JSON.parse(alerts[0].payload).template.components[0].parameters.map((p:any)=>p.text);
     expect(params).toEqual(["Nina","5571999999001","1"]);
   });
+  it("alertas usam a configuração persistida e incluem associações Google pendentes",async () => {
+    config.WHATSAPP_OWNER_ALERT_TEMPLATE=undefined;
+    const setting=db.prepare("INSERT INTO integration_settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+    setting.run("whatsapp.meta.owner_alert_template","sos_pendente_painel",new Date().toISOString());
+    db.prepare("INSERT INTO google_identity_claims (id,phone,name,google_sub,email,created_at) VALUES (?,?,?,?,?,?)")
+      .run("claim-alert","5571999999001","Nina","subject-alert","nina@example.test",new Date().toISOString());
+    queueOwnerAlerts(db,config,"claim-alert","5571999999001","Nina","google:claim-alert");
+    let jobs=db.prepare("SELECT payload FROM whatsapp_outbox ORDER BY rowid").all() as Array<{payload:string}>;
+    expect(jobs).toHaveLength(2);
+    const first=JSON.parse(jobs[0].payload).template;
+    expect(first.name).toBe("sos_pendente_painel");
+    expect(first.components[0].parameters.map((p:any)=>p.text)).toEqual(["Nina","5571999999001","1"]);
+    setting.run("whatsapp.meta.owner_alert_template","sos_pendente_atualizado",new Date().toISOString());
+    queueOwnerAlerts(db,config,"claim-alert","5571999999001","Nina","google:next-alert");
+    jobs=db.prepare("SELECT payload FROM whatsapp_outbox ORDER BY rowid").all() as Array<{payload:string}>;
+    expect(JSON.parse(jobs[2].payload).template.name).toBe("sos_pendente_atualizado");
+  });
   it("notifica automaticamente a decisão do Owner e atualiza o estágio da conversa",async () => {
     await post(payload("decision-m1","Quero participar"));
     await post(payload("decision-m2","Luiza"));
     const requestRow=db.prepare("SELECT id FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string};
+    db.prepare("UPDATE participation_requests SET preferred_group='1',updated_at=? WHERE id=?").run(new Date().toISOString(),requestRow.id);
     const login=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Fabio0",identifier:"+55 71 [9]9999-9101",groupCode:"#",secret:"fabio-secret-exclusive-32-characters"}});
     expect(login.statusCode).toBe(200);
     const decision=await app.inject({method:"POST",url:`/admin/requests/${requestRow.id}/decision`,headers:{authorization:`Bearer ${login.json().token}`},payload:{status:"APPROVED",groupCode:"1"}});
@@ -88,7 +106,8 @@ describe("bot oficial WhatsApp", () => {
     const decisionPayload=JSON.parse(job.payload);
     expect(decisionPayload.type).toBe("text");
     expect(decisionPayload.text.body).toContain("aprovado no SOS YOUTUBER 1");
-    expect(decisionPayload.text.body).toContain("Nenhuma credencial adicional é necessária.");
+    expect(decisionPayload.text.body).toContain("solicite uma chave de acesso");
+    expect(decisionPayload.text.body).toContain("Google, se já estiver vinculada");
     expect(count("login_codes")).toBe(0);
     expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key LIKE 'approval-credential:%'").get()).toBeUndefined();
   });
@@ -97,13 +116,15 @@ describe("bot oficial WhatsApp", () => {
     await post(payload("late-m2","Caio"));
     const row=db.prepare("SELECT id FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string};
     db.prepare("UPDATE participation_requests SET whatsapp_verified_at=? WHERE id=?").run(new Date(Date.now()-25*3600_000).toISOString(),row.id);
+    config.WHATSAPP_DECISION_TEMPLATE=undefined;
+    db.prepare("INSERT INTO integration_settings (key,value,updated_at) VALUES ('whatsapp.meta.decision_template','sos_decisao_painel',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(new Date().toISOString());
     expect(queueParticipationDecision(db,config,row.id,"DECLINED")).toBe(true);
     expect(queueParticipationDecision(db,config,row.id,"DECLINED")).toBe(true);
     const jobs=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'decision:%'").all() as Array<{payload:string}>;
     expect(jobs).toHaveLength(1);
     const decisionPayload=JSON.parse(jobs[0].payload);
     expect(decisionPayload.type).toBe("template");
-    expect(decisionPayload.template.name).toBe("sos_decisao");
+    expect(decisionPayload.template.name).toBe("sos_decisao_painel");
     expect(decisionPayload.template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Caio","NÃO APROVADO","-",config.WEB_APP_URL]);
   });
   it("descobre grupos SOS e registra prova de presença sem aprovar participante automaticamente",async () => {
@@ -144,6 +165,32 @@ describe("bot oficial WhatsApp", () => {
     const fetchMock=vi.fn(); vi.stubGlobal("fetch",fetchMock); await flushWhatsAppOutbox(db,config);
     expect(fetchMock).not.toHaveBeenCalled(); expect((db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE status='FAILED'").get() as {n:number}).n).toBe(2);
   });
+  it("dois flushes concorrentes não enviam o mesmo job duas vezes",async () => {
+    queueWhatsAppOtp(db,config,"5571999999001","123456","otp-race",new Date(Date.now()+300_000).toISOString());
+    expect(count("whatsapp_outbox")).toBe(1);
+    const sent:string[]=[];
+    let release!:()=>void;
+    const gate=new Promise<void>((resolve)=>{release=resolve;});
+    let entered!:()=>void;
+    const started=new Promise<void>((resolve)=>{entered=resolve;});
+    vi.stubGlobal("fetch",vi.fn(async (_url,options)=>{
+      const body=JSON.parse(String(options?.body ?? "{}"));
+      sent.push(body.to);
+      entered();
+      await gate;
+      return new Response(JSON.stringify({messages:[{id:"msg-race"}]}),{status:200,headers:{"content-type":"application/json"}});
+    }));
+    const first=flushWhatsAppOutbox(db,config,1);
+    await started;
+    const second=flushWhatsAppOutbox(db,config,1);
+    await new Promise((resolve)=>setTimeout(resolve,10));
+    expect(sent).toHaveLength(1);
+    release();
+    await Promise.all([first,second]);
+    expect(sent).toHaveLength(1);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE status='SENT'").get() as {n:number}).n).toBe(1);
+  });
+
   it("falha do provedor é retida para retentativa sem perder solicitação",async () => {
     await post(payload("m1","Quero participar")); await post(payload("m2","Pessoa"));
     vi.stubGlobal("fetch",vi.fn(async () => new Response("{}",{status:503})));
