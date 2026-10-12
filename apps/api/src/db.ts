@@ -1,8 +1,28 @@
 import Database from "better-sqlite3";
-import { dirname } from "node:path";
-import { mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 export type AppDatabase = Database.Database;
+
+/** Consistent SQLite backup before the additive purchase-benefits migration. */
+export async function backupBeforePaymentBenefitsMigration(filename: string): Promise<string | undefined> {
+  if (filename === ":memory:" || !existsSync(filename)) return;
+  const source = new Database(filename, { readonly: true, fileMustExist: true });
+  try {
+    const table = source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='payments'").get();
+    const columns = source.prepare("PRAGMA table_info(payments)").all() as Array<{ name:string }>;
+    if (!table || columns.some(column => column.name === "product_benefits_json")) return;
+    const folder = join(dirname(filename), "backups");
+    mkdirSync(folder, { recursive:true, mode:0o700 });
+    const destination = join(folder, "pre-payment-benefits-"+Date.now()+"-"+randomUUID()+".sqlite");
+    await source.backup(destination);
+    chmodSync(destination, 0o600);
+    return destination;
+  } finally {
+    source.close();
+  }
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS whatsapp_received (message_id TEXT PRIMARY KEY, received_at TEXT NOT NULL);
@@ -482,6 +502,15 @@ export function createDatabase(filename: string): AppDatabase {
     created_at TEXT NOT NULL
   );`);
   addColumn("payments", "product_code", "TEXT NOT NULL DEFAULT 'LEGACY'");
+  addColumn("payments", "product_benefits_json", "TEXT");
+  // Compras anteriores ainda pendentes recebem um retrato do catálogo no
+  // momento da migração. O marcador distingue este retrato de uma oferta nova.
+  db.exec(`UPDATE payments SET product_benefits_json=COALESCE(
+    (SELECT json_object('grantsItem',s.grants_item,'qty',COALESCE(s.grants_item_qty,0),
+      'days',COALESCE(s.subscription_days,0),'source','LEGACY_AT_MIGRATION')
+      FROM store_products s WHERE s.code=payments.product_code),
+    json_object('grantsItem',NULL,'qty',0,'days',0,'source','LEGACY_AT_MIGRATION'))
+    WHERE product_benefits_json IS NULL AND status IN ('PENDING','REJECTED');`);
   addColumn("youtube_connections", "channel_id", "TEXT");
   addColumn("youtube_connections", "channel_title", "TEXT");
   addColumn("youtube_connections", "channel_thumbnail_url", "TEXT");

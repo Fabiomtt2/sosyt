@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac, randomUUID } from "node:crypto";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
-import { createDatabase, type AppDatabase } from "./db.js";
+import { createDatabase, backupBeforePaymentBenefitsMigration, type AppDatabase } from "./db.js";
+import Database from "better-sqlite3";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createPrivatePlaylist, encryptToken } from "./youtube.js";
 import { normalizePhone } from "./phone.js";
 
@@ -361,6 +365,56 @@ describe("regressões de domínio e segurança", () => {
       activity:{submissions:1,rounds:1}
     });
     expect(purchasedView.profile.purchases.history[0]).toMatchObject({productCode:"COINS_10",amountCents:2000,creditsMillis:10000,extraPasses:0});
+  });
+  it("Pix de Pular preserva a oferta mesmo se o Owner editar ou ocultar o produto", async () => {
+    const user=await register();
+    const payment=await pix(user.token,"SKIP_1");
+    expect(payment.statusCode).toBe(201);
+    db.prepare("UPDATE store_products SET grants_item_qty=7,active=0 WHERE code='SKIP_1'").run();
+    const approve=()=>app.inject({method:"POST",url:`/payments/${payment.json().id}/demo-approve`,headers:headers(user.token)});
+    expect((await approve()).statusCode).toBe(200); await approve();
+    const id=(await dashboard(user.token)).user.id;
+    expect(db.prepare("SELECT quantity FROM user_items WHERE user_id=? AND item_code='SKIP'").get(id)).toEqual({quantity:1});
+  });
+  it("Pix de SUPER guarda os dias comprados e reenvio não estende a assinatura", async () => {
+    const user=await register();
+    const payment=await pix(user.token,"SUPER_30");
+    expect(payment.statusCode).toBe(201);
+    db.prepare("UPDATE store_products SET subscription_days=3 WHERE code='SUPER_30'").run();
+    const approve=()=>app.inject({method:"POST",url:`/payments/${payment.json().id}/demo-approve`,headers:headers(user.token)});
+    expect((await approve()).statusCode).toBe(200);
+    const id=(await dashboard(user.token)).user.id;
+    const expiry=()=> (db.prepare("SELECT expires_at FROM super_subscriptions WHERE user_id=?").get(id) as {expires_at:string}).expires_at;
+    const first=expiry();
+    expect(Date.parse(first)-Date.now()).toBeGreaterThan(29*86400_000);
+    await approve(); expect(expiry()).toBe(first);
+  });
+  it("upgrade preserva backup e fixa benefícios das compras antigas pendentes uma única vez", async () => {
+    const user=await register();
+    const payment=await pix(user.token,"SKIP_1");
+    const folder=mkdtempSync(join(tmpdir(),"sos-pix-migration-"));
+    const file=join(folder,"legacy.sqlite");
+    let copy:AppDatabase|undefined;
+    try {
+      await db.backup(file);
+      copy=new Database(file);
+      copy.exec("ALTER TABLE payments DROP COLUMN product_benefits_json");
+      copy.close(); copy=undefined;
+      const backup=await backupBeforePaymentBenefitsMigration(file);
+      expect(backup).toBeTruthy(); expect(existsSync(backup!)).toBe(true);
+      expect(statSync(backup!).mode & 0o777).toBe(0o600);
+      const preserved=new Database(backup!,{readonly:true});
+      expect((preserved.prepare("PRAGMA table_info(payments)").all() as Array<{name:string}>).some(c=>c.name==="product_benefits_json")).toBe(false);
+      preserved.close();
+      copy=createDatabase(file);
+      const snapshot=()=>JSON.parse((copy!.prepare("SELECT product_benefits_json FROM payments WHERE id=?").get(payment.json().id) as {product_benefits_json:string}).product_benefits_json);
+      expect(snapshot()).toMatchObject({grantsItem:"SKIP",qty:1,source:"LEGACY_AT_MIGRATION"});
+      copy.prepare("UPDATE store_products SET grants_item_qty=9 WHERE code='SKIP_1'").run();
+      copy.close(); copy=createDatabase(file);
+      expect(snapshot().qty).toBe(1);
+      expect((copy.prepare("SELECT status FROM payments WHERE id=?").get(payment.json().id) as {status:string}).status).toBe("PENDING");
+      expect(await backupBeforePaymentBenefitsMigration(file)).toBeUndefined();
+    } finally { copy?.close(); rmSync(folder,{recursive:true,force:true}); }
   });
   it("produto de passe configurado credita passe e libera UMA contribuição extra", async () => {
     const user = await register();

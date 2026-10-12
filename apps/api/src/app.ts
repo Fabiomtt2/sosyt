@@ -337,6 +337,7 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
   return db.transaction(() => {
     const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId) as {
       id: string; user_id: string; status: string; credits_millis: number; extra_passes: number;
+      product_benefits_json: string | null;
     } | undefined;
     if (!payment) return false;
     const credited = db.prepare("SELECT 1 FROM wallet_ledger WHERE user_id = ? AND kind = 'PIX_PURCHASE' AND reference_id = ?").get(payment.user_id, payment.id);
@@ -349,8 +350,10 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
     db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'PIX_PURCHASE', ?, ?, ?)")
       .run(randomUUID(), payment.user_id, payment.credits_millis, payment.id, now);
     // AUDITORIA / inventario: o produto pode conceder item (ex.: SKIP). Idempotente pelo id do pagamento.
-    const bought = db.prepare("SELECT grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS qty, COALESCE(subscription_days,0) AS days FROM store_products WHERE code=?")
-      .get(String((payment as unknown as { product_code?: string }).product_code ?? "")) as { grantsItem?: string; qty: number; days: number } | undefined;
+    const bought = payment.product_benefits_json
+      ? JSON.parse(payment.product_benefits_json) as { grantsItem?: string; qty: number; days: number }
+      : db.prepare("SELECT grants_item AS grantsItem, COALESCE(grants_item_qty,0) AS qty, COALESCE(subscription_days,0) AS days FROM store_products WHERE code=?")
+        .get(String((payment as unknown as { product_code?: string }).product_code ?? "")) as { grantsItem?: string; qty: number; days: number } | undefined;
     if (bought?.grantsItem && bought.qty > 0 && !bought.days) {
       grantItem(db, { userId: payment.user_id, itemCode: bought.grantsItem, delta: bought.qty, kind: "PURCHASE", referenceId: payment.id, note: "Compra na loja" });
     }
@@ -1278,9 +1281,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (provider === "DISABLED") return reply.code(409).send({ message:"O Owner ainda não configurou um provedor Pix ativo." });
     const product=getActiveStoreProduct(db,body.product);
     if (!product) return reply.code(409).send({ message:"Este item não está disponível na loja." });
-    db.prepare(`INSERT INTO payments (id, user_id, provider, product_code, status, amount_cents, credits_millis, extra_passes, created_at)
-      VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)`)
-      .run(paymentId, request.user.sub, provider, product.code, product.amountCents, product.creditsMillis, product.extraPasses, now);
+    db.prepare(`INSERT INTO payments (id, user_id, provider, product_code, status, amount_cents, credits_millis, extra_passes, product_benefits_json, created_at)
+      VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`)
+      .run(paymentId, request.user.sub, provider, product.code, product.amountCents, product.creditsMillis, product.extraPasses,
+        JSON.stringify({grantsItem:product.grantsItem ?? null,qty:product.grantsItemQty,days:product.subscriptionDays,source:"PURCHASE"}),now);
     try {
       const pix = provider === "DEMO"
         ? { providerPaymentId:`demo_${paymentId}`, status:"PENDING" as const }
