@@ -1,5 +1,30 @@
 # ÂNCORA CANÔNICA — YOUTUBE FINAL
 
+## Retomada imediata — conjunto homologado para merge — 12/10/2026
+- Worktree executável de convergência: YouTube Final/.local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012. Código validado: fc811bad3006f404addc9e931331e2033d9e4166. Usar git rev-parse HEAD para obter a ponta documental atual.
+- Ler docs/CONVERGENCIA-ASTRA-20261012.md. Herda 27 commits Claude sobre 6d09b6f; 6 commits ASTRA por domínio preservam telefone, navegação Owner, Loja, preparação do bot, E2E e proteção de compras.
+- Gate final3: API 237/237, cliente 21/21, TypeScript/build GREEN, E2E 4/4 GREEN. Logs em .local-tmp/gate-20261012/*final3.log; capturas desktop/mobile frescas em docs/evidencias.
+- Catálogo conforme decisão Fábio/Claude (1d8b50d): não restaurar pacote/passe antigos. Campos de arte/item/SUPER persistem pela rota real e chegam ao participante; item oculto não é republicado ao editar. Compras guardam benefícios ofertados; backup SQLite automático anterior à migração.
+- bot-automations.ts/test copiados com hashes idênticos da árvore Claude; catálogo de 19 eventos preservado. OTP/outbox/cadastro/alertas existentes permanecem; ligar preferências/eventos novos e APIs de grupo é a integração ainda aberta. Usuário confirma GREEN do número temporário Meta; não fabricar credenciais definitivas.
+- Original sol/user-premium-20261006 @ 6d09b6f e fonte Claude @ 8a1962f permanecem com seus WIPs preservados. Não iniciar o servidor da árvore original para homologar a convergência.
+- GitHub main antes da publicação ainda c0b8172, PR #1 draft antiga. Próximo: push da convergência, revisar PR/diff, merge preservando histórico.
+- Railway API dddb1c3c/Web 1bf687bd Online SUCCESS 1/1, API /data. Ambos ainda pinados em 65d5b2c na configuração de source, apesar de uploads manuais mais novos. Após main convergir, trocar fonte via staged change no environment production e observar SUCCESS, backup e smoke público. Não usar redeploy que reutiliza o artefato antigo.
+
+
+## Correção explícita do usuário — 12/10/2026 14:10 Bahia — precedência atual
+- A mudança de preço/quantidade de moedas e retirada do passe do pacote foi determinada por Fábio com Claude. NÃO é regressão. Preservar o catálogo aprovado/configurado; não restaurar automaticamente ofertas antigas.
+- Nesta retomada, removida a restauração equivocada feita por ASTRA: COINS_10 padrão permanece R$20, 10 moedas, zero passes; PASS_SINGLE legado inativo. Nenhum banco de produção alterado. Outros valores devem ser conferidos no catálogo real/Owner, sem inferir “20 moedas” apenas do chat.
+- Scripts/estados do Claude são preparação válida para o funcionamento integrado do bot/usuário/Owner. O usuário confirma GREEN do teste com número temporário Meta. Próximo trabalho é integrar caminhos de API/runtime e configuração persistida, preservando rascunhos; não tratar preparação como ausência total do motor nem declarar produção pronta só por credenciais salvas.
+- Continuar na worktree .local-tmp/convergencia-claude-20261012 @ 8a1962f + WIP; original e árvore Claude intactos. E2E anterior falhou em vídeos fictícios agora rejeitados pela verificação de existência; corrigir fixture de teste sem enfraquecer validação real. Chat sobre modal encontrado e z-index corrigido; falta prova fresca.
+
+
+## Reancoragem Claude — 12/10/2026 UTC — prevalece sobre checkpoints abaixo
+- Ler docs/REANCORAGEM-CLAUDE-20261012.md antes de editar/publicar. Claude criou AUDITORIA-CLAUDE-SOSYT e implementação em 01-ESPELHO/trabalho, branch auditoria/correcoes-propostas @ 8a1962f, 27 commits sobre 6d09b6f; ambos sem remote configurado.
+- GitHub main continua c0b8172; PR #1 OPEN/DRAFT head 6d09b6f. Nosso WIP posterior continua preservado e não homologado (último E2E 2/4). Não tratar o GREEN de 08/10 abaixo como status atual de toda a working tree.
+- Railway REAL: API dddb1c3c e Web 1bf687bd, deployments de 10/10, ambos SUCCESS/Online 1/1; /data presente. HTTP health/Web 200. Fonte configurada antiga 65d5b2c não identifica os uploads manuais. SHA dos artefatos atuais ainda não comprovado; não republicar branch antiga.
+- Bot novo: configurações/status não estão conectados ao motor de envio; catálogo bot-automations.ts + teste ainda untracked e sem integração runtime. Novidades reais incluem acesso por senha, múltiplas filas, loja configurável, SUPER, chat/correio e tiers de avatar; exigem revisão e gate conjunto.
+- Preservar as duas árvores. Colisões com nosso WIP: App, OwnerDashboard, OwnerDeskMenu, PhoneField, styles. Nenhuma regra, código ou produção alterada nesta descoberta. Próximo: mapear deploys atuais, revisar novos motores/decisões e integrar com rastreabilidade.
+
 ## Retomada ASTRA — 08/10/2026 02:42 -03
 - Conferência final: PR #1 OPEN/DRAFT, sem conflito; não há CI configurado nesta branch (gate local comprovado acima). Railway API/Web online SUCCESS, 1/1, zero ocorrências e zero mudanças pendentes em 08/10. Comparação integral contra main encontrou apenas uma linha extra no EOF de watch-rewards.ts, removida sem alteração de comportamento.
 - PR em rascunho: https://github.com/Fabiomtt2/sosyt/pull/1. Manter sem merge até homologar o login real e coordenar API/Web. Código/evidências em ba1ce1ab; ponta documental da branch obtida com git rev-parse HEAD.
@@ -285,3 +310,51 @@ Antes da revisão do watch: API 103/103, client 10/10, lint/build GREEN, E2E 3/3
 - Pendente de produto/infra: credenciais oficiais Meta e Google não fabricadas; não confundir número Business existente com Cloud API configurada. Todas as alterações ainda locais, sem deploy.
 - Auditoria histórica não encontrou runtime Python IFtp/IFTP nas duas árvores/reflogs/objetos examinados; update-watch.py é gerador JSX, não runtime. Próximo bloco será companion novo, identificado como nova implementação, opt-in, captura apenas região escolhida, sem enviar imagens, com autorização revogável e sinais complementares ao motor web. OCR não provará atenção humana nem autorizará moedas sozinho.
 - Preflight do Inspiron: tkinter/Pillow/OpenCV disponíveis; tesseract e xvfb ausentes. Ainda não foi instalado nada neste bloco nem criado companion. Não alegar recuperação de runtime histórico.
+
+## Convergência ASTRA — 12/10/2026, checkpoint posterior à reancoragem
+- Worktree isolada dentro de YouTube Final: .local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012 @ 8a1962f (27 commits Claude herdados). Original sol/user-premium-20261006 @ 6d09b6f permanece intacto com seu WIP; bot-automations.ts e teste continuam untracked exclusivamente na árvore Claude.
+- Integrados seletivamente 9 arquivos de WIP original com resolução dos conflitos App, OwnerDashboard, OwnerDeskMenu, PhoneField, styles. Seleção DDI/DDD ainda exige clique explícito; preenchimento do número e erros preservados.
+- Gate anterior à correção atual: API 215 testes, cliente 21, lint e build verdes; visual-convergence E2E 1/1 verde em Chromium 1440/390. Teste comunitário ainda em rerun após adaptar navegação à aba Integrações; NÃO declarar gate total verde.
+- Loja Owner: tabela antiga cortava preço e ações no celular e o botão Editar no desktop. Cartões responsivos substituíram a tabela; captura fresca conferida em 390 px, preço, benefícios e ações inteiros; Playwright valida geometria e edição.
+- RED operacional descoberto: as flags de bot.ts não são consumidas pelos fluxos de envio. botStatus e UI da aba Bot agora deixam as funções pendentes mesmo com credenciais prontas; texto não promete automação implantada. Meta teste temporário do usuário não equivale a produção do Business. Claude desenvolve automação em sua árvore própria.
+- Revisão adicional da Loja: catálogo conforme decisão Fábio/Claude, sem migração que acrescente passes. Totais de compras classificam por benefício efetivo, incluindo COINS_10 e produtos configuráveis.
+- Corrigida rota /admin/store/products: o schema descartava imageDataUrl, grantsItem, grantsItemQty e subscriptionDays apesar do formulário. Remoção explícita de arte agora salva NULL. Dashboard participante expõe arte, item e assinatura; Loja apresenta benefícios reais e fallback visual neutro. Testes de banco persistente, rota real e serialização adicionados.
+- Gate unitário do checkpoint anterior passou após atualização de expectativas (API 216, cliente 21); houve novas alterações na rota/Loja desde então, portanto repetir gate integral. E2E community está em execução neste momento. Não publicar até passar.
+- Railway produção API dddb1c3c/Web 1bf687bd SUCCESS antes desta convergência. Nenhum commit/push/merge/deploy feito nesta worktree até este checkpoint. Próximo: fechar community, gate integral, revisar diffs e capturas, commits lógicos, PR e coordenação de release sem sobrescrever /data.
+
+## Checkpoint commit 57825525e1f9 — 12/10/2026
+- fix(auth): preserve complete phone entry and explicit country selection
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit bf06b21af27a — 12/10/2026
+- fix(store): persist product benefits and artwork through owner and participant APIs
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit a047f81c955f — 12/10/2026
+- feat(ui): converge owner navigation and responsive store presentation
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit 17ca6ee9ba11 — 12/10/2026
+- feat(bot): preserve Claude automation catalog and distinguish runtime readiness
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Checkpoint commit 30ac52922d64 — 12/10/2026
+- test(e2e): verify approved commerce rules and integrated owner panels
+- Gate do conjunto: API 234/234, cliente 21/21, lint/build GREEN, E2E 4/4 GREEN. Original e árvore Claude preservados.
+- Ainda NÃO merge/deploy: corrigir snapshot de item/SUPER nas compras pendentes e validar antes de publicar.
+
+## Última proteção de compra — snapshot e backup — WIP posterior a 30ac529
+- Source atual preserva a decisão de catálogo do commit Claude 1d8b50d, confirmada por Fábio em 12/10. Sem restauração de passe/seed.
+- Pagamentos novos guardam product_benefits_json (item, quantidade, dias SUPER) na criação do Pix; settlement usa o retrato da compra, não o catálogo editado depois. Moedas/passes já eram registrados no pagamento.
+- Migração aditiva captura benefícios das compras antigas pendentes/rejeitadas uma única vez, identificada como LEGACY_AT_MIGRATION. Não altera saldo nem marca pagamento como aprovado.
+- Em produção, server.ts faz backup consistente do SQLite antes desta migração quando a coluna ainda não existe. Backup privado em pasta backups ao lado do banco; se o backup falhar, startup para antes de migrar. Migração compatível com rollback de código.
+- Três regressões novas: edição/ocultação de Pular durante Pix; alteração de dias SUPER e replay; upgrade de SQLite antigo com backup preservado e backfill idempotente. Gate final3 em execução; ainda não publicar este WIP.
+- Snapshots CLI não usados: railway não está instalado no PATH deste DC. Publicação planejada via conector Railway existente, retirando pin antigo 65d5b2c depois do merge auditado em main. Fontes API/Web serão staged no mesmo environment, conferidas antes de accept-deploy.
+
+## Compra protegida — commit fc811bad3006f404addc9e931331e2033d9e4166
+- Gate final3 GREEN: API 237/237, cliente 21/21, lint, build e E2E 4/4. Snapshot de benefícios e backup pré-migração testados.
+- Próximo: push/PR/merge e retirada coordenada do pin antigo Railway, com observação dos dois deploys e do backup no /data.
