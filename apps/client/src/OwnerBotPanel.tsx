@@ -3,16 +3,14 @@ import { Bot, CheckCircle2, AlertTriangle, Lock, Loader, ShieldAlert, RefreshCw 
 import { ownerApi, type BotStatus } from "./api";
 
 /**
- * AUDITORIA / painel do bot: modos (isolado/híbrido) e cada função com liga-desliga.
- * Tudo salva no servidor e vale na hora — sem reiniciar nada. Quando uma função
- * está ligada mas o motor não está pronto, ela aparece BLOQUEADA com o motivo,
- * em vez de fingir que funciona.
+ * Preferências persistidas do bot. A tela deve distinguir a configuração salva
+ * da execução real: as flags ainda não são consumidas pelos fluxos de envio.
  */
 const MODES: Array<{ key: BotStatus["mode"]; title: string; detail: string; risk?: boolean }> = [
-  { key: "DISABLED", title: "Desligado", detail: "O bot não envia nem recebe nada." },
-  { key: "OFFICIAL", title: "Oficial (Meta)", detail: "Mensagens, códigos e conversa pela Cloud API. Seguro, sem risco de bloqueio. Não gerencia grupos." },
-  { key: "EVOLUTION", title: "Evolution", detail: "Motor não-oficial: gerencia grupos reais e envia mensagens.", risk: true },
-  { key: "HYBRID", title: "Híbrido (cobre tudo)", detail: "Oficial para mensagens + Evolution para grupos. Cobre todas as funções.", risk: true }
+  { key: "DISABLED", title: "Desligado", detail: "Nenhuma função desta configuração está ativa." },
+  { key: "OFFICIAL", title: "Oficial (Meta)", detail: "Modo planejado para mensagens pela Cloud API. Não confirma grupos." },
+  { key: "EVOLUTION", title: "Evolution", detail: "Modo não oficial para grupos e mensagens. A integração ainda precisa ser concluída.", risk: true },
+  { key: "HYBRID", title: "Híbrido (em preparação)", detail: "Prevê Meta para mensagens e um complemento para grupos. Ainda não está operacional.", risk: true }
 ];
 
 export function OwnerBotPanel() {
@@ -32,7 +30,7 @@ export function OwnerBotPanel() {
     try {
       const result = await ownerApi.saveBot(patch);
       setStatus(result.status);
-      setNotice("Salvo — já está valendo.");
+      setNotice("Preferência salva. A automação desta aba ainda está em preparação.");
       window.setTimeout(() => setNotice(""), 2600);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar."); }
     finally { setBusy(false); }
@@ -43,7 +41,7 @@ export function OwnerBotPanel() {
   return (
     <section className="owner-panel bot-panel">
       <div className="owner-panel-head">
-        <div><h2><Bot size={19} /> Bot da comunidade</h2><p className="muted">Escolha o motor e ligue cada função. Toda mudança vale imediatamente.</p></div>
+        <div><h2><Bot size={19} /> Bot da comunidade</h2><p className="muted">Prepare as preferências do bot. As funções desta aba ainda não foram ligadas aos fluxos do aplicativo.</p></div>
         <button className="text-button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>
       </div>
 

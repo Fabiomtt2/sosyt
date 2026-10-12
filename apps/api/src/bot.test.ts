@@ -53,7 +53,7 @@ describe("cérebro do bot (config no painel, tempo real)", () => {
     expect(st.missing.join(" ")).toMatch(/Meta Cloud API/);
   });
 
-  it("com Meta oficial pronta, mensageria ativa; grupos ainda exigem Evolution", () => {
+  it("credenciais oficiais prontas não declaram funções não integradas como ativas", () => {
     // simula credenciais oficiais prontas pelo painel (via integration_settings)
     const now = new Date().toISOString();
     const put = (k: string, v: string) => db.prepare("INSERT INTO integration_settings (key,value,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(k, v, now);
@@ -64,7 +64,9 @@ describe("cérebro do bot (config no painel, tempo real)", () => {
     saveBotSettings(db, { mode: "OFFICIAL" });
     const st = botStatus(db, cfg);
     expect(st.engines.messaging.ready).toBe(true);
-    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.active).toBe(true);
+    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.active).toBe(false);
+    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.blockedReason).toMatch(/não está conectada/);
+    expect(st.fullyActive).toBe(false);
     expect(st.features.find((f) => f.code === "GROUP_SYNC")!.active).toBe(false); // OFFICIAL não gere grupo
   });
 

@@ -1,6 +1,6 @@
-// AUDITORIA / cérebro do bot: modos (isolado/híbrido) + flags por função, tudo
-// configurável no painel e aplicado em tempo real (lê sempre do banco). Não há
-// estado em memória: salvar no dashboard = efeito imediato na próxima requisição.
+// Configuração persistida dos modos e preferências do bot. O painel lê do banco
+// a cada requisição, mas os fluxos de envio ainda não consomem estas flags.
+// Portanto uma preferência salva não equivale a uma automação em operação.
 import { z } from "zod";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -8,9 +8,9 @@ import { readWhatsAppIntegration, readYouTubeIntegration, readPaymentIntegration
 
 // Modo do MOTOR de WhatsApp do bot:
 //  DISABLED  — bot não fala/recebe
-//  OFFICIAL  — só Cloud API da Meta (mensagens 1:1, seguro, sem gestão de grupo real)
-//  EVOLUTION — só motor não-oficial (grupos + mensagens; risco de ban)
-//  HYBRID    — oficial para mensagens/conversa + não-oficial para grupos (cobre TUDO)
+//  OFFICIAL  — preferência pela Cloud API da Meta; não gerencia grupos reais
+//  EVOLUTION — preferência pelo motor não oficial; há risco de bloqueio
+//  HYBRID    — proposta de Meta para mensagens e complemento para grupos
 export const botModeSchema = z.enum(["DISABLED", "OFFICIAL", "EVOLUTION", "HYBRID"]);
 export type BotMode = z.infer<typeof botModeSchema>;
 
@@ -79,16 +79,21 @@ export function botStatus(db: AppDatabase, config: Config) {
   if (mode === "DISABLED") missing.push("Escolha um modo do bot (OFFICIAL, EVOLUTION ou HYBRID).");
   if ((mode === "OFFICIAL" || mode === "HYBRID") && !wa.officialReady) missing.push("Configure a Meta Cloud API: Phone Number ID, WABA ID, Access Token, App Secret e Verify Token.");
   if ((mode === "EVOLUTION" || mode === "HYBRID") && !grpOk) missing.push("Configure o motor Evolution: URL, instância e API key (gestão de grupos).");
+  if (mode !== "DISABLED") missing.push("As funções desta aba ainda não foram conectadas aos fluxos de envio. A configuração salva não ativa o bot.");
 
   const features = BOT_FEATURES.map((f) => {
     const enabled = featureEnabled(db, f.code);
     const engineOk = f.engine === "group" ? grpOk : msgOk;
+    // Estas flags ainda não são consumidas pelos fluxos de envio. Credenciais
+    // prontas não demonstram que cada função está implementada ou em execução.
+    const wiredToRuntime = false;
     return {
       code: f.code, label: f.label, engine: f.engine, enabled,
-      // 'active' = ligado pelo Owner E com motor pronto; senão 'blocked' com motivo.
-      active: enabled && engineOk,
-      blockedReason: enabled && !engineOk
-        ? (f.engine === "group" ? "Requer motor Evolution configurado." : "Requer um motor de mensagens pronto (Meta oficial ou Evolution).")
+      active: enabled && engineOk && wiredToRuntime,
+      blockedReason: enabled && (!engineOk || !wiredToRuntime)
+        ? (!engineOk
+          ? (f.engine === "group" ? "Requer motor Evolution configurado." : "Requer um motor de mensagens pronto (Meta oficial ou Evolution).")
+          : "Configuração salva; esta função ainda não está conectada ao fluxo do aplicativo.")
         : null,
       riskNote: f.engine === "group" ? "Função não-oficial: risco de bloqueio do número pela Meta." : null
     };
