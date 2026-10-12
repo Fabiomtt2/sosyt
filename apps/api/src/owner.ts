@@ -285,11 +285,11 @@ export async function registerOwnerRoutes(
       : {n:0};
     const productRevenue=root
       ? db.prepare(`SELECT
-          COALESCE(SUM(CASE WHEN product_code='COINS_LAUNCH' THEN amount_cents ELSE 0 END),0) AS coinsRevenue,
-          COALESCE(SUM(CASE WHEN product_code='PASS_SINGLE' THEN amount_cents ELSE 0 END),0) AS passRevenue,
-          COALESCE(SUM(CASE WHEN product_code='LEGACY' THEN amount_cents ELSE 0 END),0) AS legacyRevenue,
-          COALESCE(SUM(CASE WHEN product_code='COINS_LAUNCH' THEN 1 ELSE 0 END),0) AS coinsPurchases,
-          COALESCE(SUM(CASE WHEN product_code='PASS_SINGLE' THEN 1 ELSE 0 END),0) AS passPurchases
+          COALESCE(SUM(CASE WHEN credits_millis>0 THEN amount_cents ELSE 0 END),0) AS coinsRevenue,
+          COALESCE(SUM(CASE WHEN credits_millis=0 AND extra_passes>0 THEN amount_cents ELSE 0 END),0) AS passRevenue,
+          COALESCE(SUM(CASE WHEN credits_millis=0 AND extra_passes=0 THEN amount_cents ELSE 0 END),0) AS legacyRevenue,
+          COALESCE(SUM(CASE WHEN credits_millis>0 THEN 1 ELSE 0 END),0) AS coinsPurchases,
+          COALESCE(SUM(CASE WHEN credits_millis=0 AND extra_passes>0 THEN 1 ELSE 0 END),0) AS passPurchases
           FROM payments WHERE provider<>'DEMO' AND status='APPROVED' AND approved_at>=? AND approved_at<?`).get(start,end) as
           {coinsRevenue:number;passRevenue:number;legacyRevenue:number;coinsPurchases:number;passPurchases:number}
       : {coinsRevenue:0,passRevenue:0,legacyRevenue:0,coinsPurchases:0,passPurchases:0};
@@ -489,7 +489,9 @@ export async function registerOwnerRoutes(
     code: z.string(), title: z.string(), description: z.string().optional(),
     amountCents: z.number(), credits: z.number().optional(), creditsMillis: z.number().optional(),
     extraPasses: z.number().optional(), active: z.boolean().optional(), sortOrder: z.number().optional(),
-    itemReference: z.string().optional()
+    itemReference: z.string().optional(), grantsItem: z.string().optional(),
+    grantsItemQty: z.number().optional(), subscriptionDays: z.number().optional(),
+    imageDataUrl: z.string().optional()
   });
   app.post("/admin/store/products", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const parsed = storeProductSchema.safeParse(request.body);
@@ -564,8 +566,8 @@ export async function registerOwnerRoutes(
     } : { submissions:0,rounds:0,playlists:0,completedTasks:0 };
     const purchaseTotals=canViewSensitive && user ? db.prepare(`SELECT
       COALESCE(SUM(CASE WHEN status='APPROVED' THEN credits_millis ELSE 0 END),0) AS coinsPurchasedMillis,
-      COALESCE(SUM(CASE WHEN status='APPROVED' AND product_code='PASS_SINGLE' THEN extra_passes ELSE 0 END),0) AS passesPurchased,
-      COALESCE(SUM(CASE WHEN status='APPROVED' AND product_code='COINS_LAUNCH' THEN extra_passes ELSE 0 END),0) AS bonusPasses,
+      COALESCE(SUM(CASE WHEN status='APPROVED' AND credits_millis=0 THEN extra_passes ELSE 0 END),0) AS passesPurchased,
+      COALESCE(SUM(CASE WHEN status='APPROVED' AND credits_millis>0 THEN extra_passes ELSE 0 END),0) AS bonusPasses,
       COALESCE(SUM(CASE WHEN status='APPROVED' THEN amount_cents ELSE 0 END),0) AS approvedSpendCents
       FROM payments WHERE user_id=?`).get(user.id) : undefined;
     const effectiveGroup = (membership as { groupCode?:string } | undefined)?.groupCode ?? user?.groupCode ?? (participantRequest as { preferredGroup?:string } | undefined)?.preferredGroup;

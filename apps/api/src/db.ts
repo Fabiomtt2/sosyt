@@ -454,7 +454,7 @@ export function createDatabase(filename: string): AppDatabase {
   addColumn("store_products", "image_data_url", "TEXT");
   // Produto de assinatura: concede SUPER por N dias em vez de item avulso.
   addColumn("store_products", "subscription_days", "INTEGER NOT NULL DEFAULT 0");
-  // Seed uma única vez. Item de lançamento pedido pelo owner: 20 moedas por R$10,00.
+  // Catálogo inicial configurável. Os valores definidos pelo Owner persistem no banco.
   if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
     const now = new Date().toISOString();
     const seed = db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);

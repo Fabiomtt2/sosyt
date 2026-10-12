@@ -335,6 +335,18 @@ describe("regressões de domínio e segurança", () => {
     expect((await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: headers(user.token), payload: { url: "https://youtube.example/watch?v=dQw4w9WgXcQ" } })).statusCode).toBe(400);
     expect((await dashboard(user.token)).wallet.total).toBe(10);
   });
+  it("dashboard entrega arte e benefícios reais do catálogo configurável", async () => {
+    const user = await register();
+    const image = "data:image/png;base64,iVBORw0KGgo=";
+    db.prepare("UPDATE store_products SET image_data_url=? WHERE code='COINS_10'").run(image);
+    const view = await dashboard(user.token);
+    expect(view.commerce.products.find((item: {code:string}) => item.code==="COINS_10"))
+      .toMatchObject({imageDataUrl:image,credits:10,extraPasses:0});
+    expect(view.commerce.products.find((item: {code:string}) => item.code==="SKIP_1"))
+      .toMatchObject({grantsItem:"SKIP",grantsItemQty:1});
+    expect(view.commerce.products.find((item: {code:string}) => item.code==="SUPER_30"))
+      .toMatchObject({subscriptionDays:30});
+  });
   it("COINS_10 credita 10 moedas por R$20 sem passe, confirmado server-side", async () => {
     const user = await register();
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(201);

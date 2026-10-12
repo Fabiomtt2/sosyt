@@ -74,7 +74,8 @@ export function upsertStoreProduct(db: AppDatabase, input: StoreProductInput): S
   const title = String(input.title ?? "").trim();
   if (title.length < 2 || title.length > 80) throw Object.assign(new Error("Título deve ter entre 2 e 80 caracteres."), { statusCode: 400 });
   const description = String(input.description ?? "").trim().slice(0, 400);
-  const active = input.active === undefined ? true : Boolean(input.active);
+  const existing = db.prepare("SELECT active FROM store_products WHERE code=?").get(code) as { active:number } | undefined;
+  const active = input.active === undefined ? (existing ? Boolean(existing.active) : true) : Boolean(input.active);
   const sortOrder = Number.isFinite(Number(input.sortOrder)) ? Math.round(Number(input.sortOrder)) : 100;
   const itemReference = (input.itemReference && /^[a-z0-9-]{2,60}$/.test(input.itemReference)) ? input.itemReference : code.toLowerCase().replace(/_/g, "-");
   const now = new Date().toISOString();
@@ -84,9 +85,9 @@ export function upsertStoreProduct(db: AppDatabase, input: StoreProductInput): S
       credits_millis=excluded.credits_millis,extra_passes=excluded.extra_passes,active=excluded.active,
       sort_order=excluded.sort_order,item_reference=excluded.item_reference,
       grants_item=excluded.grants_item,grants_item_qty=excluded.grants_item_qty,
-      image_data_url=COALESCE(excluded.image_data_url, store_products.image_data_url),
+      image_data_url=CASE WHEN ?=1 THEN excluded.image_data_url ELSE store_products.image_data_url END,
       subscription_days=excluded.subscription_days,updated_at=excluded.updated_at`)
-    .run(code, title, description, amountCents, creditsMillis, extraPasses, active ? 1 : 0, sortOrder, itemReference, grantsItem ?? null, grantsItemQty, imageDataUrl ?? null, subscriptionDays, now);
+    .run(code, title, description, amountCents, creditsMillis, extraPasses, active ? 1 : 0, sortOrder, itemReference, grantsItem ?? null, grantsItemQty, imageDataUrl ?? null, subscriptionDays, now, input.imageDataUrl === undefined ? 0 : 1);
   return getActiveStoreProduct(db, code) ?? listStoreProducts(db).find((p) => p.code === code)!;
 }
 

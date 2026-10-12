@@ -415,8 +415,8 @@ describe("Owner e acesso por grupo", () => {
     expect(stats).toMatchObject({
       registeredUsers:1,activeUsers30d:1,playlistsCreatedMonth:1,completedCyclesMonth:1,
       approvedPurchasesMonth:3,demoPurchasesMonth:1,revenueCentsMonth:6000,
-      coinsPackagePurchasesMonth:1,passPurchasesMonth:1,
-      coinsPackageRevenueCentsMonth:2000,passRevenueCentsMonth:2000,legacyRevenueCentsMonth:2000
+      coinsPackagePurchasesMonth:2,passPurchasesMonth:1,
+      coinsPackageRevenueCentsMonth:4000,passRevenueCentsMonth:2000,legacyRevenueCentsMonth:0
     });
   });
   it("exportação CSV é exclusiva do Owner", async () => {

@@ -21,10 +21,10 @@ describe("loja configurável", () => {
   afterEach(async () => { await app.close(); db.close(); });
   const ownerToken = async () => (await app.inject({ method: "POST", url: "/admin/login", payload: ownerBody })).json().token as string;
 
-  it("seed traz o item pedido: 10 moedas por R$20, sem passe, ativo", () => {
+  it("seed mantém o catálogo aprovado: 10 moedas por R$20 sem passe", () => {
     const p = getActiveStoreProduct(db, "COINS_10")!;
     expect(p).toMatchObject({ amountCents: 2000, creditsMillis: 10000, extraPasses: 0, active: true });
-    // legados preservados, porém inativos
+    expect(getActiveStoreProduct(db, "PASS_SINGLE")).toBeUndefined();
     expect(getActiveStoreProduct(db, "COINS_LAUNCH")).toBeUndefined();
     expect(listStoreProducts(db).some((x) => x.code === "COINS_LAUNCH")).toBe(true);
   });
@@ -46,6 +46,34 @@ describe("loja configurável", () => {
     const edited = await app.inject({ method: "POST", url: "/admin/store/products", headers: { authorization: `Bearer ${token}` },
       payload: { code: "COINS_50", title: "50 moedas", amountCents: 3000, credits: 50 } });
     expect(edited.json().product.amountCents).toBe(3000);
+  });
+
+  it("rota do Owner grava arte, item e assinatura; remoção da arte é persistente", async () => {
+    const token = await ownerToken();
+    const headers = { authorization: `Bearer ${token}` };
+    const imageDataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const payload = { code:"SPECIAL_30",title:"Especial",amountCents:4500,credits:0,extraPasses:0,
+      grantsItem:"SUPER",grantsItemQty:1,subscriptionDays:30,imageDataUrl };
+    const saved = await app.inject({ method:"POST",url:"/admin/store/products",headers,payload });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().product).toMatchObject({grantsItem:"SUPER",grantsItemQty:1,subscriptionDays:30,imageDataUrl});
+    const removed = await app.inject({ method:"POST",url:"/admin/store/products",headers,
+      payload:{...payload,imageDataUrl:""} });
+    expect(removed.statusCode).toBe(200);
+    expect(getActiveStoreProduct(db,"SPECIAL_30")!.imageDataUrl).toBeUndefined();
+  });
+
+  it("editar produto oculto pela rota não o publica sem decisão explícita", async () => {
+    const token = await ownerToken();
+    const headers = { authorization: `Bearer ${token}` };
+    const payload = { code:"HIDDEN_5",title:"Oculto",amountCents:1000,credits:5 };
+    expect((await app.inject({method:"POST",url:"/admin/store/products",headers,payload:{...payload,active:false}})).statusCode).toBe(200);
+    const edit=await app.inject({method:"POST",url:"/admin/store/products",headers,payload:{...payload,title:"Oculto editado"}});
+    expect(edit.statusCode).toBe(200);
+    expect(edit.json().product.active).toBe(false);
+    expect(getActiveStoreProduct(db,"HIDDEN_5")).toBeUndefined();
+    await app.inject({method:"POST",url:"/admin/store/products/HIDDEN_5/active",headers,payload:{active:true}});
+    expect(getActiveStoreProduct(db,"HIDDEN_5")).toBeTruthy();
   });
 
   it("não-ROOT e anônimo não editam a loja", async () => {

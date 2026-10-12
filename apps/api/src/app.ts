@@ -212,8 +212,8 @@ function profileSummary(db: AppDatabase, userId: string) {
   const adminAccess=db.prepare("SELECT role FROM owner_access WHERE user_id=? AND active=1").get(userId) as {role:"ROOT_OWNER"|"ADMIN_OWNER"}|undefined;
   const totals=db.prepare(`SELECT
     COALESCE(SUM(CASE WHEN status='APPROVED' THEN credits_millis ELSE 0 END),0) AS coinsPurchasedMillis,
-    COALESCE(SUM(CASE WHEN status='APPROVED' AND product_code='PASS_SINGLE' THEN extra_passes ELSE 0 END),0) AS passesPurchased,
-    COALESCE(SUM(CASE WHEN status='APPROVED' AND product_code='COINS_LAUNCH' THEN extra_passes ELSE 0 END),0) AS bonusPasses,
+    COALESCE(SUM(CASE WHEN status='APPROVED' AND credits_millis=0 THEN extra_passes ELSE 0 END),0) AS passesPurchased,
+    COALESCE(SUM(CASE WHEN status='APPROVED' AND credits_millis>0 THEN extra_passes ELSE 0 END),0) AS bonusPasses,
     COALESCE(SUM(CASE WHEN status='APPROVED' THEN amount_cents ELSE 0 END),0) AS approvedSpendCents
     FROM payments WHERE user_id=?`).get(userId) as {coinsPurchasedMillis:number;passesPurchased:number;bonusPasses:number;approvedSpendCents:number};
   return {
@@ -955,7 +955,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       pixAvailable:paymentRuntime.provider!=="DISABLED" || demoPayments,
       provider:demoPayments ? "DEMO" as const : paymentRuntime.provider,
       products:listStoreProducts(db,{activeOnly:true}).map((item)=>({
-        code:item.code,title:item.title,amountCents:item.amountCents,credits:item.creditsMillis/1000,extraPasses:item.extraPasses,description:item.description
+        code:item.code,title:item.title,amountCents:item.amountCents,credits:item.creditsMillis/1000,
+        extraPasses:item.extraPasses,description:item.description,imageDataUrl:item.imageDataUrl,
+        grantsItem:item.grantsItem,grantsItemQty:item.grantsItemQty,subscriptionDays:item.subscriptionDays
       }))
     };
     return {
