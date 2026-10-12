@@ -105,7 +105,7 @@ export type ChatSender = { id: string; name: string; groupCode: string; avatar: 
 export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
 export type ChatState = { removed: boolean; messages: ChatMessage[]; pinned: ChatMessage[]; cooldownSeconds: number; viewerRole: ChatRole };
 export type ChatModerateAction = "MUTE" | "UNMUTE" | "COOLDOWN" | "REMOVE" | "RESTORE";
-export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string;imageDataUrl?:string;subscriptionDays?:number};
+export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string;imageDataUrl?:string;grantsItem?:string;grantsItemQty?:number;subscriptionDays?:number};
 export type Slot = {
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;
   videoTitle?: string; videoChannelTitle?: string; videoThumbnailUrl?: string;

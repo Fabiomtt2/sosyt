@@ -7,7 +7,7 @@ type HelpTopic = "businessPhone" | "mode" | "hybrid" | "evolution" | "meta" | "w
 
 const HELP: Record<HelpTopic,{title:string;body:string}> = {
   businessPhone:{title:"Número público do SOS YouTuber",body:"Este é o telefone Business para receber pedidos de participação. Ao salvar, links e configurações passam a usar o novo número a partir do servidor, inclusive após reiniciar. Se você trocar o número usado pelo bot, atualize também o ID fornecido pela Meta e use Validar integração. O número do telefone sozinho não ativa o envio automático nem altera os contatos pessoais dos Owners."},
-  mode:{title:"Qual modo devo usar?",body:"Meta Oficial usa somente a plataforma oficial do WhatsApp Business. Meta + Grupos mantém a Meta para mensagens e acrescenta o WPPConnect apenas para grupos, membros e administradores. Evolution Gateway usa uma instância Evolution independente. Desativado pausa automações externas sem apagar os dados salvos."},
+  mode:{title:"Qual modo devo usar?",body:"Meta Oficial usa somente a plataforma oficial do WhatsApp Business. Meta + Grupos mantém a Meta para mensagens e acrescenta o WPPConnect apenas para grupos, membros e administradores. Evolution Gateway tem campos reservados; o transporte ainda não foi implementado. Desativado pausa automações externas sem apagar os dados salvos."},
   hybrid:{title:"O que muda em Meta + Grupos?",body:"A Meta continua responsável por mensagens e webhooks. O complemento WPPConnect entra apenas para consultar grupos tradicionais, membros e administradores quando a API oficial não expõe esses dados. A sessão complementar é separada e pode exigir novo pareamento após mudanças no WhatsApp."},
   evolution:{title:"Como funciona o Evolution Gateway?",body:"É um gateway independente configurado pelo Owner. URL, instância e API key ficam no servidor; a chave é protegida e não volta para a tela depois de salva. Conexões baseadas em WhatsApp Web/Baileys podem exigir novo pareamento e têm risco operacional diferente da Cloud API oficial."},
   meta:{title:"Onde encontro esses dados?",body:"Entre no Meta for Developers com a conta responsável pelo negócio, abra ou crie o aplicativo e adicione o produto WhatsApp. Depois, no WhatsApp Manager, você verá a conta do WhatsApp Business, o número comercial e as credenciais necessárias. Se algum item não aparecer, a conta pode precisar de verificação ou permissão adicional."},
@@ -66,14 +66,14 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
     : form.mode==="META_GROUPS"
       ? "Mantém a Meta como canal oficial e acrescenta o WPPConnect somente para grupos, membros e administradores."
       : form.mode==="EVOLUTION"
-        ? "Usa uma instância Evolution Gateway independente, com URL, instância e API key próprias salvas no servidor."
+        ? "Permite guardar os dados do Evolution. O transporte ainda não foi implementado e não envia mensagens."
         : "Pausa o envio e a leitura por provedores externos. Nenhum dado salvo é apagado e a administração manual continua disponível.";
   const selectedModeHelp = form.mode==="OFFICIAL"
     ? { title:"Como funciona o modo Meta Oficial?", body:"É o caminho mais estável: o SOS YouTube envia e recebe mensagens pela plataforma oficial da Meta. Ele exige a conta Business, o número cadastrado, as credenciais e o endereço de retorno configurados. É o modo recomendado para produção." }
     : form.mode==="META_GROUPS"
       ? { title:"O que muda em Meta + Grupos?", body:"O canal de mensagens continua sendo a Meta, mas acrescentamos o WPPConnect para consultar grupos tradicionais que a integração oficial pode não enxergar. Ele pode verificar membros e administradores, porém precisa de pareamento próprio e pode exigir reconexão após mudanças no WhatsApp." }
       : form.mode==="EVOLUTION"
-        ? { title:"Como funciona o Evolution Gateway?", body:"O SOS YouTuber usa uma instância Evolution como canal independente. A integração tem URL, instância e API key próprias e não herda automaticamente a configuração Meta + Grupos." }
+        ? { title:"Como funciona o Evolution Gateway?", body:"Os dados podem ser salvos para uma integração futura. Esta versão ainda não implementa envio pelo Evolution; salvar os campos não ativa o bot." }
         : { title:"O que acontece ao desativar?", body:"As automações externas ficam pausadas, mas nenhuma configuração, usuário, grupo, fila ou histórico é apagado. O dashboard continua disponível para administração manual e você pode reativar outro modo quando quiser." };
 
   async function save(event:FormEvent) {
@@ -151,7 +151,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
 
       <div className="astra-status-grid">
         <article><span>Canal selecionado</span><strong>{form.mode==="META_GROUPS" ? "META + GRUPOS" : form.mode==="EVOLUTION" ? "EVOLUTION" : form.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{form.mode==="META_GROUPS" ? "Meta + WPPConnect para grupos" : form.mode==="EVOLUTION" ? "Gateway independente Evolution API" : form.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>
-        <article><span>{form.mode==="EVOLUTION" ? "Gateway Evolution" : form.mode==="DISABLED" ? "Automação externa" : "Conexão Meta"}</span><strong>{form.mode==="EVOLUTION" ? (evolutionReady ? "CONFIGURADO" : "PENDENTE") : form.mode==="DISABLED" ? "PAUSADA" : state.tokenValidatedAt ? "VALIDADA" : "PENDENTE"}</strong><small>{form.mode==="EVOLUTION" ? (evolutionReady ? "Endpoint, instância e credencial disponíveis." : "Preencha endpoint, instância e API key.") : form.mode==="DISABLED" ? "Nenhum provedor externo será usado." : state.tokenValidatedAt ? `Validada em ${new Date(state.tokenValidatedAt).toLocaleString("pt-BR")}` : "A Meta ainda não confirmou a credencial."}</small></article>
+        <article><span>{form.mode==="EVOLUTION" ? "Gateway Evolution" : form.mode==="DISABLED" ? "Automação externa" : "Conexão Meta"}</span><strong>{form.mode==="EVOLUTION" ? (evolutionReady ? "CONFIGURADO" : "PENDENTE") : form.mode==="DISABLED" ? "PAUSADA" : state.tokenValidatedAt ? "VALIDADA" : "PENDENTE"}</strong><small>{form.mode==="EVOLUTION" ? (evolutionReady ? "Dados salvos; envio ainda não implementado." : "Preencha endpoint, instância e API key.") : form.mode==="DISABLED" ? "Nenhum provedor externo será usado." : state.tokenValidatedAt ? `Validada em ${new Date(state.tokenValidatedAt).toLocaleString("pt-BR")}` : "A Meta ainda não confirmou a credencial."}</small></article>
       </div>
 
       {metaMode && !state.accessTokenConfigured && <div className="soft-token-message">
@@ -170,7 +170,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
               <span className="mode-symbol hybrid" aria-hidden="true"><span className="meta-half">∞</span><span className="youtube-half"><Youtube size={17} fill="currentColor"/></span></span><span><strong>Meta + Grupos</strong><small>Meta oficial + WPPConnect apenas para grupos, membros e admins.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="EVOLUTION"} className={`mode-choice evolution ${form.mode==="EVOLUTION" ? "selected":""}`} onClick={()=>setForm({...form,mode:"EVOLUTION"})}>
-              <span className="mode-symbol evolution" aria-hidden="true">E</span><span><strong>Evolution Gateway</strong><small>Gateway independente com instância e API key próprias.</small></span>
+              <span className="mode-symbol evolution" aria-hidden="true">E</span><span><strong>Evolution Gateway</strong><small>Configuração reservada · envio ainda não implementado.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="DISABLED"} className={`mode-choice disabled ${form.mode==="DISABLED" ? "selected":""}`} onClick={()=>setForm({...form,mode:"DISABLED"})}>
               <span className="mode-symbol off">—</span><span><strong>Desativado</strong><small>Pausa automações sem apagar a configuração salva.</small></span>
@@ -217,7 +217,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
 
         {form.mode==="EVOLUTION" && <section className="integration-section evolution-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">EVOLUTION GATEWAY</p><h3>Instância independente</h3></div><Settings2 size={20}/></div>
-          <p className="mode-explanation">Configure o servidor Evolution responsável por este modo. As credenciais ficam no servidor e a API key não é devolvida à interface.</p>
+          <p className="mode-explanation">Estes campos guardam uma configuração futura. O envio pelo Evolution ainda não foi implementado. A API key permanece protegida no servidor.</p>
           <div className="integration-grid">
             <label><span className="label-with-help">URL do servidor Evolution <HelpButton topic="evolutionUrl" label="Explicar URL da Evolution API"/></span><input value={form.evolutionUrl} onChange={(e)=>setForm({...form,evolutionUrl:e.target.value})} placeholder="https://evolution.seudominio.com"/></label>
             <label><span className="label-with-help">Nome da instância <HelpButton topic="evolutionInstance" label="Explicar instância Evolution"/></span><input value={form.evolutionInstance} onChange={(e)=>setForm({...form,evolutionInstance:e.target.value.replace(/[^A-Za-z0-9_-]/g,"")})} placeholder="sos-youtuber"/></label>

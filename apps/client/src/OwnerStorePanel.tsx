@@ -60,6 +60,7 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
       grantsItem: p.grantsItem ?? "", grantsItemQty: String(p.grantsItemQty || 1), sortOrder: String(p.sortOrder),
       subscriptionDays: String(p.subscriptionDays || 0), imageDataUrl: p.imageDataUrl ?? ""
     });
+    requestAnimationFrame(() => document.getElementById("store-product-editor")?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
   }
 
   async function submit(event: FormEvent) {
@@ -74,7 +75,7 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
         grantsItemQty: draft.grantsItem.trim() ? Number(draft.grantsItemQty || 1) : 0,
         sortOrder: Number(draft.sortOrder || 10),
         subscriptionDays: Number(draft.subscriptionDays || 0),
-        imageDataUrl: draft.imageDataUrl || undefined
+        imageDataUrl: draft.imageDataUrl
       });
       setDraft(emptyDraft); setEditing(undefined);
       setNotice("Salvo — já está valendo na loja.");
@@ -98,40 +99,44 @@ export function OwnerStorePanel({ canEdit }: { canEdit: boolean }) {
         <button className="text-button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>
       </div>
 
-      <div className="table-scroll">
-        <table><thead><tr><th></th><th>Item</th><th>Preço</th><th>Concede</th><th>Estado</th>{canEdit && <th></th>}</tr></thead>
-          <tbody>
-            {products.map((p) => (
-              <tr key={p.code}>
-                <td className="store-thumb-cell">
-                  {p.imageDataUrl
-                    ? <img className="store-thumb" src={p.imageDataUrl} alt="" />
-                    : <span className="store-thumb store-thumb-empty">NOVO<br/>ITEM</span>}
-                </td>
-                <td><strong>{p.title}</strong><small>{p.code}{p.description ? " · " + p.description : ""}</small></td>
-                <td><strong>{money(p.amountCents)}</strong></td>
-                <td className="store-grants">
-                  {p.creditsMillis > 0 && <span><Coins size={13} /> {p.creditsMillis / 1000} moedas</span>}
-                  {p.extraPasses > 0 && <span><Ticket size={13} /> {p.extraPasses} passe{p.extraPasses > 1 ? "s" : ""}</span>}
-                  {p.grantsItem && <span><Package size={13} /> {p.grantsItemQty}× {p.grantsItem}</span>}
-                  {p.subscriptionDays > 0 && <span><Sparkles size={13} /> assinatura de {p.subscriptionDays} dias</span>}
-                </td>
-                <td>{p.active ? <span className="table-status on">Na loja</span> : <span className="table-status off">Oculto</span>}</td>
-                {canEdit && <td className="store-row-actions">
-                  <button className="text-button" onClick={() => startEdit(p)}>Editar</button>
-                  <button className="text-button" onClick={() => void toggle(p)} disabled={busy}>
-                    {p.active ? <><EyeOff size={13} /> Ocultar</> : <><Eye size={13} /> Publicar</>}
-                  </button>
-                </td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="store-admin-products">
+        {products.map((p) => (
+          <article className="store-admin-product" key={p.code}>
+            <div className="store-admin-product-head">
+              {p.imageDataUrl
+                ? <img className="store-thumb" src={p.imageDataUrl} alt="" />
+                : <span className="store-thumb store-thumb-empty">NOVO<br/>ITEM</span>}
+              <div className="store-admin-product-title">
+                <h3>{p.title}</h3>
+                <small>{p.code}</small>
+              </div>
+              <span className={`table-status ${p.active ? "on" : "off"}`}>{p.active ? "Na loja" : "Oculto"}</span>
+            </div>
+            {p.description && <p className="store-admin-description">{p.description}</p>}
+            <div className="store-admin-product-details">
+              <div><span className="store-admin-detail-label">Preço</span><strong className="store-admin-price">{money(p.amountCents)}</strong></div>
+              <div><span className="store-admin-detail-label">O participante recebe</span>
+                <div className="store-grants">
+                  {p.creditsMillis > 0 && <span><Coins size={14} /> {p.creditsMillis / 1000} moedas</span>}
+                  {p.extraPasses > 0 && <span><Ticket size={14} /> {p.extraPasses} passe{p.extraPasses > 1 ? "s" : ""}</span>}
+                  {p.grantsItem && <span><Package size={14} /> {p.grantsItemQty}× {p.grantsItem}</span>}
+                  {p.subscriptionDays > 0 && <span><Sparkles size={14} /> assinatura de {p.subscriptionDays} dias</span>}
+                </div>
+              </div>
+            </div>
+            {canEdit && <div className="store-admin-product-actions">
+              <button type="button" className="secondary" onClick={() => startEdit(p)}>Editar item</button>
+              <button type="button" className="text-button" onClick={() => void toggle(p)} disabled={busy}>
+                {p.active ? <><EyeOff size={15} /> Ocultar da loja</> : <><Eye size={15} /> Publicar na loja</>}
+              </button>
+            </div>}
+          </article>
+        ))}
         {!products.length && <p className="muted">Nenhum item cadastrado.</p>}
       </div>
 
       {canEdit && (
-        <form className="store-form" onSubmit={submit}>
+        <form id="store-product-editor" className="store-form" onSubmit={submit}>
           <h3>{editing ? `Editando ${editing}` : "Novo item"}</h3>
           <div className="store-form-grid">
             <label>Código<input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} placeholder="COINS_10" required disabled={Boolean(editing)} /></label>

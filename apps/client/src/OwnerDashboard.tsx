@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, Menu, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
 import { GoogleIdentityRequests } from "./GoogleIdentityRequests";
 import { ApiError, ownerApi, type OwnerOverview } from "./api";
@@ -39,8 +39,8 @@ function GroupAdminModal({ group, busy, onClose, onToggle, onSaveLink }: {
   group: OwnerOverview["groups"][number];
   busy: boolean;
   onClose: () => void;
-  onToggle: () => Promise<void>;
-  onSaveLink: (joinUrl: string) => Promise<void>;
+  onToggle: () => Promise<unknown>;
+  onSaveLink: (joinUrl: string) => Promise<unknown>;
 }) {
   const [joinUrl,setJoinUrl]=useState(group.joinUrl ?? "");
   const modalRef=useModalLifecycle(onClose);
@@ -139,6 +139,8 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const manualSection=useRef<HTMLDivElement>(null);
+  const [manualFocus,setManualFocus]=useState(0);
   const [manualName,setManualName] = useState("");
   const [phone, setPhone] = useState("");
   const [group, setGroup] = useState("1");
@@ -160,6 +162,19 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
   }, [month, onLogout]);
   useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 10_000); return () => window.clearInterval(timer); }, [load]);
 
+  useEffect(()=>{
+    if(tab==="groups" && manualFocus) {
+      manualSection.current?.scrollIntoView({block:"start"});
+      manualSection.current?.querySelector<HTMLInputElement>("#manual-name")?.focus({preventScroll:true});
+    }
+  },[tab,manualFocus]);
+
+  function reviewManually(item:OwnerOverview["requests"][number]) {
+    setManualName(item.name);setPhone("+"+item.phone);
+    setGroup(item.preferredGroup ?? data?.groups.find(g=>g.enabled)?.code ?? "1");
+    setTab("groups");setManualFocus(value=>value+1);setError("");setNotice("");
+  }
+
   async function participate(){
     setBusy(true);setError("");setNotice("");
     try{await onParticipate();}
@@ -169,17 +184,23 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
 
   async function act(work: () => Promise<unknown>, message: string) {
     setBusy(true); setError(""); setNotice("");
-    try { await work(); setNotice(message); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); }
+    try {
+      const result=await work();
+      setNotice(result && typeof result==="object" && "message" in result && typeof result.message==="string" ? result.message : message);
+      await load();return true;
+    }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); return false; }
     finally { setBusy(false); }
   }
   async function addMember(event: FormEvent) {
     event.preventDefault();
-    await act(async () => {
-      await ownerApi.group(group,true);
-      return ownerApi.approveMember(phone, group, manualName);
-    }, "Autorização manual registrada com auditoria.");
-    setManualName(""); setPhone("");
+    if(!manualName.trim() || !isCompletePhoneField(phone)) {
+      setError("Confira o nome e o WhatsApp antes de autorizar.");return;
+    }
+    // The membership endpoint enforces roles and handles group activation.
+    // Delegated admins must never call the ROOT-only group configuration route.
+    const saved=await act(()=>ownerApi.approveMember(phone,group,manualName.trim()),"Autorização manual registrada com auditoria.");
+    if(saved){setManualName("");setPhone("");}
   }
   function jumpToGroup(event:FormEvent) {
     event.preventDefault();
@@ -220,28 +241,31 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
         <article><Youtube /><span>Playlists criadas no mês</span><strong>{m.playlistsCreatedMonth}</strong><small>{m.completedCyclesMonth} ciclos concluídos</small></article>
         {data.owner.permissions.canViewSensitive&&<>
           <article><Check /><span>Compras Pix aprovadas</span><strong>{m.approvedPurchasesMonth}</strong><small>{m.coinsPackagePurchasesMonth} pacote(s) de moedas · {m.passPurchasesMonth} passe(s) · {m.demoPurchasesMonth} simulações</small></article>
-          <article><ShieldCheck /><span>Receita Pix do mês</span><strong>{money(m.revenueCentsMonth)}</strong><small>Moedas {money(m.coinsPackageRevenueCentsMonth)} · Passes {money(m.passRevenueCentsMonth)}{m.legacyRevenueCentsMonth ? ` · Legado ${money(m.legacyRevenueCentsMonth)}` : ""}</small></article>
+          <article><ShieldCheck /><span>Receita Pix do mês</span><strong>{money(m.revenueCentsMonth)}</strong><small>Moedas {money(m.coinsPackageRevenueCentsMonth)} · Passes {money(m.passRevenueCentsMonth)}{m.legacyRevenueCentsMonth ? ` · Outros ${money(m.legacyRevenueCentsMonth)}` : ""}</small></article>
         </>}
       </section>
 
-      <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
-        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><div className="heading-with-help"><h2 className="bot-config-title"><Bot size={22}/>{data.owner.permissions.canConfigure?"Configurar bot SOS YouTuber":"Bot SOS YouTuber"}</h2><button className="help-icon" aria-label="Explicar o painel do bot" onClick={()=>setHelpTopic("bot")}><HelpCircle size={18}/></button></div></div>{data.owner.permissions.canConfigure&&<button className="primary compact integration-config-button" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured || data.whatsapp.integration.evolutionUrl || data.whatsapp.integration.evolutionApiKeyConfigured ? "Modificar integração" : "Configurar integração"}</button>}</div>
-        <div className="integration-summary-grid">
-          <div className={`integration-mode-card mode-${data.whatsapp.integration.mode.toLowerCase()}`}><span>Modo escolhido para o bot</span><strong>{data.whatsapp.integration.mode === "META_GROUPS" ? <><b className="summary-mode-symbol summary-hybrid-icons" aria-hidden="true"><span>∞</span><Youtube size={14} fill="currentColor"/></b> Meta + Grupos</> : data.whatsapp.integration.mode === "EVOLUTION" ? <><b className="summary-mode-symbol">E</b> Evolution Gateway</> : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : <><b className="summary-mode-symbol">∞</b> Meta oficial</>}</strong><small>{data.whatsapp.integration.mode === "META_GROUPS" ? "Meta envia mensagens; o complemento ajuda a conferir grupos." : data.whatsapp.integration.mode === "EVOLUTION" ? "Usa o gateway Evolution configurado pelo Owner." : data.whatsapp.integration.mode === "DISABLED" ? "Envios externos pausados; administração manual continua disponível." : "Usa o WhatsApp oficial da Meta para mensagens."}</small></div>
-          <div><span>{data.whatsapp.integration.mode === "EVOLUTION" ? "Chaves do Evolution" : "Chave de acesso"}</span><strong>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionUrl && data.whatsapp.integration.evolutionInstance && data.whatsapp.integration.evolutionApiKeyConfigured ? "PRONTA" : "FALTAM DADOS") : data.whatsapp.integration.tokenValidatedAt ? "PRONTA" : data.whatsapp.integration.accessTokenConfigured ? "SALVA · FALTA VALIDAR" : "FALTA CONFIGURAR"}</strong><small>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionApiKeyConfigured ? "Credenciais protegidas e salvas no servidor." : "Abra “Configurar integração” e preencha os dados do Evolution.") : data.whatsapp.integration.tokenValidatedAt ? `Credencial confirmada pela Meta em ${date(data.whatsapp.integration.tokenValidatedAt)}.` : data.whatsapp.integration.accessTokenConfigured ? "A chave foi salva, mas ainda precisa ser validada com a Meta." : "Abra “Configurar integração” e informe a chave fornecida pela Meta."}</small></div>
-          <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Envio automático</span><strong>{data.whatsapp.configured ? "FUNCIONANDO" : "PARADO"}</strong><small>{data.whatsapp.queued} aguardando · {data.whatsapp.failed} com erro · {data.whatsapp.sent} aceitas pelo serviço escolhido.</small></div>
-        </div>
-        <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) confirmado(s) pela integração · ${data.whatsapp.automaticMemberships} associação(ões) feitas automaticamente.` : "Nenhum grupo externo foi confirmado pela integração ainda. Os Owners continuam podendo conferir e administrar os grupos pelo painel."}</p>
-        {data.owner.permissions.canConfigure&&<div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Consulta dos grupos concluída.")}>Atualizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens com erro foram recolocadas na fila.")}>Tentar novamente mensagens com erro</button>}</div>}
-      </section>
 
-      <div className="owner-version"><span><strong>Painel sincronizado com o servidor</strong> · dados desta tela atualizados a cada 10 s{data.version.dirty ? " · há mudanças locais ainda não publicadas" : ""}</span><button className="field-help-button owner-version-help" aria-label="Explicar versão e sincronização do painel" onClick={()=>setHelpTopic("version")}><HelpCircle size={14}/></button><button className="text-button" disabled={busy} onClick={()=>void checkVersion()}><RefreshCw size={14}/>Conferir versão online</button></div>
+      <div className="owner-version"><span><strong>Atualização automática a cada 10 s</strong>{data.version.dirty ? " · há mudanças locais ainda não publicadas" : ""}</span><button className="field-help-button owner-version-help" aria-label="Explicar versão e sincronização do painel" onClick={()=>setHelpTopic("version")}><HelpCircle size={14}/></button><button className="text-button" disabled={busy} onClick={()=>void checkVersion()}><RefreshCw size={14}/>Conferir versão online</button></div>
       {error && <p className="error banner" role="alert">{error}</p>}
       {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
 
+      <div className="owner-service-summary"><span><Bot size={16}/>WhatsApp: {data.whatsapp.configured ? "configuração disponível para envio" : "envio ainda indisponível"}</span><button className="text-button" onClick={()=>setTab("integrations")}>Ver integrações</button></div>
       <nav className="owner-tabs" aria-label="Seções administrativas">
-        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
+        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["integrations", "Integrações"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
       </nav>
+
+      {tab === "integrations" && <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
+        <div className="integration-overview-head"><div><p className="eyebrow dark">AUTOMAÇÃO E VALIDAÇÃO</p><div className="heading-with-help"><h2 className="bot-config-title"><Bot size={22}/>{data.owner.permissions.canConfigure?"Configurar bot SOS YouTuber":"Bot SOS YouTuber"}</h2><button className="help-icon" aria-label="Explicar o painel do bot" onClick={()=>setHelpTopic("bot")}><HelpCircle size={18}/></button></div></div>{data.owner.permissions.canConfigure&&<button className="primary compact integration-config-button" onClick={()=>setShowWhatsAppConfig(true)}><Settings2 size={17}/>{data.whatsapp.integration.businessAccountId || data.whatsapp.integration.phoneNumberId || data.whatsapp.integration.accessTokenConfigured || data.whatsapp.integration.evolutionUrl || data.whatsapp.integration.evolutionApiKeyConfigured ? "Modificar integração" : "Configurar integração"}</button>}</div>
+        <div className="integration-summary-grid">
+          <div className={`integration-mode-card mode-${data.whatsapp.integration.mode.toLowerCase()}`}><span>Modo escolhido para o bot</span><strong>{data.whatsapp.integration.mode === "META_GROUPS" ? <><b className="summary-mode-symbol summary-hybrid-icons" aria-hidden="true"><span>∞</span><Youtube size={14} fill="currentColor"/></b> Meta + Grupos</> : data.whatsapp.integration.mode === "EVOLUTION" ? <><b className="summary-mode-symbol">E</b> Evolution Gateway</> : data.whatsapp.integration.mode === "DISABLED" ? "Desativado" : <><b className="summary-mode-symbol">∞</b> Meta oficial</>}</strong><small>{data.whatsapp.integration.mode === "META_GROUPS" ? "Meta envia mensagens; o complemento ajuda a conferir grupos." : data.whatsapp.integration.mode === "EVOLUTION" ? "Usa o gateway Evolution configurado pelo Owner." : data.whatsapp.integration.mode === "DISABLED" ? "Envios externos pausados; administração manual continua disponível." : "Usa o WhatsApp oficial da Meta para mensagens."}</small></div>
+          <div><span>{data.whatsapp.integration.mode === "EVOLUTION" ? "Chaves do Evolution" : "Chave de acesso"}</span><strong>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionUrl && data.whatsapp.integration.evolutionInstance && data.whatsapp.integration.evolutionApiKeyConfigured ? "DADOS SALVOS" : "FALTAM DADOS") : data.whatsapp.integration.tokenValidatedAt ? "PRONTA" : data.whatsapp.integration.accessTokenConfigured ? "SALVA · FALTA VALIDAR" : "FALTA CONFIGURAR"}</strong><small>{data.whatsapp.integration.mode === "EVOLUTION" ? (data.whatsapp.integration.evolutionApiKeyConfigured ? "Dados salvos. O envio pelo Evolution ainda não foi implementado." : "Configuração reservada; o envio pelo Evolution ainda não foi implementado.") : data.whatsapp.integration.tokenValidatedAt ? `Credencial confirmada pela Meta em ${date(data.whatsapp.integration.tokenValidatedAt)}.` : data.whatsapp.integration.accessTokenConfigured ? "A chave foi salva, mas ainda precisa ser validada com a Meta." : "Abra “Configurar integração” e informe a chave fornecida pela Meta."}</small></div>
+          <div className={`transport-status-card ${data.whatsapp.configured ? "active" : "inactive"}`}><span>Envio automático</span><strong>{data.whatsapp.configured ? "CONFIGURADO" : "INDISPONÍVEL"}</strong><small>{data.whatsapp.queued} aguardando · {data.whatsapp.failed} com erro · {data.whatsapp.sent} aceitas pelo serviço escolhido. Configuração não comprova entrega ao destinatário.</small></div>
+        </div>
+        <p className="muted">{data.whatsapp.groupsLinked > 0 ? `${data.whatsapp.groupsLinked} grupo(s) confirmado(s) pela integração · ${data.whatsapp.automaticMemberships} associação(ões) feitas automaticamente.` : "Nenhum grupo externo foi confirmado pela integração ainda. Os Owners continuam podendo conferir e administrar os grupos pelo painel."}</p>
+        {data.owner.permissions.canConfigure&&<div className="ready-actions">{data.whatsapp.groupsSyncEnabled && <button className="secondary" disabled={busy || !data.whatsapp.configured} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(),"Consulta dos grupos concluída.")}>Atualizar grupos agora</button>}{data.whatsapp.failed>0 && <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.retryWhatsApp(),"Mensagens com erro foram recolocadas na fila.")}>Tentar novamente mensagens com erro</button>}</div>}
+      </section>}
+
 
       {tab==="requests" && data.owner.permissions.canManageOwners && <GoogleIdentityRequests/>}
       {tab === "requests" && <section className="owner-panel">
@@ -255,10 +279,11 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
             {item.status === "APPROVED" && <small>Aprovado em {date(item.approvedAt)} por {item.approvedByOwnerName ?? "Owner não identificado (registro legado)"}</small>}
           </div>
           {item.status === "PENDING" && <div className="request-actions auto-group-actions">
-            <div className={item.preferredGroup ? "detected-group ok":"detected-group pending"}><ShieldCheck size={16}/><div><strong>{item.preferredGroup ? `SOS YOUTUBER ${item.preferredGroup}` : "Grupo ainda não confirmado"}</strong><span>{item.preferredGroup ? "Detectado pelo vínculo/verificação do número." : "Sincronize a integração para localizar este WhatsApp no grupo correto."}</span></div></div>
+            <div className={item.preferredGroup ? "detected-group ok":"detected-group pending"}><ShieldCheck size={16}/><div><strong>{item.preferredGroup ? `SOS YOUTUBER ${item.preferredGroup}` : "Grupo ainda não confirmado"}</strong><span>{item.preferredGroup ? "Detectado pelo vínculo/verificação do número." : "Confira o vínculo e informe o grupo na autorização manual, ou use a integração quando disponível."}</span></div></div>
             <button className="primary compact" disabled={busy || !item.preferredGroup} onClick={() => void act(() => ownerApi.decide(item.id, "APPROVED"), "Aprovação do Owner registrada.")}>Aprovar</button>
             <button className="secondary" disabled={busy} onClick={() => void act(() => ownerApi.decide(item.id, "DECLINED"), "Solicitação marcada como não aprovada.")}>Recusar</button>
-            {!item.preferredGroup && <button className="text-button request-sync-button" disabled={busy} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(), "Grupos e participantes sincronizados; a solicitação será reavaliada.")}><RefreshCw size={15}/>Sincronizar grupos</button>}
+            {!item.preferredGroup && <button className="secondary" disabled={busy} onClick={()=>reviewManually(item)}>Conferir cadastro manualmente</button>}
+            {!item.preferredGroup && data.owner.permissions.canConfigure && data.whatsapp.groupsSyncEnabled && data.whatsapp.configured && <button className="text-button request-sync-button" disabled={busy} onClick={() => void act(() => ownerApi.syncWhatsAppGroups(), "Grupos e participantes sincronizados; a solicitação será reavaliada.")}><RefreshCw size={15}/>Sincronizar grupos</button>}
           </div>}
         </article>)}</div>}
       </section>}
@@ -320,7 +345,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
 
         <form className="group-jump-form" onSubmit={jumpToGroup}><label>Ir para o grupo<input inputMode="numeric" pattern="[1-9][0-9]{0,2}" maxLength={3} value={groupJump} onChange={(e)=>setGroupJump(e.target.value.replace(/\D/g,"").slice(0,3))} placeholder="Ex.: 347"/></label><button className="secondary">Localizar no carrossel</button></form>
 
-        <div className="manual-access-section">
+        <div className="manual-access-section" ref={manualSection}>
           <div className="heading-with-help"><h3>Autorização manual excepcional</h3><button className="help-icon" aria-label="Explicar autorização manual" onClick={()=>setHelpTopic("manual")}><HelpCircle size={18}/></button></div>
           <p className="muted">Use quando você já conferiu a pessoa fora do fluxo normal de solicitações. O registro fica associado ao Owner responsável.</p>
           <form className="manual-access-form modern-manual-form" onSubmit={addMember}>
@@ -330,12 +355,12 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
               <div className="manual-group-heading"><strong>Grupo</strong><span>SOS YOUTUBER {group}</span></div>
               <div className="manual-group-picker">
                 <button type="button" className="carousel-arrow" aria-label="Grupos manuais anteriores" disabled={manualGroupPage===0} onClick={()=>setManualGroupPage((page)=>Math.max(0,page-1))}><ChevronLeft/></button>
-                <div className="manual-group-rail">{manualGroupCodes.map((code)=><button type="button" className={code===group ? "selected":""} key={code} onClick={()=>setGroup(code)}>{code}</button>)}</div>
+                <div className="manual-group-rail">{manualGroupCodes.map((code)=><button type="button" className={code===group ? "selected":""} key={code} disabled={!data.owner.permissions.canConfigure && !groupMap.get(code)?.enabled} aria-pressed={code===group} onClick={()=>setGroup(code)}>{code}</button>)}</div>
                 <button type="button" className="carousel-arrow" aria-label="Próximos grupos manuais" disabled={manualGroupPage>=manualPageCount-1} onClick={()=>setManualGroupPage((page)=>Math.min(manualPageCount-1,page+1))}><ChevronRight/></button>
               </div>
-              <small className="field-help-copy">Escolha de 1 a 999. Se o grupo ainda não estiver ativo, ele será ativado antes da autorização.</small>
+              <small className="field-help-copy">{data.owner.permissions.canConfigure ? "Escolha de 1 a 999. Se o grupo ainda não estiver ativo, ele será ativado antes da autorização." : "Você pode autorizar participantes somente nos grupos já habilitados por um Owner principal."}</small>
             </div>
-            <button className="primary compact" disabled={busy || !manualName.trim() || !isCompletePhoneField(phone)}>Registrar autorização</button>
+            <button className="primary compact" disabled={busy || !manualName.trim() || !isCompletePhoneField(phone) || (!data.owner.permissions.canConfigure && !groupMap.get(group)?.enabled)}>Registrar autorização</button>
           </form>
         </div>
 
@@ -343,7 +368,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
       </section>}
 
       {tab === "removed" && <section className="owner-panel removed-accounts-panel">
-        <div className="section-title"><div><h2>Contas removidas</h2><p className="muted">Quando o próprio usuário apaga a conta, o SOS remove os dados operacionais e mantém somente um tombstone anônimo para auditoria e integridade financeira.</p></div><span>{data.deletedAccounts.length} registro{data.deletedAccounts.length===1?"":"s"}</span></div>
+        <div className="section-title"><div><h2>Contas removidas</h2><p className="muted">Quando o próprio usuário apaga a conta, o SOS remove os dados operacionais e mantém somente um registro sem identificação pessoal para auditoria e integridade financeira.</p></div><span>{data.deletedAccounts.length} registro{data.deletedAccounts.length===1?"":"s"}</span></div>
         <div className="table-scroll"><table><thead><tr><th>ID removido</th><th>Grupo anterior</th><th>Removido em</th><th>Atividade histórica</th><th>Compras confirmadas</th></tr></thead><tbody>
           {data.deletedAccounts.map((item)=><tr key={item.userId}><td><code>{item.userId}</code><small>{item.source==="USER_SELF_SERVICE"?"Exclusão solicitada pelo usuário":item.source}</small></td><td>{item.groupCode ? "SOS "+item.groupCode : "—"}</td><td>{date(item.deletedAt)}</td><td><strong>{item.submissionsCount} URLs</strong><small>{item.roundsCount} fila{item.roundsCount===1?"":"s"}</small></td><td><strong>{money(item.approvedPaymentCents)}</strong><small>{item.coinsPurchasedMillis/1000} moedas · {item.passesPurchased} passe{item.passesPurchased===1?"":"s"}</small></td></tr>)}
         </tbody></table>{!data.deletedAccounts.length&&<p className="muted">Nenhuma conta foi removida até agora.</p>}</div>

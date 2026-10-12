@@ -1,4 +1,4 @@
-import { Coins, History, ShieldCheck, Ticket, X } from "lucide-react";
+import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
 import type { Dashboard } from "./api";
 
@@ -43,7 +43,9 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
                   marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
               {item.imageDataUrl
                 ? <img className="store-editorial-art" src={item.imageDataUrl} alt={item.title}/>
-                : <div className="store-art-placeholder" aria-label="Item sem ilustração definida"><span>NOVO<br/>ITEM</span></div>}
+                : <div className={`store-art-placeholder ${item.credits>0?"coins":item.extraPasses>0?"pass":item.subscriptionDays?"super":"item"}`} aria-hidden="true">
+                    {item.credits>0?<Coins size={48}/>:item.extraPasses>0?<Ticket size={48}/>:item.subscriptionDays?<Sparkles size={48}/>:<Package size={48}/>}
+                  </div>}
             </div>
             <div className="store-product-copy store-product-copy-v2">
               <h3>{item.title}</h3>
@@ -51,6 +53,8 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
               <ul className="store-product-benefits">
                 {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
                 {item.extraPasses>0 && <li><Ticket size={15}/> {item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
+                {item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li><Package size={15}/> {item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
+                {(item.subscriptionDays ?? 0)>0 && <li><Sparkles size={15}/> {item.subscriptionDays} dias de assinatura</li>}
               </ul>
               <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
             </div>

@@ -323,7 +323,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <p className="muted">Se houver algum dado incorreto, aguarde o prazo indicado e tente novamente ou fale com um Owner. Nenhum saldo ou histórico prévio é apagado.</p>
           {!requestBlockActive && <button className="secondary" onClick={leaveParticipationStatus}><ArrowLeft size={18} />Voltar ao acesso</button>}
         </>}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
       </div> : <form className="access-form" noValidate onSubmit={submit}>
         <div className="access-fields">
           {step==="phone-code" ? <>
@@ -341,7 +341,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
             <label>Credencial<input type="password" autoComplete="current-password" value={credential} onChange={(e) => setCredential(e.target.value)} placeholder="Digite sua credencial" /></label>
             <button type="button" className="text-button back-link" onClick={returnToProfile}><ArrowLeft size={16} />Voltar para tela de login</button>
           </>}
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
         </div>
         <div className="access-actions">
           <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : step==="phone-code" ? "Confirmar chave e continuar" : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
@@ -454,7 +454,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
     void ownerApi.overview(month).then((overview)=>setAdminGroups(overview.groups)).catch(()=>setAdminGroups([]));
   },[data?.viewer.adminRole]);
 
-  if (!data) return <div className="loading"><LoaderCircle className="spin" /><span>Carregando o quadro…</span>{error && <p className="error">{error}</p>}</div>;
+  if (!data) return <div className="loading"><LoaderCircle className="spin" /><span>Carregando o quadro…</span>{error && <p className="error" role="alert">{error}</p>}</div>;
   const openRoundId=data.openRound.id;
   const filled = data.openRound.slots.filter((slot) => slot.youtubeUrl).length;
   const nextSlot = filled + 1;

@@ -6,7 +6,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 
 const money=(cents=0)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
-export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"store"|"bot"|"comms"|"access"|"avatars";
+export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"comms"|"access"|"avatars";
 
 export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onRefresh,onVersion,onLogout,onAvatarChanged,onParticipate,onManageOwners}:{
   data:OwnerOverview;onClose:()=>void;onNavigate:(target:OwnerMenuTarget)=>void;onWhatsApp:()=>void;onPayments:()=>void;onRefresh:()=>void;onVersion:()=>void;onLogout:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;
@@ -32,8 +32,8 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
 
       <div className="owner-menu-pulse">
         <article><strong>{data.metrics.pendingRequests}</strong><span>solicitações pendentes</span></article>
-        <article><strong>{data.metrics.registeredUsers}</strong><span>participantes ativos</span></article>
-        <article><strong>{money(data.metrics.revenueCentsMonth)}</strong><span>receita Pix no mês</span></article>
+        <article><strong>{data.metrics.registeredUsers}</strong><span>participantes cadastrados</span></article>
+        {data.owner.permissions.canViewSensitive&&<article><strong>{money(data.metrics.revenueCentsMonth)}</strong><span>receita Pix no mês</span></article>}
         <article><strong>{data.whatsapp.groupsLinked}</strong><span>grupos vinculados</span></article>
       </div>
 
@@ -45,14 +45,15 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
         <button className="owner-menu-link" onClick={()=>go("removed")}><span><ShieldCheck size={17}/><b>Contas removidas</b></span><small>{data.metrics.deletedUsers} ID(s) preservados apenas para auditoria</small></button>
       </section>
 
-      <section className="desk-section">
+      {data.owner.permissions.canViewSensitive&&<section className="desk-section">
         <div className="desk-section-title"><Coins size={17}/><strong>Financeiro</strong></div>
         <button className="owner-menu-link" onClick={()=>go("purchases")}><span><CreditCard size={17}/><b>Compras e receita</b></span><small>{data.metrics.coinsPackagePurchasesMonth} pacote(s) de moedas · {data.metrics.passPurchasesMonth} passe(s)</small></button>
         {data.owner.permissions.canConfigure&&<button className="owner-menu-link" onClick={()=>{onPayments();onClose();}}><span><Settings2 size={17}/><b>Configurar Pix</b></span><small>Provedor, ambiente e webhooks de confirmação</small></button>}
-      </section>
+      </section>}
 
       <section className="desk-section">
         <div className="desk-section-title"><Bot size={17}/><strong>Integrações e operação</strong></div>
+        <button className="owner-menu-link" onClick={()=>go("integrations")}><span><Bot size={17}/><b>Estado das integrações</b></span><small>Configuração, tentativas e mensagens aceitas pelo provedor</small></button>
         {data.owner.permissions.canConfigure&&<button className="owner-menu-link" onClick={()=>{onWhatsApp();onClose();}}><span><Bot size={17}/><b>WhatsApp e validação</b></span><small>{data.whatsapp.configured?"Transporte configurado":"Integração ainda incompleta"} · {data.whatsapp.groupsLinked} grupo(s) confirmado(s)</small></button>}
         {data.owner.permissions.canManageOwners&&<button className="owner-menu-link" onClick={()=>{onManageOwners();onClose();}}><span><UserCog size={17}/><b>Equipe administrativa</b></span><small>Adicionar ou revogar Administradores vinculados a usuários verificados.</small></button>}
         <button className="owner-menu-link" onClick={()=>{onRefresh();onClose();}}><span><RefreshCw size={17}/><b>Atualizar dados agora</b></span><small>Recarrega o painel sem sair da sessão</small></button>
