@@ -57,8 +57,26 @@ function parseInitial(value: string) {
   if (!country) return { country: undefined as CountryCode|undefined, ddd:"", subscriber:digits };
   const calling=getCountryCallingCode(country);
   const national=digits.startsWith(calling) ? digits.slice(calling.length) : digits;
-  if (country==="BR") return { country, ddd:national.slice(0,2), subscriber:national.slice(2,11) };
+  if (country==="BR") return { country, ddd:national.slice(0,2), subscriber:national.slice(2) };
   return { country, ddd:"", subscriber:national };
+}
+
+// Accept complete, unambiguous numbers from paste/autofill without silently
+// truncating them into a different phone. Partial input stays visible.
+export function splitPhoneEntry(raw:string, country?:CountryCode, ddd="") {
+  const digits=raw.replace(/\D/g,"").slice(0,24);
+  const international=raw.trim().startsWith("+") ? "+"+digits
+    : raw.trim().startsWith("00") ? "+"+digits.slice(2)
+    : (!country || country==="BR") && digits.length===13 && digits.startsWith("55") ? "+"+digits
+    : undefined;
+  if(international) {
+    const parsed=parsePhoneNumberFromString(international);
+    if(parsed?.country && isCompletePhoneField(international)) return parseInitial(international);
+  }
+  if((!country || country==="BR") && digits.length===11 && BRAZIL_DDD_SET.has(digits.slice(0,2)) && /^9\d{8}$/.test(digits.slice(2))) {
+    return {country:"BR" as CountryCode,ddd:digits.slice(0,2),subscriber:digits.slice(2)};
+  }
+  return {country,ddd,subscriber:digits};
 }
 
 export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
@@ -75,14 +93,14 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   const [dddOpen,setDddOpen]=useState(false);
   const [search,setSearch]=useState("");
   const [dddSearch,setDddSearch]=useState("");
+  const lastEmitted=useRef(value);
   const root=useRef<HTMLDivElement>(null);
   const countryListRef=useRef<HTMLDivElement>(null);
   const dddRailRef=useRef<HTMLDivElement>(null);
 
   useEffect(()=>{
-    if (!value) return;
-    const current=compose(country,ddd,subscriber);
-    if (current.replace(/\D/g,"")===value.replace(/\D/g,"")) return;
+    if (value===lastEmitted.current) return;
+    lastEmitted.current=value;
     const next=parseInitial(value);
     setCountry(next.country);
     setDdd(next.ddd);
@@ -135,26 +153,6 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
     if (countryOpen) countryListRef.current?.scrollTo({top:0,behavior:"smooth"});
   },[search,countryOpen]);
 
-  // AUDITORIA / paridade DDI x DDD: o DDD isolava e identificava ao digitar, o DDI
-  // apenas filtrava. Agora, quando a digitacao deixa UM unico resultado, ele e
-  // identificado e aplicado — mesmo comportamento nos dois campos.
-  useEffect(()=>{
-    if (!countryOpen) return;
-    const typed=search.replace(/\D/g,"");
-    if (!typed) return;
-    const matches=COUNTRIES.filter((entry)=>entry.callingCode.startsWith(typed));
-    // So aplica quando ficou exatamente um DDI possivel e o codigo esta completo.
-    if (matches.length===1 && matches[0].callingCode===typed && matches[0].country!==country) {
-      chooseCountry(matches[0].country);
-    }
-  },[search,countryOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(()=>{
-    if (!dddOpen || dddSearch.length<2) return;
-    const matches=BRAZIL_DDDS.filter(([code])=>code.startsWith(dddSearch));
-    if (matches.length===1 && matches[0][0]!==ddd) chooseDdd(matches[0][0]);
-  },[dddSearch,dddOpen]);   // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(()=>{
     if (!dddOpen) {
       setDddSearch("");
@@ -187,18 +185,21 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   function emit(nextCountry=country,nextDdd=ddd,nextSubscriber=subscriber) {
-    onChange(compose(nextCountry,nextDdd,nextSubscriber));
+    const next=compose(nextCountry,nextDdd,nextSubscriber);
+    lastEmitted.current=next;
+    onChange(next);
   }
 
   function chooseCountry(next:CountryCode) {
-    const keepSubscriber=country===next ? subscriber : "";
+    const keepSubscriber=!country || country===next ? subscriber : "";
+    const keepDdd=country===next ? ddd : "";
     setCountry(next);
-    setDdd("");
+    setDdd(keepDdd);
     setSubscriber(keepSubscriber);
     setCountryOpen(false);
     setDddOpen(false);
     setSearch("");
-    emit(next,"",keepSubscriber);
+    emit(next,keepDdd,keepSubscriber);
   }
 
   function chooseDdd(next:string) {
@@ -219,9 +220,11 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
   }
 
   function changeSubscriber(raw:string) {
-    const digits=raw.replace(/\D/g,"").slice(0,country==="BR" ? 9 : 14);
-    setSubscriber(digits);
-    emit(country,ddd,digits);
+    const next=splitPhoneEntry(raw,country,ddd);
+    setCountry(next.country);
+    setDdd(next.ddd);
+    setSubscriber(next.subscriber);
+    emit(next.country,next.ddd,next.subscriber);
   }
 
   const item=country ? COUNTRIES.find((entry)=>entry.country===country) : undefined;
@@ -245,24 +248,27 @@ export function PhoneField({ value, onChange, required=false, id="whatsapp" }: {
       <input
         id={id}
         className="phone-number-input"
-        inputMode="numeric"
-        autoComplete="tel-national"
+        type="tel"
+        inputMode="tel"
+        autoComplete={country==="BR" && ddd ? "tel-local" : "tel-national"}
         value={subscriber}
         onChange={(event)=>changeSubscriber(event.target.value)}
         placeholder={country==="BR" ? "9XXXXXXXX" : country ? "Número do WhatsApp" : "Escolha o país"}
-        maxLength={country==="BR" ? 9 : 14}
+        maxLength={24}
+        aria-describedby={id+"-hint"}
         required={required}
         aria-label="WhatsApp"
       />
     </div>
-    <div className="phone-field-hint">
-      {item ? <span>{item.flag} {item.name} · +{item.callingCode}{country==="BR" && dddInfo ? ` · DDD ${dddInfo[0]} (${dddInfo[1]})` : ""}</span> : <span>Escolha o país para identificar o DDI.</span>}
-      {country==="BR" && subscriber && !/^9\d{0,8}$/.test(subscriber) && <span className="phone-hint-error">No Brasil, o WhatsApp móvel deve começar com 9.</span>}
+    <div className="phone-field-hint" id={id+"-hint"}>
+      {item ? <span>{item.flag} {item.name} · +{item.callingCode}{country==="BR" && dddInfo ? ` · DDD ${dddInfo[0]} (${dddInfo[1]})` : ""}</span> : <span>Selecione o país ou cole o telefone completo com DDI.</span>}
+      {country==="BR" && <span>{ddd ? "Neste campo, digite os 9 números do celular. Também aceitamos o telefone completo." : "Selecione o DDD ou cole o número com DDD."}</span>}
+      {country==="BR" && subscriber && !/^9\d{0,8}$/.test(subscriber) && <span className="phone-hint-error" role="status">Confira o celular: são 9 números, começando com 9. O DDD fica no seletor ao lado.</span>}
     </div>
 
     {countryOpen && <div className="phone-popover country-popover" role="dialog" aria-label="País e DDI">
       <div className="phone-popover-head"><strong>País e DDI</strong><button type="button" onClick={()=>setCountryOpen(false)} aria-label="Fechar lista de países"><X size={17}/></button></div>
-      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> identifica o Brasil e já aplica. Quando a digitação deixa um único DDI, ele é selecionado sozinho — e você sempre pode tocar no país.</p>
+      <p className="phone-popover-copy">Digite diretamente enquanto esta lista estiver aberta. Ex.: <strong>5</strong> mostra os DDIs iniciados em +5; <strong>55</strong> mantém Brasil. A escolha só é aplicada quando você toca no país.</p>
       {search && <div className="phone-incremental-filter" aria-live="polite"><span>Filtro digitado</span><strong>{search}</strong><button type="button" onClick={()=>setSearch("")} aria-label="Limpar filtro">Limpar</button></div>}
       <div className="country-scroll-shell">
         <button type="button" className="popover-scroll-arrow vertical" aria-label="Países anteriores" onClick={()=>scrollCountries(-1)}><ChevronUp size={17}/></button>
