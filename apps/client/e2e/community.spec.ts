@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -187,9 +188,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
   await expect(page.getByText("Seu pedido continua salvo e pode ser acompanhado neste aparelho.", { exact: true })).toBeVisible();
 
-  const ownerApproval = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "sosyout" } });
+  const ownerApproval = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "e2e-owner-secret-32-characters-long" } });
   expect(ownerApproval.ok()).toBeTruthy();
   const approvalToken = (await ownerApproval.json()).token;
+  // Later visual tests reuse this isolated session instead of exhausting login rate limits.
+  writeFileSync(resolve("../../.local-tmp/browser-owner-session.json"),JSON.stringify({token:approvalToken}));
   const requestsOverview = await request.get("http://127.0.0.1:17333/admin/overview", { headers: { authorization: `Bearer ${approvalToken}` } });
   const requestData = (await requestsOverview.json()).requests.find((item: { name: string }) => item.name === "Pessoa E2E");
   expect(requestData).toBeTruthy();
@@ -237,7 +240,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const pendingAfterOwnerError = await request.post("http://127.0.0.1:17333/participation/status", { data: { token: pendingSeedState.requestToken } });
   expect(pendingAfterOwnerError.ok()).toBeTruthy();
   expect((await pendingAfterOwnerError.json()).blockedUntil).toBe(pendingSeedState.blockedUntil);
-  await page.getByLabel("Credencial", { exact: true }).fill("sosyout");
+  await page.getByLabel("Credencial", { exact: true }).fill("e2e-owner-secret-32-characters-long");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
   await expect(page.getByText("🟢 Usuário aprovado!", { exact: true })).toBeVisible();
@@ -257,16 +260,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(ownerBadgeStyle.background).toContain("linear-gradient");
   expect(ownerBadgeStyle.borderRadius).not.toBe("0px");
   await expect(page.getByText("Outubro de 2026", { exact:true })).toBeVisible();
-  await expect(page.getByText("Painel sincronizado com o servidor", { exact:false })).toBeVisible();
+  await expect(page.getByText("Atualização automática a cada 10 s", { exact:false })).toBeVisible();
   await page.getByRole("button", { name:"Explicar versão e sincronização do painel" }).click();
   await expect(page.getByRole("dialog", { name:"Ajuda sobre versão e sincronização" })).toBeVisible();
   await expect(page.getByText("não instala uma nova versão", { exact:false })).toBeVisible();
   await page.getByRole("button", { name:"Fechar ajuda" }).click();
-  const transportCard = page.locator(".transport-status-card");
-  await expect(transportCard.getByText("PARADO", { exact: true })).toBeVisible();
-  const transportBackground = await transportCard.evaluate((el: HTMLElement) => getComputedStyle(el).backgroundColor);
-  expect(transportBackground).toBe("rgb(109, 111, 118)");
-
   await page.getByRole("button", { name: "Participantes", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pessoa E2E", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Pessoa E2E", exact: true }).click();
@@ -363,6 +361,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("rota administrativa excepcional", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Fechar ajuda" }).click();
 
+  await page.getByRole("button",{name:"Integrações",exact:true}).click();
+  const transportCard = page.locator(".transport-status-card");
+  await expect(transportCard.getByText("INDISPONÍVEL", { exact: true })).toBeVisible();
+  const transportBackground = await transportCard.evaluate((el: HTMLElement) => getComputedStyle(el).backgroundColor);
+  expect(transportBackground).toBe("rgb(109, 111, 118)");
   const integrationConfigButton = page.getByRole("button", { name: "Configurar integração" });
   const integrationButtonStyle = await integrationConfigButton.evaluate((element) => ({ backgroundColor:getComputedStyle(element).backgroundColor, color:getComputedStyle(element).color }));
   expect(integrationButtonStyle.backgroundColor).toBe("rgb(231, 43, 59)");
@@ -587,26 +590,47 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(storeDialog.locator("summary")).toBeFocused();
   await storeDialog.evaluate(el=>el.scrollTop=0);
 
-  await expect(storeDialog.getByText("10 moedas + 1 passe bônus",{exact:false})).toBeVisible();
-  await expect(storeDialog.getByRole("heading",{name:"1 passe",exact:true})).toBeVisible();
+  await expect(storeDialog.getByText("10 moedas para salvar URLs na fila.",{exact:false})).toBeVisible();
+  await expect(storeDialog.getByRole("heading",{name:"1 Pular",exact:true})).toBeVisible();
+  await expect(storeDialog.getByRole("heading",{name:"1 passe",exact:true})).toHaveCount(0);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-mobile.png"),fullPage:false});
   expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.setViewportSize({width:1366,height:768});
   await storeDialog.locator(".store-editorial-art").evaluateAll(async images=>{await Promise.all(images.map(image=>(image as HTMLImageElement).decode()));});
   const productGeometry=await storeDialog.locator(".store-product").evaluateAll(cards=>cards.map(card=>{
-    const image=card.querySelector("img")!.getBoundingClientRect(),copy=card.querySelector(".store-product-copy")!.getBoundingClientRect();
-    return image.bottom<=copy.top+1;
+    const visual=card.querySelector(".store-product-visual")!.getBoundingClientRect(),copy=card.querySelector(".store-product-copy")!.getBoundingClientRect();
+    return visual.bottom<=copy.top+1;
   }));
-  expect(productGeometry).toEqual([true,true]);
+  expect(productGeometry.length).toBeGreaterThanOrEqual(2);
+  expect(productGeometry.every(Boolean)).toBe(true);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-desktop.png"),fullPage:false});
   expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.setViewportSize({width:390,height:844});
-  await storeDialog.getByRole("button",{name:"Quero este pacote"}).click();
+  const buyItem=storeDialog.getByRole("button",{name:"Quero este item"}).first();
+  await buyItem.scrollIntoViewIfNeeded();
+  expect(await buyItem.evaluate(el=>{
+    const box=el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2));
+  }),"chat não cobre a compra no modal").toBe(true);
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-compra-mobile.png")});
+  await buyItem.click();
   await page.getByLabel("E-mail do pagador").fill("e2e@example.com"); await page.getByLabel("CPF do pagador").fill("12345678901");
   await page.getByRole("button", { name: /Gerar Pix de/ }).click(); await page.getByRole("button", { name: "Simular confirmação" }).click();
   await expect(page.getByText("Pagamento confirmado:", { exact: false })).toBeVisible();
-  await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/9bZkp7q19f0");
-  await page.getByRole("button", { name: "Salvar no espaço 2" }).click();
+  // Comprar moedas não concede um passe: o espaço 2 recebe outra pessoa.
+  const participantToken=await page.evaluate(()=>localStorage.getItem("conexao_token"));
+  const purchased=await request.get("http://127.0.0.1:17333/dashboard",{headers:{authorization:`Bearer ${participantToken}`}});
+  expect((await purchased.json()).wallet.extraPasses).toBe(0);
+  const refusedExtra=await request.post("http://127.0.0.1:17333/rounds/current/submissions",{headers:{authorization:`Bearer ${participantToken}`},data:{url:"https://youtu.be/9bZkp7q19f0"}});
+  expect(refusedExtra.status(),await refusedExtra.text()).toBe(409);
+  await expect(page.getByPlaceholder("Cole a URL do seu vídeo no YouTube")).toHaveCount(0);
+  const member2=await request.post("http://127.0.0.1:17333/admin/members",{headers:{authorization:`Bearer ${approvalToken}`},data:{name:"Participante 2",phone:"5571900000002",groupCode:"2"}});
+  expect(member2.ok()).toBe(true);
+  const login2=await request.post("http://127.0.0.1:17333/auth/login",{data:{name:"Participante 2",phone:"5571900000002",groupCode:"2"}});
+  expect(login2.ok()).toBe(true);
+  const second=await request.post("http://127.0.0.1:17333/rounds/current/submissions",{headers:{authorization:`Bearer ${(await login2.json()).token}`},data:{url:"https://youtu.be/9bZkp7q19f0"}});
+  expect(second.status(),await second.text()).toBe(201);
+  await page.reload();
   await expect(page.getByText("2 de 10 vídeos", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({animations:"disabled", path: resolve(evidence, "participante-mobile.png"), fullPage: true });
@@ -618,7 +642,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
     const token = (await login.json()).token;
     const shared = await request.get("http://127.0.0.1:17333/dashboard", { headers: { authorization: `Bearer ${token}` } });
     expect((await shared.json()).openRound.slots[0].userName).toBe("Pessoa E2E");
-    const saved = await request.post("http://127.0.0.1:17333/rounds/current/submissions", { headers: { authorization: `Bearer ${token}` }, data: { url: `https://youtu.be/E2Evideo${String(n).padStart(3,"0")}` } }); expect(saved.status()).toBe(201);
+    const saved = await request.post("http://127.0.0.1:17333/rounds/current/submissions", { headers: { authorization: `Bearer ${token}` }, data: { url: `https://youtu.be/E2Evideo${String(n).padStart(3,"0")}` } }); expect(saved.status(),await saved.text()).toBe(201);
   }
   await page.reload(); await expect(page.getByRole("heading", { name: "10 vídeos prontos para sua playlist" })).toBeVisible();
   await page.getByText("Ver os 10 vídeos, autores e horários", { exact: true }).click();

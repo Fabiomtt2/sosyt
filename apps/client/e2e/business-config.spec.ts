@@ -10,6 +10,7 @@ test("Business central: edição Owner propaga ao contato público e sobrevive a
  expect(owner.ok()).toBe(true);
  await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},(await owner.json()).token);
  await page.reload();
+ await page.getByRole("button",{name:"Integrações",exact:true}).click();
  await page.getByRole("button",{name:"Configurar integração",exact:true}).click();
  const modal=page.getByRole("dialog",{name:"Configurar integração WhatsApp"});
  const number=page.getByLabel("Número do WhatsApp Business",{exact:true});
@@ -25,6 +26,7 @@ test("Business central: edição Owner propaga ao contato público e sobrevive a
  await expect(page.getByText("Configuração salva. Para ativar o canal Meta ainda falta a credencial de acesso.",{exact:true})).toBeVisible();
  expect((await (await request.get(api+"/public/groups")).json()).whatsappJoinUrl).toContain("wa.me/5571999999090");
  await page.reload();
+ await page.getByRole("button",{name:"Integrações",exact:true}).click();
  await page.getByRole("button",{name:"Configurar integração",exact:true}).click();
  await expect(number).toHaveValue("+5571999999090");
  await page.setViewportSize({width:390,height:844});
