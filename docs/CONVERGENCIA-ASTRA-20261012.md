@@ -1,3 +1,5 @@
+> Atualização 13/10: https://github.com/Fabiomtt2/sosyt/pull/3 reúne a rodada visual/integração posterior. Gate final 249 API + 21 cliente + 5 E2E GREEN; relatório em AUDITORIA-PRODUTO-ASTRA-20261013.md. Main/produção anteriores preservados; publicação coordenada pendente.
+
 # Convergência ASTRA / Claude — 12/10/2026
 
 ## Decisão atual do usuário
@@ -61,3 +63,20 @@ Próxima integração: conectar as preferências e mensagens persistidas aos eve
 ## Compra protegida — commit fc811bad3006f404addc9e931331e2033d9e4166
 - Gate final3 GREEN: API 237/237, cliente 21/21, lint, build e E2E 4/4. Snapshot de benefícios e backup pré-migração testados.
 - Próximo: push/PR/merge e retirada coordenada do pin antigo Railway, com observação dos dois deploys e do backup no /data.
+
+## Merge confirmado — 12/10/2026
+- PR #2 MERGED: https://github.com/Fabiomtt2/sosyt/pull/2
+- Local main == GitHub main == b684f236ebf50766b02aacabedc122c82c9111b1. Worktree de convergência avançada por fast-forward; original sol/user-premium e WIP preservados.
+- Ainda não afirmar deploy: próximo stage de source API/Web no Railway, retirando pin 65d5b2c, verificar backup e SUCCESS.
+
+## Railway — source staged e revisada — 12/10/2026
+- Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286: somente source API/Web, main Fabiomtt2/sosyt, removendo pin 65d5b2c. Sem volume, variáveis ou rede alterados; destructive=false.
+- Release de código b684f236ebf50766b02aacabedc122c82c9111b1, PR #2 merged. Gate 237 API/21 cliente/4 E2E e lint/build GREEN.
+- Aplicação autorizada pela missão de merge/publicação; ainda aguardar SUCCESS e confirmação do backup/smoke.
+
+## Publicação bloqueada pelo conector — 12/10/2026
+- GitHub PR #2 MERGED; release de código b684f236ebf50766b02aacabedc122c82c9111b1. Gate final: API 237/237, cliente 21/21, E2E 4/4, lint/build/diff GREEN.
+- Consulta após interrupção confirmou patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 ainda STAGED, somente fontes API/Web; nenhum novo deploy.
+- accept-deploy devolveu exatamente: “Cancelled — the user did not approve this action. No changes were made.” Não contornar ou repetir sem confirmação.
+- Produção segue Online/SUCCESS 1/1 em cada serviço: API dddb1c3c-44b1-4ab6-be04-35b3a9b90de3; Web 1bf687bd-4bd6-41f5-bd4d-b472fc6f4f6c. Volume da API permanece conectado. Backup/migração novos ainda NÃO confirmados em produção.
+- Próximo: confirmar publicação, reler staged/status, aplicar uma vez, observar SUCCESS, confirmar backup e smoke público. Não usar redeploy do build antigo.

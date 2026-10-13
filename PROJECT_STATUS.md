@@ -1,3 +1,96 @@
+## Retomada imediata — entrega auditada publicada em branch / PR draft
+- PR: https://github.com/Fabiomtt2/sosyt/pull/3
+- Branch astra/convergencia-20261012; código e capturas verificados no commit a07ca66896ed8578cbb319bbe19b4b7ae9e035f7. A ponta documental posterior deve ser obtida com git rev-parse HEAD e confrontada com origin/astra/convergencia-20261012.
+- Cinco commits por domínio já enviados. Esta seção será consolidada no commit documental e enviada na mesma branch. O estado exato do último push está em .local-tmp/publication-20261013.json.
+- main/origin/main permanece b684f236ebf50766b02aacabedc122c82c9111b1. Nenhum merge/deploy desta rodada. Árvores Sol/Claude e WIPs originais preservados.
+- GREEN: 249 API + 21 cliente + 5 Playwright; lint/TypeScript/build; diff check; capturas reais desktop/mobile vistas com os olhos. Avatar Owner decodificado no chat, DM recebida, presente debitado/creditado uma vez, Híbrido+ salvo, Pular respeitando fila selecionada.
+- Entrega: sala pública fixa e aberta; privadas distintas; inventário/SUPER; loja lateral configurável; duas novas artes editoriais, banners do participante, loading acolhedor; identidade Owner/participante/chat e preferência WhatsApp unificadas.
+- Relatório completo e sugestões: docs/AUDITORIA-PRODUTO-ASTRA-20261013.md. Cobertura não equivale a 100% de estados/navegadores; pagamentos e APIs definitivas não foram exercitados.
+- Railway relido em 13/10: API/Web Online SUCCESS 1/1, /data presente, sem ocorrências. Artefatos de 10/10 ainda ativos. Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 STAGED.
+- Bloqueio concreto: accept-deploy retornou cancelamento por aprovação ausente apesar da autorização explícita de Fábio. Não atribuir a uma recusa dele; não contornar por CLI/browser, repetir em loop ou alegar publicação.
+- Próximo: resolver o bloqueio do conector, revisar PR/diff e coordenar API/Web. Main aciona Pages; não liberar frontend isolado. Depois observar implantação, volume, health e smoke público com versões comprovadas.
+- Bot Meta/Evolution: configuração unificada pronta, APIs definitivas/runtime de grupos e catálogo de 19 eventos ainda em preparação. Não fabricar credenciais nem prometer execução.
+- Preservar catálogo aprovado por Fábio/Claude, ambas as contas ROOT_OWNER, intro sem carrossel, telefones pessoais/segredos fora do Git.
+
+## Push confirmado — 2026-10-13T18:17:25.766973+00:00
+- Branch astra/convergencia-20261012 publicada até a07ca66896ed8578cbb319bbe19b4b7ae9e035f7. Cinco commits temáticos; main permanece b684f236ebf50766b02aacabedc122c82c9111b1. Sem merge/deploy. Próximo: PR draft e consolidação documental.
+
+## Commit confirmado — 2026-10-13T18:15:03.377609+00:00
+- a07ca66896ed8578cbb319bbe19b4b7ae9e035f7 — test: verify community interactions and fresh responsive visuals
+- Commit local na branch astra/convergencia-20261012. Não representa push/merge/deploy. Conjunto validado com 249 API + 21 cliente, lint/build e 5 E2E. Próximo: documentação e publicação da branch/PR, mantendo coordenação API/Web.
+
+## Commit confirmado — 2026-10-13T18:15:02.457113+00:00
+- dce37430455c5e736e382fe5e258af267997b648 — feat(web): integrate community room and illustrated participant experience
+- Commit local na branch astra/convergencia-20261012. Não representa push/merge/deploy. Conjunto validado com 249 API + 21 cliente, lint/build e 5 E2E. Próximo: documentação e publicação da branch/PR, mantendo coordenação API/Web.
+
+## Commit confirmado — 2026-10-13T18:15:02.295451+00:00
+- 88b2e38c4023f8d674eabf929201bc2601f62a33 — fix(community): unify owner identity and secure cross-user transactions
+- Commit local na branch astra/convergencia-20261012. Não representa push/merge/deploy. Conjunto validado com 249 API + 21 cliente, lint/build e 5 E2E. Próximo: documentação e publicação da branch/PR, mantendo coordenação API/Web.
+
+## Commit confirmado — 2026-10-13T18:15:02.251450+00:00
+- b0de8630e09697f65805fa39570df933b8cd61d9 — fix(whatsapp): converge persisted hybrid provider preferences
+- Commit local na branch astra/convergencia-20261012. Não representa push/merge/deploy. Conjunto validado com 249 API + 21 cliente, lint/build e 5 E2E. Próximo: documentação e publicação da branch/PR, mantendo coordenação API/Web.
+
+## Commit confirmado — 2026-10-13T18:15:02.190081+00:00
+- 4ae7d6b73589df6122983a25232afe68001f0344 — chore: bundle local fonts and stabilize verification resources
+- Commit local na branch astra/convergencia-20261012. Não representa push/merge/deploy. Conjunto validado com 249 API + 21 cliente, lint/build e 5 E2E. Próximo: documentação e publicação da branch/PR, mantendo coordenação API/Web.
+
+## Gate final e revisão visual concluídos — 2026-10-13T18:14:43.987253+00:00
+- Execução: YouTube Final/.local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012. HEAD e origin/main b684f236 antes dos novos commits. WIP original Sol/Claude preservado.
+- GREEN confirmado em avatar-final-*: 249 API, 21 cliente, lint/TypeScript, build, 5 Playwright; diff --check limpo. Avatar público decodificado no navegador depois da correção CORP, inclusive cache 304.
+- Capturas desktop/mobile vistas com os olhos: sala pública aberta/fixa, avatar Owner, loja lateral, DM/inventário/presente, Híbrido+ e carregamento. Relatório e sugestões: docs/AUDITORIA-PRODUTO-ASTRA-20261013.md.
+- Railway relido agora: API/Web SUCCESS, 1/1, sem ocorrências; API com volume. Artefatos anteriores de 10/10 continuam ativos. Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 STAGED; conector rejeitou accept-deploy por aprovação ausente apesar da autorização explícita. Não contornar nem anunciar deploy.
+- Próximo: executar .local-tmp/commit-reviewed-20261013.py, consolidar docs, push da branch e PR draft. Main também aciona Pages: manter publicação Web/API coordenada; não fazer merge enquanto o backend novo não puder ser publicado.
+- Não há confirmação de runtime definitivo Evolution nem dos 19 eventos novos do bot. Preservar preços aprovados, intro sem carrossel e credenciais fora do Git.
+
+## RED visual identificado e corrigido no WIP — 13/10/2026
+- Chat global agora aberto/fixo, coluna reservada desktop e área própria de rolagem mobile; room-e2e 5/5 GREEN com geometria sem sobreposição.
+- Inspeção visual encontrou ícone quebrado no avatar de catálogo, apesar do elemento existir. Helmet aplicava CORP same-origin à imagem pública da API, distinta da origem Web.
+- Rota /avatars/:slug agora define CORP cross-origin apenas para imagens públicas, inclusive 304; demais rotas mantêm a proteção. Teste API verifica cabeçalhos/WEBP e E2E verifica complete/naturalWidth do avatar no chat.
+- Novo gate avatar-final-* em execução. NÃO usar room-e2e anterior como GREEN definitivo deste último ajuste. Próximo: inspecionar avatar decodificado e executar commits temáticos já preparados em .local-tmp/commit-reviewed-20261013.py somente após gate final.
+- Duas artes editoriais novas integradas em WebP, sala global/privadas separadas, loading acolhedor, prévia de aviso Owner e feedback de clique; avaliação/sugestões em AUDITORIA-PRODUTO-ASTRA-20261013.md.
+
+## Direção explícita de Fábio — 13/10/2026 manhã, Bahia
+- Chat global deve permanecer fixo e aberto como sala de conversa; não iniciar como faixa minimizada. Separar mensagens privadas visualmente. Desktop reserva coluna; mobile janela fixa com recolhimento voluntário.
+- Enriquecer ilustrações, banners informativos, carregamento personalizado e feedback de clique; reduzir movimento quando solicitado pelo sistema. Intro continua sem carrossel.
+- Auditoria não foi 100% de todos os estados: inspecionados Owner/participante, loja, banners, DM e presente com contas sintéticas. Relatar cobertura e limitações.
+- Gate resumed: 249 API + 21 cliente + 5 E2E GREEN. Gate verified após alinhamento: 249/21, lint/build GREEN, E2E 4/5 por arte mobile 1px fora do card. Corrigir arte mantendo asserção geométrica.
+- WIP ainda não commitado; main b684f236. Railway anterior online; patch pendente. Próximo: chat aberto, arte e feedback visual, capturas novas, gate e commits.
+
+## Retomada confirmada — 13/10/2026 UTC
+- HEAD b684f236 na worktree convergencia-claude-20261012; WIP preservado, sem novos commits ou publicação nesta retomada.
+- release-unit.log confirma 249 testes API + 21 cliente GREEN; release-lint.log e release-build.log concluídos. release-e2e.log foi interrompido após 1/5, sem processo ativo. Somente E2E retomado em resumed-e2e.log; não declarar resultado antes de ler término.
+- Última auditoria pública anterior confirmou login Owner HTTP 200 e acesso ao participante. Produção ainda apresentava avatar divergente entre painéis, Root como USER no chat e SUPER inativo. Correções locais incluem reconciliação de perfis legados ao iniciar API, com teste de reinício.
+- Referência de presente é idempotente e destinatário da confirmação fica fixo. Marca WPP corrigida para W; Híbrido+ Meta/Evolution tem identidade própria.
+- Evidências públicas com conta real ficam somente em .local-tmp/prod-*-private.png, fora do Git. Não registrar credencial nem telefone pessoal.
+- Próximo: resultado E2E, inspeção das capturas novas, revisão final, commits temáticos/push/PR. Railway continua com bloqueio de aprovação informado pelo conector; nenhuma publicação nova confirmada. Coordenar API/Web antes de main.
+
+## Checkpoint visual e integração — 12/10/2026 23:48 UTC
+- Worktree de execução: .local-tmp/convergencia-claude-20261012, branch astra/convergencia-20261012, HEAD/main/origin/main ainda b684f236 até os commits desta rodada. Originais Sol/Claude preservados.
+- Conjunto WIP: Híbrido+ Meta/Evolution persistido nas duas abas (legado recuperado por updated_at); avatar Owner/participante/chat; identidade atual SUPER; mensagens/inventário/presentes; loja lateral; banners; carregamento acolhedor.
+- REDs reais corrigidos: Owner rejeitava catálogo; avatar não passava ao participante; cursor perdia mensagens do mesmo instante; chat retinha avatares/papéis/remoções; Pular podia cobrar a primeira fila gratuita e envio ignorava seleção; SUPER barrado no frontend; formulário apagava dados ao falhar.
+- Presentes usam referência idempotente; repetição não duplica transferência. Root ilimitado depende da sessão administrativa validada, não de campos do cliente. Avisos internos identificam Owner e avatar.
+- Última etapa accepted-*: 247 API e 21 cliente passaram; lint/build passaram; 5/5 E2E passaram. Depois disso, acrescentada recuperação da preferência legada mais recente + teste (248 esperados) e fixture de arte única. NOVO gate final em execução; conferir *.log antes de declarar o último estado GREEN.
+- Inspeção com os olhos detectou X à esquerda e Híbrido+ sem contraste mesmo com fluxos GREEN; corrigidos em premium.css. Evidências premium-* atuais; capturas de modal são viewport (fullPage=false).
+- Railway permanece bloqueado: nova autorização explícita do usuário, mas accept-deploy retorna Cancelled/INVALID_ARGUMENT por aprovação ausente. Nenhuma mudança aplicada; API/Web anteriores online, /data presente, patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 STAGED.
+- APIs definitivas Meta/Evolution e execução das flags do catálogo não são declaradas operacionais. Não criar segredos nem apagar configurações. Preço/quantidade Claude aprovados preservados; não repor passe no pacote.
+- Próximo: finalizar gate e revisão de imagens; commits por domínio; push/PR. Publicação/merge precisam preservar coordenação API/Web, pois o frontend novo usa rotas/contratos novos. Não publicar Web sozinho.
+
+## Retomada visual — 12/10/2026, conta fxmotta2 reconectada
+- Local HEAD e origin/main b684f236; WIP preservado. Claude continua 8a1962f.
+- reconnected-e2e.log: 4/4 GREEN, capturas novas ~22:59–23:00 UTC.
+- API/Web anteriores online SUCCESS 1/1, volume presente. Nova autorização explícita de Fábio; accept-deploy novamente cancelou por aprovação ausente. Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 pendente; nada publicado.
+- Escopo: Híbrido+ Meta/Evolution; avatar/chat; loja lateral premium; inventário/SUPER/DM/presentes; banners e carregamento. Preços Claude aprovados, intro sem carrossel.
+- REDs: Owner não aceita cat-*; chat não resolve catálogo nem atualiza identidades/remoções; modos Bot/Integrações distintos; correio/inventário sem cliente participante.
+- Próximo: corrigir contratos, capturar antes/depois, gate e commits temáticos.
+
+## Estado atual — 12/10/2026, após confirmação de publicação
+- PR #2 já MERGED; GitHub/main/local main b684f236ebf50766b02aacabedc122c82c9111b1. Esta worktree mantém a versão integrada; árvores original e Claude preservadas.
+- Fábio confirmou publicação nesta rodada. O conector accept-deploy voltou a responder “Cancelled — the user did not approve this action. No changes were made.” Não contornar por CLI/browser nem afirmar deploy novo.
+- Railway patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 continua preparado somente para fontes API/Web; produção anterior online, API /data preservado.
+- Acesso Owner de Fábio confirmado na API pública: POST /admin/login → 200, com credencial de emergência existente. Segredo e telefone privado NÃO registrados em Git. `sosyout` é histórico DEV, não credencial pública confirmada.
+- Auditoria visual pós-merge em curso, Chromium desktop/mobile e contas sintéticas. Código identifica limpeza indevida do formulário ao falhar troca de credencial; corrigir e validar. Texto técnico longo de login/Avatares/Acesso será simplificado com fidelidade aos motores.
+
 # Estado verificável — YouTube Final
 
 ## Retomada imediata — conjunto homologado para merge — 12/10/2026
@@ -293,3 +386,20 @@ Antes da revisão do watch: API 103/103, client 10/10, lint/build GREEN, E2E 3/3
 ## Compra protegida — commit fc811bad3006f404addc9e931331e2033d9e4166
 - Gate final3 GREEN: API 237/237, cliente 21/21, lint, build e E2E 4/4. Snapshot de benefícios e backup pré-migração testados.
 - Próximo: push/PR/merge e retirada coordenada do pin antigo Railway, com observação dos dois deploys e do backup no /data.
+
+## Merge confirmado — 12/10/2026
+- PR #2 MERGED: https://github.com/Fabiomtt2/sosyt/pull/2
+- Local main == GitHub main == b684f236ebf50766b02aacabedc122c82c9111b1. Worktree de convergência avançada por fast-forward; original sol/user-premium e WIP preservados.
+- Ainda não afirmar deploy: próximo stage de source API/Web no Railway, retirando pin 65d5b2c, verificar backup e SUCCESS.
+
+## Railway — source staged e revisada — 12/10/2026
+- Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286: somente source API/Web, main Fabiomtt2/sosyt, removendo pin 65d5b2c. Sem volume, variáveis ou rede alterados; destructive=false.
+- Release de código b684f236ebf50766b02aacabedc122c82c9111b1, PR #2 merged. Gate 237 API/21 cliente/4 E2E e lint/build GREEN.
+- Aplicação autorizada pela missão de merge/publicação; ainda aguardar SUCCESS e confirmação do backup/smoke.
+
+## Publicação bloqueada pelo conector — 12/10/2026
+- GitHub PR #2 MERGED; release de código b684f236ebf50766b02aacabedc122c82c9111b1. Gate final: API 237/237, cliente 21/21, E2E 4/4, lint/build/diff GREEN.
+- Consulta após interrupção confirmou patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 ainda STAGED, somente fontes API/Web; nenhum novo deploy.
+- accept-deploy devolveu exatamente: “Cancelled — the user did not approve this action. No changes were made.” Não contornar ou repetir sem confirmação.
+- Produção segue Online/SUCCESS 1/1 em cada serviço: API dddb1c3c-44b1-4ab6-be04-35b3a9b90de3; Web 1bf687bd-4bd6-41f5-bd4d-b472fc6f4f6c. Volume da API permanece conectado. Backup/migração novos ainda NÃO confirmados em produção.
+- Próximo: confirmar publicação, reler staged/status, aplicar uma vez, observar SUCCESS, confirmar backup e smoke público. Não usar redeploy do build antigo.
