@@ -44,15 +44,19 @@ export const api = {
   requestCode: (body: { name: string; phone: string; registration?:boolean; consent?:true }) => request<{ devCode?: string; expiresInSeconds:number }>("/auth/request-code", { method: "POST", body: JSON.stringify(body) }),
   verifyCode: (body: { phone: string; code: string }) => request<{ token?: string; participation?:ParticipationStatus }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
   dashboard: (roundId?: string) => request<Dashboard>("/dashboard" + (roundId ? ("?roundId=" + encodeURIComponent(roundId)) : "")),
-  queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number }>("/queues/mine"),
+  queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number; inventory:Array<{itemCode:string;quantity:number}> }>("/queues/mine"),
   superMe: () => request<SuperState>("/super/me"),
   superPins: () => request<{ pins: SuperPin[]; slotsFree: number; slots: number }>("/super/pins"),
   createSuperPin: (body: string) => request<{ id: string; expiresInSeconds: number }>("/super/pins", { method: "POST", body: JSON.stringify({ body }) }),
   queueSkip: () => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST" }),
-  giftItem: (toUserId: string, itemCode: string, quantity = 1) =>
-    request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity }) }),
+  giftItem: (toUserId: string, itemCode: string, quantity = 1,referenceId?:string) =>
+    request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity, referenceId }) }),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
   createPix: (email: string, cpf: string, product: string) => request<Pix>("/payments/pix", { method: "POST", body: JSON.stringify({ email, cpf, product }) }),
+  mailUnread:()=>request<{unread:number}>("/mail/unread-count"),
+  mailInbox:()=>request<{threads:MailThread[];unread:number}>("/mail/inbox"),
+  mailThread:(id:string)=>request<{messages:MailMessage[]}>("/mail/thread/"+encodeURIComponent(id)),
+  mailSend:(toUserId:string,body:string)=>request<{id:string}>("/mail/dm",{method:"POST",body:JSON.stringify({toUserId,body})}),
   chatList: (afterId?: string) => request<ChatState>("/chat/global" + (afterId ? ("?afterId=" + encodeURIComponent(afterId)) : "")),
   chatSend: (body: string) => request<{ id: string; createdAt: string; role: ChatRole }>("/chat/global", { method: "POST", body: JSON.stringify({ body }) }),
   chatDelete: (id: string) => request<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id), { method: "DELETE" }),
@@ -102,6 +106,8 @@ export type SuperPin = {
   author:{ id:string; name:string; avatar?:UserAvatar; channel?:{title?:string;thumbnailUrl?:string}|null } | null;
 };
 export type ChatSender = { id: string; name: string; groupCode: string; avatar: UserAvatar | null };
+export type MailThread={key:string;withId:string|null;lastBody:string;lastAt:string;unread:number;with:ChatSender|null};
+export type MailMessage={sender?:ChatSender;id:string;mine:boolean;role:string;body:string;createdAt:string;readAt:string|null};
 export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
 export type ChatState = { removed: boolean; messages: ChatMessage[]; pinned: ChatMessage[]; cooldownSeconds: number; viewerRole: ChatRole };
 export type ChatModerateAction = "MUTE" | "UNMUTE" | "COOLDOWN" | "REMOVE" | "RESTORE";
@@ -137,7 +143,7 @@ export type Dashboard = {
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
   openRound: Round;
   readyRounds: Round[];
-  viewer: { contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
+  viewer: { contributionBlockedByPendingTask?:boolean; contributionAllowance?:number; contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
   profile?: UserProfileSummary;
   watchRewards:WatchRewards;
   queues:QueuesState;
@@ -151,7 +157,7 @@ export type Pix = {
 
 export type WhatsAppIntegrationState = {
   senderValidationRequired:boolean;
-  mode: "OFFICIAL" | "META_GROUPS" | "EVOLUTION" | "DISABLED";
+  mode: "OFFICIAL" | "META_GROUPS" | "HYBRID_PLUS" | "EVOLUTION" | "DISABLED";
   businessAccountId: string;
   phoneNumberId: string;
   businessPhone: string;
@@ -254,7 +260,7 @@ export type OwnerParticipantSession={
 export type StoreProduct = { code:string;title:string;description:string;amountCents:number;creditsMillis:number;extraPasses:number;active:boolean;sortOrder:number;itemReference:string;grantsItem?:string;grantsItemQty:number;imageDataUrl?:string;subscriptionDays:number };
 export type BotFeature = { code:string;label:string;engine:"messaging"|"group";enabled:boolean;active:boolean;blockedReason:string|null;riskNote:string|null };
 export type BotStatus = {
-  mode:"DISABLED"|"OFFICIAL"|"EVOLUTION"|"HYBRID";
+  mode:"DISABLED"|"OFFICIAL"|"EVOLUTION"|"HYBRID"|"HYBRID_PLUS"|"META_GROUPS";
   engines:{ messaging:{ready:boolean;official:boolean;evolution:boolean}; group:{ready:boolean} };
   dependencies:{ whatsappOfficialReady:boolean;youtubeReady:boolean;paymentReady:boolean;webhookUrl:string };
   features:BotFeature[]; missing:string[]; fullyActive:boolean;
@@ -285,7 +291,7 @@ export const ownerApi = {
     asaasApiKey?: string; asaasWebhookToken?: string; pagBankToken?: string;
   }) => ownerRequest<PaymentIntegrationState>("/admin/integrations/payments", { method:"POST", body:JSON.stringify(body) }),
   saveWhatsAppIntegration: (body: Partial<{
-    mode: "OFFICIAL" | "META_GROUPS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
+    mode: "OFFICIAL" | "META_GROUPS" | "HYBRID_PLUS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
     otpTemplate: string; ownerAlertTemplate: string; decisionTemplate: string; templateLanguage: string;
     accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string; evolutionUrl: string; evolutionInstance: string; evolutionApiKey: string;
   }>) => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp", { method: "POST", body: JSON.stringify(body) }),
@@ -312,6 +318,7 @@ export const ownerApi = {
   // acesso: credenciais, telefone dos owners e SUPER
   credentials: () => ownerRequest<CredentialsState>("/admin/credentials"),
   // AUDITORIA / avatares gerenciáveis: o Owner sobe a ilustração (já normalizada).
+  avatarCatalog:()=>ownerRequest<{avatars:CatalogAvatarItem[]}>("/admin/profile/avatar-catalog"),
   avatarsAdmin: () => ownerRequest<{ avatars: AdminAvatarItem[] }>("/admin/avatars"),
   avatarUpload: (body: { tier: AvatarTier; category: string; label: string; dataUrl: string; slug?: string; sortOrder?: number }) =>
     ownerRequest<{ ok: true; slug: string }>("/admin/avatars", { method: "POST", body: JSON.stringify(body) }),

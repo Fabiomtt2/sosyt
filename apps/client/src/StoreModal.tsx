@@ -1,3 +1,4 @@
+import { CommerceArtwork } from "./CommerceArtwork";
 import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
 import type { Dashboard } from "./api";
@@ -18,15 +19,15 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
     ? "Pagamento por Pix via "+provider(data.commerce.provider)+". O benefício entra na sua conta somente depois da confirmação do servidor."
     : "As compras ficam disponíveis quando o Owner concluir a configuração do Pix. Suas moedas e recompensas atuais continuam normais.";
 
-  return <div className="modal-backdrop store-backdrop" onMouseDown={onClose}>
-    <section ref={modalRef} className="modal store-modal store-modal-v2 store-editorial" role="dialog" aria-modal="true" aria-label="Loja SOS YouTuber" onMouseDown={(event)=>event.stopPropagation()}>
+  return <div className="modal-backdrop store-backdrop premium-store-backdrop" onMouseDown={onClose}>
+    <section ref={modalRef} className="modal store-modal store-modal-v2 store-editorial premium-store" role="dialog" aria-modal="true" aria-label="Loja SOS YouTuber" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar loja" onClick={onClose}><X size={20}/></button>
 
       <div className="store-head store-head-v2">
         <div className="store-title-copy">
           <p className="eyebrow dark">LOJA SOS YOUTUBER</p>
-          <h2>Escolha o que ajuda na sua jornada</h2>
-          <p>Comprar é opcional. Você continua ganhando moedas ao acompanhar as tarefas da comunidade.</p>
+          <h2>Um impulso para<br/>sua jornada.</h2>
+          <p>Seu apoio tem valor. Escolha um benefício e continue no seu ritmo — comprar é opcional.</p>
         </div>
         <div className="store-balance" aria-label="Saldo atual">
           <span>Você tem agora</span>
@@ -37,19 +38,17 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
       <div className="store-products store-products-v2">
         {products.length===0 && <p className="muted">Nenhum item disponível na loja no momento.</p>}
         {products.map((item)=>(
-          <article key={item.code} className="store-product store-product-v2 coins-product">
+          <article key={item.code} className="store-product store-product-v2 coins-product" data-product-code={item.code}>
             <div className="store-product-visual coins-visual">
               {/* AUDITORIA: a ilustracao vem do painel. Sem imagem definida, um
                   marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
               {item.imageDataUrl
                 ? <img className="store-editorial-art" src={item.imageDataUrl} alt={item.title}/>
-                : <div className={`store-art-placeholder ${item.credits>0?"coins":item.extraPasses>0?"pass":item.subscriptionDays?"super":"item"}`} aria-hidden="true">
-                    {item.credits>0?<Coins size={48}/>:item.extraPasses>0?<Ticket size={48}/>:item.subscriptionDays?<Sparkles size={48}/>:<Package size={48}/>}
-                  </div>}
+                : <CommerceArtwork kind={item.credits>0?"coins":item.subscriptionDays?"super":item.grantsItem==="SKIP"?"skip":"item"}/>}
             </div>
             <div className="store-product-copy store-product-copy-v2">
               <h3>{item.title}</h3>
-              <p>{item.description || (item.credits>0?`${item.credits} moedas para salvar URLs na fila.`:`${item.extraPasses} passe para uma contribuição extra.`)}</p>
+              <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
               <ul className="store-product-benefits">
                 {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
                 {item.extraPasses>0 && <li><Ticket size={15}/> {item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
@@ -62,9 +61,9 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
         ))}
       </div>
 
-      <div className="store-meaning-row" aria-label="Como funcionam moedas e passes">
+      <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
         <span><Coins size={16}/><b>1 moeda</b> salva 1 URL</span>
-        <span><Ticket size={16}/><b>1 passe</b> libera uma posição extra</span>
+        <span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
       </div>
 
       <div className={data.commerce.pixAvailable?"store-payment-state ready":"store-payment-state pending"}>

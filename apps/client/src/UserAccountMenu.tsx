@@ -8,7 +8,7 @@ import { ProfilePhotoActions } from "./ProfilePhotoActions";
 
 const when=(value?:string)=>value?new Date(value).toLocaleString("pt-BR"):"—";
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const productName=(code:string)=>code==="COINS_LAUNCH"?"10 moedas + 1 passe bônus":code==="PASS_SINGLE"?"1 passe":"Compra anterior";
+const legacyProductName=(code:string)=>code==="COINS_LAUNCH"?"Pacote anterior de moedas":code==="PASS_SINGLE"?"Passe anterior":code==="COINS_10"?"10 moedas":code==="SKIP_1"?"1 Pular":code==="SUPER_30"?"Assinatura SUPER":code;
 const paymentStatus=(status:string)=>status==="APPROVED"?"Aprovado":status==="PENDING"?"Aguardando pagamento":status==="CANCELLED"?"Cancelado":status==="REJECTED"?"Não aprovado":status;
 
 export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged,onOpenAdmin,onConnectYoutube}:{data:Dashboard;onClose:()=>void;onLogout:()=>void;onDeleted:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;onOpenAdmin:()=>Promise<void>;onConnectYoutube:()=>void}) {
@@ -95,7 +95,7 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
           <div className="section-title"><div><p className="eyebrow dark">HISTÓRICO</p><h3>Minhas compras</h3></div><span>{profile.purchases.history.length} registro{profile.purchases.history.length===1?"":"s"}</span></div>
           {!profile.purchases.history.length?<p className="muted">Você ainda não fez nenhuma compra.</p>:<div className="account-purchase-list">
             {profile.purchases.history.map((purchase)=><article key={purchase.id}>
-              <div><strong>{productName(purchase.productCode)}</strong><span>{when(purchase.approvedAt ?? purchase.createdAt)}</span></div>
+              <div><strong>{data.commerce.products.find(product=>product.code===purchase.productCode)?.title??legacyProductName(purchase.productCode)}</strong><span>{when(purchase.approvedAt ?? purchase.createdAt)}</span></div>
               <div><strong>{money(purchase.amountCents)}</strong><span>{paymentStatus(purchase.status)} · {purchase.provider==="DEMO"?"Simulação":purchase.provider}</span></div>
             </article>)}
           </div>}

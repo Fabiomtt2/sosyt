@@ -34,14 +34,14 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao carregar."); }
   }, [canViewSensitive]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load();const timer=setInterval(()=>void load(),10000);return()=>clearInterval(timer); }, [load]);
 
   function flash(message: string) { setNotice(message); window.setTimeout(() => setNotice(""), 2600); }
 
   async function run(work: () => Promise<unknown>, message: string) {
     setBusy(true); setError("");
-    try { await work(); flash(message); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); }
+    try { await work(); flash(message); await load(); return true; }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível concluir."); return false; }
     finally { setBusy(false); }
   }
 
@@ -87,8 +87,8 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
             ? `Configurada (${youtube.source === "PANEL" ? "pelo painel" : "pelo ambiente"}) · verificação ${youtube.verification === "VERIFIED" ? "completa" : "apenas estrutural"}.`
             : "Sem chave: o servidor não confirma duração, existência nem incorporação dos vídeos."}
         </p>
-        {canEdit && <form className="comms-inline-form" onSubmit={(e: FormEvent) => { e.preventDefault(); void run(() => ownerApi.saveYouTubeIntegration({ apiKey: ytKey.trim() }), "Chave salva — já está valendo."); setYtKey(""); }}>
-          <input value={ytKey} onChange={(e) => setYtKey(e.target.value)} placeholder="Colar nova chave da YouTube Data API" />
+        {canEdit && <form className="comms-inline-form" onSubmit={async(e: FormEvent) => { e.preventDefault(); if(await run(() => ownerApi.saveYouTubeIntegration({ apiKey: ytKey.trim() }), "Chave salva no servidor.")) setYtKey(""); }}>
+          <input type="password" aria-label="Chave da YouTube Data API" autoComplete="off" value={ytKey} onChange={(e) => setYtKey(e.target.value)} placeholder="Colar nova chave da YouTube Data API" />
           <button className="primary" disabled={busy || ytKey.trim().length < 20}>Salvar</button>
           {youtube?.source === "PANEL" && <button type="button" className="secondary" onClick={() => void run(() => ownerApi.saveYouTubeIntegration({ clear: true }), "Chave do painel removida.")} disabled={busy}>Usar a do ambiente</button>}
         </form>}
@@ -97,11 +97,12 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
       {/* ---- correio interno: exclusivo do ROOT_OWNER ---- */}
       {canViewSensitive && <div className="comms-block">
         <div className="comms-block-head"><h3><Megaphone size={17} /> Aviso para todos</h3></div>
-        <form className="comms-inline-form" onSubmit={(e: FormEvent) => { e.preventDefault(); void run(() => ownerApi.mailBroadcast(broadcast.trim()), "Aviso entregue nos correios."); setBroadcast(""); }}>
+        <form className="comms-inline-form" onSubmit={async(e: FormEvent) => { e.preventDefault(); if(await run(() => ownerApi.mailBroadcast(broadcast.trim()), "Aviso entregue nas mensagens da comunidade.")) setBroadcast(""); }}>
           <input value={broadcast} onChange={(e) => setBroadcast(e.target.value)} placeholder="Mensagem que chega no correio de todos os participantes" maxLength={2000} />
           <button className="primary" disabled={busy || broadcast.trim().length < 2}>Enviar</button>
         </form>
 
+        {broadcast.trim()&&<aside className="owner-message-preview" aria-label="Prévia do aviso"><span>ASSIM O AVISO APARECE NAS MENSAGENS</span><p>{broadcast.trim()}</p><small>Identificado com seu nome e avatar. Enviado ao confirmar acima.</small></aside>}
         <h4 className="comms-sub">Correio recente (todos os participantes)</h4>
         <div className="table-scroll comms-mail">
           <table><thead><tr><th>Quando</th><th>De</th><th>Mensagem</th><th></th></tr></thead>

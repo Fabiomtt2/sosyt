@@ -10,7 +10,8 @@ const MODES: Array<{ key: BotStatus["mode"]; title: string; detail: string; risk
   { key: "DISABLED", title: "Desligado", detail: "Nenhuma função desta configuração está ativa." },
   { key: "OFFICIAL", title: "Oficial (Meta)", detail: "Modo planejado para mensagens pela Cloud API. Não confirma grupos." },
   { key: "EVOLUTION", title: "Evolution", detail: "Modo não oficial para grupos e mensagens. A integração ainda precisa ser concluída.", risk: true },
-  { key: "HYBRID", title: "Híbrido (em preparação)", detail: "Prevê Meta para mensagens e um complemento para grupos. Ainda não está operacional.", risk: true }
+  { key: "META_GROUPS", title: "Meta + WPPConnect", detail: "Modo legado: Meta para mensagens; WPPConnect para grupos.", risk: true },
+  { key: "HYBRID_PLUS", title: "Híbrido+", detail: "Meta para mensagens + Evolution para grupos. APIs e funções pendentes aparecem separadamente.", risk: true }
 ];
 
 export function OwnerBotPanel() {

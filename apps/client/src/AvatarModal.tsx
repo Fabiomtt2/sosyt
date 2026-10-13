@@ -59,15 +59,9 @@ export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;na
 export function AvatarLightbox({avatar,name,subtitle,onClose,actions}:{
   avatar?:UserAvatar;name:string;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;
 }) {
-  useEffect(()=>{
-    const onKey=(event:KeyboardEvent)=>{ if(event.key==="Escape") onClose(); };
-    window.addEventListener("keydown",onKey);
-    const previous=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return()=>{ window.removeEventListener("keydown",onKey); document.body.style.overflow=previous; };
-  },[onClose]);
+  const modalRef=useModalLifecycle(onClose);
   return <div className="avatar-lightbox-backdrop" onMouseDown={onClose} role="presentation">
-    <section className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
       <button type="button" className="avatar-lightbox-close" onClick={onClose} aria-label="Fechar">×</button>
       <UserAvatarView avatar={avatar} name={name} className="avatar-lightbox-image"/>
       <h3>{name}</h3>
@@ -80,10 +74,10 @@ export function AvatarLightbox({avatar,name,subtitle,onClose,actions}:{
 type SaveAvatar=(avatar:UserAvatar)=>Promise<{avatar:UserAvatar}>;
 
 export function AvatarModal({
-  name,current,onClose,onChanged,saveAvatar=api.saveAvatar,title="Escolha seu avatar"
+  name,current,onClose,onChanged,saveAvatar=api.saveAvatar,loadCatalog=api.avatarCatalog,title="Escolha seu avatar"
 }:{
   name:string;current?:UserAvatar;onClose:()=>void;onChanged:(avatar?:UserAvatar)=>void;
-  saveAvatar?:SaveAvatar;title?:string;
+  saveAvatar?:SaveAvatar;loadCatalog?:()=>Promise<{avatars:CatalogAvatarItem[]}>;title?:string;
 }) {
   const [selected,setSelected]=useState<UserAvatar|undefined>(current);
   const [busy,setBusy]=useState(false);
@@ -136,7 +130,7 @@ export function AvatarModal({
 
   // AUDITORIA / catálogo: avatares gerenciados pelo painel (comum/SUPER/OWNER).
   const [catalog,setCatalog]=useState<CatalogAvatarItem[]>([]);
-  useEffect(()=>{ let alive=true; api.avatarCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[]);
+  useEffect(()=>{ let alive=true; loadCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[loadCatalog]);
   const visibleCatalog=catalog.filter((item)=> category==="ALL" || item.category===category);
   async function chooseCatalog(item:CatalogAvatarItem){
     if(item.locked) return;

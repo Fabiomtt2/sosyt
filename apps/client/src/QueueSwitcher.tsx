@@ -65,7 +65,7 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip }: {
           <button type="button" className="qs-skip" onClick={() => void useSkip()} disabled={busy}>
             {busy ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
             Entrar em outra fila
-            <span className="qs-skip-count">{queues.skipsAvailable} Pular</span>
+            <span className="qs-skip-count">{queues.skipsAvailable===Number.MAX_SAFE_INTEGER?"∞":queues.skipsAvailable} Pular</span>
           </button>
         ) : (
           <p className="qs-locked"><Lock size={14} /> Conclua 100% da sua fila para avançar — ou use um <b>Pular</b> da loja para participar de outra ao mesmo tempo.</p>

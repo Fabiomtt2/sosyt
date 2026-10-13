@@ -34,7 +34,7 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
     try {
       const [me, showcase] = await Promise.all([api.superMe(), api.superPins()]);
       setState(me); setPins(showcase.pins); setSlotsFree(showcase.slotsFree);
-    } catch { /* o painel não pode derrubar a página */ }
+    } catch { setError("A vitrine não pôde ser atualizada. Seus dados continuam salvos."); }
   }, []);
   useEffect(() => { void load(); const t = window.setInterval(() => void load(), 15_000); return () => window.clearInterval(t); }, [load]);
   // Relógio local entre as sincronizações: a contagem anda sem esperar o servidor.
@@ -51,11 +51,11 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
     finally { setBusy(false); }
   }
 
-  if (!state) return null;
+  if (!state) return error?<section className="super-panel"><p role="status">{error}</p><button className="text-button" onClick={()=>void load()}>Tentar novamente</button></section>:null;
   const mine = state.myPins?.length ?? 0;
 
   return (
-    <section className="super-panel" aria-label="Vitrine SUPER">
+    <section className="super-panel premium-super" aria-label="Vitrine SUPER">
       <header className="super-head">
         <span className="super-head-title"><Sparkles size={16} /> Vitrine da comunidade</span>
         <span className="super-slots">{slotsFree} de 3 vagas livres</span>
@@ -112,7 +112,7 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
       ) : (
         <button type="button" className="super-cta" onClick={onOpenStore}>
           <SuperBadge />
-          <span><b>Seja SUPER</b><small>Chat sem espera, 5 vídeos por fila, selo no avatar e divulgação do seu canal.</small></span>
+          <span><b>Seja SUPER</b><small>Mais espaço para seu canal: chat sem espera, até 5 vídeos por fila e uma vitrine para divulgar com gentileza. Cada envio continua usando 1 moeda.</small></span>
         </button>
       )}
     </section>

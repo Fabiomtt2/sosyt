@@ -1,6 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
+/* Fontes empacotadas no cliente; sem requisição externa durante a abertura. */
 
-:root { font-family: "DM Sans", sans-serif; color: #172033; background: #f5f1ea; font-synthesis: none; --ink: #172033; --red: #e72b3b; --paper: #fffdfa; --muted: #6d7482; --line: #e5e1da; }
+:root { font-family: "DM Sans", sans-serif; color: #172033; background: #f5f1ea; font-synthesis: none; --ink: #172033; --red: #dc2435; --paper: #fffdfa; --muted: #6d7482; --line: #e5e1da; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, textarea { font: inherit; }
@@ -861,14 +861,14 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
   padding:0!important;
   border-radius:11px!important;
 }
-.mode-symbol.hybrid .meta-half,.mode-symbol.hybrid .youtube-half{
+.mode-symbol.hybrid .meta-half,.mode-symbol.hybrid .wpp-half{
   width:100%;
   height:100%;
   display:grid;
   place-items:center;
 }
 .mode-symbol.hybrid .meta-half{background:#edf4ff;color:#1769e0}
-.mode-symbol.hybrid .youtube-half{background:#fff0f4;color:#e72b3b}
+.mode-symbol.hybrid .wpp-half{background:#fff0f4;color:#e72b3b}
 .mode-choice.hybrid.selected .mode-symbol.hybrid{box-shadow:0 0 0 1px #ffffff44}
 .integration-mode-card.mode-hybrid{
   background:linear-gradient(135deg,#3d6cf5 0%,#7359de 38%,#c54ddb 68%,#ef5b91 100%)!important;
@@ -1665,7 +1665,7 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 
 /* Grupo identificado pelo servidor — sem seleção manual no login/solicitação */
 .group-auto-note{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:12px 13px;border:1px solid #ded8ef;border-radius:14px;background:linear-gradient(135deg,#faf7ff,#fff);color:#5e5267}
-.group-auto-note>svg{color:#7460a1;margin-top:1px}.group-auto-note>div{display:grid;gap:2px}.group-auto-note strong{font:800 .75rem Manrope,sans-serif}.group-auto-note span{font-size:.67rem;line-height:1.45;color:#817683}
+.group-auto-note>svg{color:#7460a1;margin-top:1px}.group-auto-note>div{display:grid;gap:2px}.group-auto-note strong{font:800 .8rem Manrope,sans-serif}.group-auto-note span{font-size:.8rem;line-height:1.55;color:#655b70}
 .auto-group-actions{display:grid!important;grid-template-columns:minmax(210px,1fr) auto auto;gap:8px!important;align-items:center!important;min-width:min(100%,520px)}
 .detected-group{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;padding:9px 11px;border-radius:13px;border:1px solid #e3dce2;background:#faf8fa}
 .detected-group>div{display:grid;gap:2px}.detected-group strong{font:800 .7rem Manrope,sans-serif}.detected-group span{font-size:.62rem;line-height:1.4;color:#817680}
@@ -2287,3 +2287,10 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .owner-shell .manual-access-section{scroll-margin-top:24px}
 @media(min-width:1150px){.owner-shell .metrics-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.owner-shell .metrics-grid article{padding:16px}.owner-shell .metrics-grid span{font-size:12px}.owner-shell .metrics-grid strong{font-size:26px}}
 @media(max-width:520px){.owner-service-summary{align-items:flex-start;flex-direction:column}.owner-shell .metrics-grid article{padding:14px}}
+
+/* Revisão visual: títulos legíveis e controles de avatar acessíveis por teclado. */
+.owner-panel-head > div{min-width:0;flex:1 1 240px}
+.owner-panel-head h2{line-height:1.35;letter-spacing:-.015em;overflow-wrap:anywhere}
+.owner-panel-head h2 svg,.comms-block-head h3 svg{flex-shrink:0}
+.owner-panel-head p{font-size:.875rem}
+.avatar-drop:focus-within{outline:3px solid #7460a1;outline-offset:4px}
