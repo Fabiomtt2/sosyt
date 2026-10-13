@@ -9,7 +9,7 @@ const browser = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 export default defineConfig({
   testDir: "./e2e", workers: 1, timeout: 90_000, retries: 0,
   outputDir: resolve(scratch, "browser-results"),
-  use: { baseURL: "http://127.0.0.1:17517", actionTimeout: 15_000, headless: true, launchOptions: { ...(browser && existsSync(browser) ? { executablePath: browser } : {}), args: ["--no-sandbox", "--disable-dev-shm-usage"] } },
+  use: { baseURL: "http://127.0.0.1:17517", actionTimeout: 15_000, headless: process.env.PLAYWRIGHT_HEADED !== "true", screenshot: "only-on-failure", trace: "retain-on-failure", launchOptions: { ...(browser && existsSync(browser) ? { executablePath: browser } : {}), args: ["--no-sandbox", "--disable-dev-shm-usage"] } },
   webServer: [
     { command: "node --import tsx --import ./scripts/e2e-youtube-fixture.mjs apps/api/src/server.ts", cwd: root, url: "http://127.0.0.1:17333/health", timeout: 120_000, reuseExistingServer: false,
       env: { NODE_ENV: "test", PORT: "17333", DATABASE_PATH: database, WEB_APP_URL: "http://127.0.0.1:17517", API_PUBLIC_URL: "http://127.0.0.1:17333",

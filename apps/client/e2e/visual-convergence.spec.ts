@@ -40,6 +40,22 @@ test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",asy
         await action.click();
         await expect(page.locator("#store-product-editor h3")).toContainText("Editando");
       }
+      if(title==="Acesso" && width===1440){
+        const password=page.getByLabel("Nova credencial",{exact:true});
+        const confirmation=page.getByLabel("Repetir",{exact:true});
+        await password.fill("semnumerosabc");
+        await confirmation.fill("semnumerosabc");
+        await page.locator(".owner-access-form").first().getByRole("button",{name:"Salvar",exact:true}).click();
+        await expect(page.getByRole("alert")).toContainText("letras e números");
+        await expect(password).toHaveValue("semnumerosabc");
+        await expect(confirmation).toHaveValue("semnumerosabc");
+        await password.fill("");await confirmation.fill("");
+      }
+      if(title==="Avatares"){
+        const upload=page.getByLabel("Escolher ilustração do avatar");
+        await upload.focus();
+        await expect(upload).toBeFocused();
+      }
       if(title!=="Solicitações") await page.screenshot({path:resolve(`../../docs/evidencias/convergencia-${title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}-${width}.png`),fullPage:true});
     }
   }

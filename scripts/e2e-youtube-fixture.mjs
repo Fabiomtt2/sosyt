@@ -4,7 +4,7 @@ if (process.env.NODE_ENV !== "test" || process.env.YOUTUBE_API_KEY !== "e2e_fixt
   throw new Error("YouTube E2E fixture can only run on the isolated test server.");
 }
 const nativeFetch = globalThis.fetch;
-const ids = new Set(["dQw4w9WgXcQ", "9bZkp7q19f0", "E2EADM00001",
+const ids = new Set(["dQw4w9WgXcQ", "9bZkp7q19f0", "E2EADM00001", "E2EPRE00001",
   ...Array.from({ length: 8 }, (_, index) => "E2Evideo"+String(index + 3).padStart(3, "0"))]);
 globalThis.fetch = async (input, options) => {
   const url = new URL(input instanceof Request ? input.url : String(input));

@@ -438,11 +438,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(hybridModeBackground).toContain("linear-gradient");
   const hybridSplit = await hybridMode.locator(".mode-symbol.hybrid").evaluate((element) => {
     const [meta,youtube]=Array.from(element.children).map((child)=>child.getBoundingClientRect());
-    return { metaWidth:meta.width, youtubeWidth:youtube.width, containerWidth:element.getBoundingClientRect().width };
+    return { metaWidth:meta.width, wppWidth:youtube.width, containerWidth:element.getBoundingClientRect().width };
   });
-  expect(Math.abs(hybridSplit.metaWidth-hybridSplit.youtubeWidth)).toBeLessThanOrEqual(1);
-  expect(Math.abs((hybridSplit.metaWidth+hybridSplit.youtubeWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
-  await expect(hybridMode.locator(".youtube-half svg")).toBeVisible();
+  expect(Math.abs(hybridSplit.metaWidth-hybridSplit.wppWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs((hybridSplit.metaWidth+hybridSplit.wppWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
+  await expect(hybridMode.locator(".wpp-half")).toHaveText("W");
   expect(await integrationDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
   await page.keyboard.press("Escape");
@@ -537,10 +537,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
   await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-tempo-desktop.png"),fullPage:false});
   await banners.getByRole("button",{name:"Próximo banner"}).click();
-  await expect(banners.getByText("Uma contribuição extra na mesma fila.",{exact:true})).toBeVisible();
+  await expect(banners.getByText("Um recado pode aproximar criadores.",{exact:true})).toBeVisible();
   await page.setViewportSize({width:390,height:844});
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
-  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-passe-mobile.png"),fullPage:false});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-mensagens-mobile.png"),fullPage:false});
   await page.setViewportSize({width:1440,height:1000});
   await banners.getByRole("button",{name:"Próximo banner"}).click();
 
@@ -578,7 +578,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/dQw4w9WgXcQ");
   await page.getByRole("button", { name: "Salvar no espaço 1" }).click();
-  await expect(page.getByText("Você já participou desta fila.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Você usou suas contribuições nesta fila.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Ver moedas e passes" }).click();
   const storeDialog=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
   await expect(storeDialog).toBeVisible();
@@ -599,7 +599,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await storeDialog.locator(".store-editorial-art").evaluateAll(async images=>{await Promise.all(images.map(image=>(image as HTMLImageElement).decode()));});
   const productGeometry=await storeDialog.locator(".store-product").evaluateAll(cards=>cards.map(card=>{
     const visual=card.querySelector(".store-product-visual")!.getBoundingClientRect(),copy=card.querySelector(".store-product-copy")!.getBoundingClientRect();
-    return visual.bottom<=copy.top+1;
+    const cardBox=card.getBoundingClientRect();
+    return (visual.right<=copy.left+1 || visual.bottom<=copy.top+1) && copy.left>=cardBox.left && copy.right<=cardBox.right+1;
   }));
   expect(productGeometry.length).toBeGreaterThanOrEqual(2);
   expect(productGeometry.every(Boolean)).toBe(true);
