@@ -7,7 +7,7 @@
     "dev": "node --watch --import tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "vitest run src",
+    "test": "vitest run src --maxWorkers=1",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
