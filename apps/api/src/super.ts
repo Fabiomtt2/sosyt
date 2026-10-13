@@ -126,14 +126,14 @@ export function pinSlotsFree(db: AppDatabase): number {
 const PIN_MAX = 180;
 const FORBIDDEN = /\b(?:compre|venda|promo[çc][aã]o|desconto|pix|whatsapp|telegram|grupo|dinheiro|gr[aá]tis)\b/i;
 
-export function createPin(db: AppDatabase, userId: string, rawBody: string, channelUrl?: string) {
+export function createPin(db: AppDatabase, userId: string, rawBody: string, channelUrl?: string,rootAccess=false) {
   const state = effectiveSuper(db, userId);
-  if (!state.canPin) throw err(403, "Fixar mensagens é um privilégio da assinatura SUPER.", { code: "SUPER_REQUIRED" });
+  if (!rootAccess && !state.canPin) throw err(403, "Fixar mensagens é um privilégio da assinatura SUPER.", { code: "SUPER_REQUIRED" });
   const body = String(rawBody ?? "").replace(/\s+/g, " ").trim();
   if (body.length < 10 || body.length > PIN_MAX) throw err(400, `A divulgação deve ter entre 10 e ${PIN_MAX} caracteres.`);
   if (FORBIDDEN.test(body)) throw err(400, "A mensagem fixa serve para divulgar seu canal — sem vendas, grupos ou links externos.", { code: "PIN_CONTENT" });
   if (/https?:\/\/|www\.|\.com|\.br/i.test(body)) throw err(400, "Não inclua links no texto; seu canal já é mostrado no selo.", { code: "PIN_LINK" });
-  if (!isRootOwner(db, userId)) {
+  if (!rootAccess && !isRootOwner(db, userId)) {
     const mine = activePins(db).filter((p) => p.userId === userId);
     if (mine.length) throw err(409, "Você já tem uma divulgação no ar. Aguarde ela expirar.", { code: "PIN_ALREADY" });
   }

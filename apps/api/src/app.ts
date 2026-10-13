@@ -7,7 +7,7 @@ import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
 import { ownerAccounts } from "./owners.js";
 import { credentialState, setCredential } from "./admin-credentials.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
-import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP } from "./inventory.js";
+import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP, ROOT_ITEM_QUANTITY } from "./inventory.js";
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
 import { canUseAvatarTier, catalogTierOf, ensureAvatarCatalog, listCatalog, upsertCatalogAvatar, decodeWebpDataUrl, avatarImageEtag, AVATAR_TIERS, AVATAR_CATEGORIES, type AvatarTier, type AvatarCategory } from "./avatar-tiers.js";
 import { Readable } from "node:stream";
@@ -594,12 +594,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // Fila 2 — a não ser que tenha entrado nela com o item "Pular".
   app.get("/queues/mine", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     const mine = myRounds(db, request.user.sub);
-    const skips = itemQuantity(db, request.user.sub, ITEM_SKIP);
+    const skips = request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP);
     return {
       queues: mine.map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
       canSkip: skips > 0,
       skipsAvailable: skips,
-      inventory: listInventory(db, request.user.sub)
+      inventory: request.user.adminRole==="ROOT_OWNER" ? [...new Set([ITEM_SKIP,...listStoreProducts(db).flatMap(p=>p.grantsItem?[p.grantsItem]:[])])].map(itemCode=>({itemCode,quantity:ROOT_ITEM_QUANTITY})) : listInventory(db, request.user.sub)
     };
   });
 
@@ -608,15 +608,15 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/queues/skip", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     try {
       const result = db.transaction(() => {
-        if (itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
+        if (request.user.adminRole!=="ROOT_OWNER" && itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
           throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
         }
         const target = skipTargetFor(db, request.user.sub);
-        consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${target.id}:${request.user.sub}`);
+        if(request.user.adminRole!=="ROOT_OWNER") consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${target.id}:${request.user.sub}`);
         joinRound(db, target.id, request.user.sub, "SKIP");
         return { id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
       })();
-      return reply.send({ queue: result, skipsAvailable: itemQuantity(db, request.user.sub, ITEM_SKIP) });
+      return reply.send({ queue: result, skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP) });
     } catch (error) {
       const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível entrar em outra fila.", code: e.code });
@@ -625,16 +625,16 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   // Presentear item do próprio inventário a outro participante.
   app.post("/inventory/gift", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    const body = z.object({ toUserId: z.string().min(8).max(64), itemCode: z.string().regex(/^[A-Z0-9_]{2,40}$/), quantity: z.number().int().min(1).max(100).default(1) }).safeParse(request.body);
+    const body = z.object({ toUserId: z.string().min(8).max(64), itemCode: z.string().regex(/^[A-Z0-9_]{2,40}$/), quantity: z.number().int().min(1).max(100).default(1), referenceId:z.string().uuid().optional() }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Dados do presente inválidos." });
-    try { return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity)); }
+    try { return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity,request.user.adminRole==="ROOT_OWNER",body.data.referenceId)); }
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível presentear.", code: e.code }); }
   });
 
   // AUDITORIA / SUPER: estado da assinatura e vitrine de divulgacao.
   app.get("/super/me", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
-    const state = effectiveSuper(db, request.user.sub);
+    const state = request.user.adminRole==="ROOT_OWNER" ? {active:true,secondsRemaining:ROOT_ITEM_QUANTITY,autoRenew:false,source:"ROOT_OWNER",uploadsPerRound:ROOT_ITEM_QUANTITY,chatCooldownSeconds:0,canPin:true} : effectiveSuper(db, request.user.sub);
     return {
       ...state,
       pinMinutes: SUPER_PIN_MINUTES,
@@ -659,7 +659,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/super/pins", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = z.object({ body: z.string().min(10).max(180) }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Escreva uma divulgação de 10 a 180 caracteres." });
-    try { return reply.send(createPin(db, request.user.sub, body.data.body)); }
+    try { return reply.send(createPin(db, request.user.sub, body.data.body,undefined,request.user.adminRole==="ROOT_OWNER")); }
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível fixar.", code: e.code }); }
   });
@@ -667,12 +667,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // AUDITORIA / chat global: leitura por cursor (tempo real via polling) e envio seguro.
   app.get("/chat/global", { preHandler: authGuard, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (request) => {
     const q = request.query as { afterId?: string };
-    return listGlobalMessages(db, request.user.sub, { afterId: typeof q.afterId === "string" ? q.afterId : undefined });
+    return listGlobalMessages(db, request.user.sub, { afterId: typeof q.afterId === "string" ? q.afterId : undefined },config);
   });
   app.post("/chat/global", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const parsed = z.object({ body: z.string().min(1).max(500) }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Escreva uma mensagem." });
-    try { return reply.send(sendGlobalMessage(db, request.user.sub, parsed.data.body)); }
+    try { return reply.send(sendGlobalMessage(db, request.user.sub, parsed.data.body,config)); }
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string; retryAfterSeconds?: number; until?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar.", code: e.code, retryAfterSeconds: e.retryAfterSeconds, until: e.until }); }
   });
@@ -684,11 +684,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     try { return reply.send(sendDirectMessage(db, request.user.sub, body.toUserId, body.body)); }
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar." }); }
   });
-  app.get("/mail/inbox", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => ({ threads: listInbox(db, request.user.sub), unread: unreadCount(db, request.user.sub) }));
+  app.get("/mail/inbox", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => ({ threads: listInbox(db, request.user.sub,config), unread: unreadCount(db, request.user.sub) }));
   app.get("/mail/unread-count", { preHandler: authGuard, config: { rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (request) => ({ unread: unreadCount(db, request.user.sub) }));
   app.get("/mail/thread/:userId", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     const otherId = String((request.params as { userId: string }).userId);
-    return { messages: readThread(db, request.user.sub, otherId) };
+    return { messages: readThread(db, request.user.sub, otherId,config) };
   });
 
   // AUDITORIA C-01 / portão híbrido: resgate da credencial de setup emitida pelo Owner.
@@ -860,7 +860,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       if (body.presetId.startsWith("cat-")) {
         const tier=catalogTierOf(db,body.presetId);
         if (!tier) return reply.code(404).send({message:"Este avatar não está mais disponível."});
-        if (!canUseAvatarTier(db,request.user.sub,tier))
+        if (!request.user.adminRole && !canUseAvatarTier(db,request.user.sub,tier))
           return reply.code(403).send({code:"AVATAR_TIER_LOCKED",message:tier==="OWNER"?"Este avatar é exclusivo dos Owners.":"Este avatar é exclusivo de assinantes SUPER ativos."});
       }
       db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
@@ -878,11 +878,15 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         ON CONFLICT(user_id) DO UPDATE SET avatar_kind='CUSTOM',avatar_preset=NULL,avatar_image=excluded.avatar_image,avatar_mime='image/webp',updated_at=excluded.updated_at`)
         .run(request.user.sub,bytes,now);
     }
+    if(request.user.adminRole && request.user.ownerId) db.prepare(`INSERT INTO owner_profiles (owner_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+      SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM user_profiles WHERE user_id=?
+      ON CONFLICT(owner_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(request.user.ownerId,request.user.sub);
     return {avatar:getUser(db,request.user.sub)?.avatar};
   });
 
   app.delete("/profile/avatar", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     db.prepare("DELETE FROM user_profiles WHERE user_id=?").run(request.user.sub);
+    if(request.user.adminRole && request.user.ownerId) db.prepare("DELETE FROM owner_profiles WHERE owner_id=?").run(request.user.ownerId);
     return {ok:true};
   });
 
@@ -892,6 +896,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if(!/^cat-[a-z0-9]{12}$/.test(slug)) return reply.code(404).send();
     const row=db.prepare("SELECT image,mime FROM avatar_catalog WHERE slug=? AND active=1").get(slug) as {image:Buffer;mime:string}|undefined;
     if(!row) return reply.code(404).send();
+    // Catalog images are public and embedded by the separately hosted Web app.
+    // Override CORP only here; keep Helmet defaults on account/API responses.
+    reply.header("cross-origin-resource-policy","cross-origin");
     const etag=avatarImageEtag(row.image);
     if(request.headers["if-none-match"]===etag) return reply.code(304).send();
     return reply.header("etag",etag).type(row.mime).send(row.image);
@@ -900,7 +907,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/avatars", { preHandler: authGuard }, async (request) => ({
     avatars: listCatalog(db,{activeOnly:true}).map((r)=>({
       slug:r.slug, tier:r.tier, category:r.category, label:r.label,
-      locked: !canUseAvatarTier(db,request.user.sub,r.tier)
+      locked: !request.user.adminRole && !canUseAvatarTier(db,request.user.sub,r.tier)
     }))
   }));
   // Gestão (somente ROOT_OWNER): o Owner sobe a ilustração já normalizada no painel.
@@ -988,14 +995,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           } : undefined
         };
       }),
-      viewer: { contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
+      viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND source='SKIP' AND left_at IS NULL").get(viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound, contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
       profile: profileSummary(db,request.user.sub),
       watchRewards: watchRewardView(db,request.user.sub),
       // AUDITORIA / multi-fila: navegacao entre as filas do proprio usuario.
       queues: {
         current: viewRound ? { id: viewRound.id, number: viewRound.displayNumber, status: viewRound.status } : null,
         mine: myRounds(db, request.user.sub).map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
-        skipsAvailable: itemQuantity(db, request.user.sub, ITEM_SKIP)
+        skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP)
       },
       commerce
     };
@@ -1209,14 +1216,16 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       const result = db.transaction(() => {
         const administrativeParticipant=Boolean(request.user.adminRole);
         const pending = pendingReadyRound(db,request.user.sub);
-        if (pending && !administrativeParticipant) throw new Error(`Finalize sua tarefa da Fila ${pending.sequence} antes de contribuir em uma nova fila.`);
         const duplicate = db.prepare("SELECT 1 FROM submissions WHERE video_id=? LIMIT 1").get(verified.videoId);
         if (duplicate) throw new Error("Este vídeo do YouTube já foi usado em uma fila anterior ou atual. Escolha outro vídeo.");
         // AUDITORIA / multi-fila: a contribuição vai para a fila DO USUÁRIO (aquela em
         // que ele já está), nunca para "a fila mais nova do sistema".
-        const mine = currentRoundFor(db, request.user.sub);
+        const mine = currentRoundFor(db, request.user.sub,body.expectedRoundId);
         if (!mine) throw new Error("Nenhuma fila disponível no momento. Tente novamente em instantes.");
         const open = { id: mine.id, sequence: mine.displayNumber };
+        const enteredWithSkip=Boolean(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND source='SKIP' AND left_at IS NULL").get(open.id,request.user.sub));
+        if(pending&&!administrativeParticipant&&!enteredWithSkip) throw new Error("Finalize sua tarefa da Fila "+pending.sequence+" ou use Pular para contribuir em outra fila.");
+
         if(body.expectedRoundId && body.expectedRoundId!==open.id) throw Object.assign(new Error(`A fila mudou enquanto seu vídeo era conferido. Agora estamos na Fila ${open.sequence}.`),{code:"QUEUE_CHANGED",currentRoundId:open.id,currentRoundSequence:open.sequence});
         const next = db.prepare("SELECT COUNT(*) + 1 AS slot FROM submissions WHERE round_id = ?").get(open.id) as { slot: number };
         if (next.slot > 10) throw new Error("Este ciclo já foi concluído. Atualize a página.");

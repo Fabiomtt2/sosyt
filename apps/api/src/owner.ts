@@ -1,3 +1,4 @@
+import { listCatalog, catalogTierOf } from "./avatar-tiers.js";
 import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
 import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
 import { generateBotPassword, generateAdminCredential } from "./password.js";
@@ -24,7 +25,7 @@ import { groupVerificationState, materializeApprovedMembership } from "./group-v
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^[1-9]\d{0,2}$/);
 const avatarSchema=z.discriminatedUnion("kind",[
-  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^avatar-(?:0[1-9]|[12]\d|3[0-4])$/)}),
+  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^(?:avatar-(?:0[1-9]|[12]\d|3[0-4])|cat-[a-z0-9]{12})$/)}),
   z.object({kind:z.literal("CUSTOM"),dataUrl:z.string().max(350_000)})
 ]);
 export function resolveGroupForPhone(db:AppDatabase,phone:string):{groupCode?:string;source:"APPROVED"|"EXTERNAL"|"NONE";provider?:string;verifiedAt?:string} {
@@ -49,17 +50,20 @@ export function hasMembership(db: AppDatabase, phone: string, group?: string): b
   return !verification.required || verification.accessReady;
 }
 
-function avatarFromProfileRow(row?:{kind:string;preset?:string;image?:Buffer;mime?:string}) {
-  if (row?.kind==="PRESET" && row.preset) return {kind:"PRESET" as const,presetId:row.preset};
+function avatarFromProfileRow(db:AppDatabase,row?:{kind:string;preset?:string;image?:Buffer;mime?:string}) {
+  if (row?.kind==="PRESET" && row.preset) {
+    if(row.preset.startsWith("cat-")) { const tier=catalogTierOf(db,row.preset); return tier ? {kind:"CATALOG" as const,slug:row.preset,tier} : undefined; }
+    return {kind:"PRESET" as const,presetId:row.preset};
+  }
   if (row?.kind==="CUSTOM" && Buffer.isBuffer(row.image) && row.mime) return {kind:"CUSTOM" as const,dataUrl:`data:${row.mime};base64,${row.image.toString("base64")}`};
   return undefined;
 }
 function adminAvatar(db:AppDatabase,userId?:string) {
   if (!userId) return undefined;
-  return avatarFromProfileRow(db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM user_profiles WHERE user_id=?").get(userId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
+  return avatarFromProfileRow(db,db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM user_profiles WHERE user_id=?").get(userId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
 }
 function ownerAvatar(db:AppDatabase,ownerId:string) {
-  return avatarFromProfileRow(db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM owner_profiles WHERE owner_id=?").get(ownerId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
+  return avatarFromProfileRow(db,db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM owner_profiles WHERE owner_id=?").get(ownerId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
 }
 
 export async function registerOwnerRoutes(
@@ -69,6 +73,30 @@ export async function registerOwnerRoutes(
   participantGuard?: (request:FastifyRequest,reply:FastifyReply)=>Promise<unknown>
 ) {
   for (const code of config.ALLOWED_GROUP_CODES.split(",")) db.prepare("INSERT OR IGNORE INTO groups (code) VALUES (?)").run(code);
+
+  // Reconcile legacy profiles on startup, so existing participant sessions also
+  // receive the avatar saved before this release. No account or wallet is created.
+  const profileLinks=effectiveOwnerAccounts(db,config).flatMap(owner=>{
+    const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
+    return user?[{ownerId:owner.id,userId:user.id}]:[];
+  });
+  const delegatedLinks=db.prepare("SELECT id AS ownerId,user_id AS userId FROM owner_access WHERE active=1").all() as Array<{ownerId:string;userId:string}>;
+  db.transaction(()=>{
+    for(const link of [...profileLinks,...delegatedLinks]){
+      const ownerProfile=db.prepare("SELECT updated_at AS updatedAt FROM owner_profiles WHERE owner_id=?").get(link.ownerId) as {updatedAt:string}|undefined;
+      const userProfile=db.prepare("SELECT updated_at AS updatedAt FROM user_profiles WHERE user_id=?").get(link.userId) as {updatedAt:string}|undefined;
+      if(!ownerProfile&&!userProfile)continue;
+      if(ownerProfile&&(!userProfile||ownerProfile.updatedAt>=userProfile.updatedAt)){
+        db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+          SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+          ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(link.userId,link.ownerId);
+      }else{
+        db.prepare(`INSERT INTO owner_profiles (owner_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+          SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM user_profiles WHERE user_id=?
+          ON CONFLICT(owner_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(link.ownerId,link.userId);
+      }
+    }
+  })();
 
   type OwnerContext={id:string;name:string;canonicalName:string;phone:string;role:OwnerRole;userId?:string;dynamic:boolean};
 
@@ -367,12 +395,16 @@ export async function registerOwnerRoutes(
         FROM account_deletions ORDER BY deleted_at DESC LIMIT 200`).all()
     };
   });
+  app.get("/admin/profile/avatar-catalog",{preHandler:ownerGuard},async()=>({
+    avatars:listCatalog(db,{activeOnly:true}).map(row=>({slug:row.slug,tier:row.tier,category:row.category,label:row.label,locked:false}))
+  }));
   app.put("/admin/profile/avatar", { preHandler: ownerGuard }, async (request,reply) => {
     const account=resolveOwnerContext(request);
     if (!account) return reply.code(401).send({message:"Conta Owner não encontrada."});
     const body=avatarSchema.parse(request.body);
     const now=new Date().toISOString();
     if (body.kind==="PRESET") {
+      if(body.presetId.startsWith("cat-") && !catalogTierOf(db,body.presetId)) return reply.code(404).send({message:"Este avatar não está mais disponível."});
       db.prepare(`INSERT INTO owner_profiles (owner_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
         VALUES (?,'PRESET',?,NULL,NULL,?)
         ON CONFLICT(owner_id) DO UPDATE SET avatar_kind='PRESET',avatar_preset=excluded.avatar_preset,avatar_image=NULL,avatar_mime=NULL,updated_at=excluded.updated_at`)
@@ -387,12 +419,18 @@ export async function registerOwnerRoutes(
         ON CONFLICT(owner_id) DO UPDATE SET avatar_kind='CUSTOM',avatar_preset=NULL,avatar_image=excluded.avatar_image,avatar_mime='image/webp',updated_at=excluded.updated_at`)
         .run(account.id,buffer,now);
     }
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(account.phone) as {id:string}|undefined;
+    if(linked) db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+      SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+      ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(linked.id,account.id);
     return {avatar:ownerAvatar(db,account.id)};
   });
   app.delete("/admin/profile/avatar", { preHandler: ownerGuard }, async (request,reply) => {
     const account=resolveOwnerContext(request);
     if (!account) return reply.code(401).send({message:"Conta Owner não encontrada."});
     db.prepare("DELETE FROM owner_profiles WHERE owner_id=?").run(account.id);
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(account.phone) as {id:string}|undefined;
+    if(linked) db.prepare("DELETE FROM user_profiles WHERE user_id=?").run(linked.id);
     return {ok:true};
   });
 
@@ -903,6 +941,10 @@ export async function registerOwnerRoutes(
       user={...user,name:owner.name,groupCode:"#",deletedAt:undefined};
     }
 
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
+    if(linked) db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+      SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+      ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(linked.id,owner.id);
     const token=app.jwt.sign({
       sub:user.id,purpose:"session",aud:"conexao-session",adminRole:owner.role,ownerId:owner.id,displayName:owner.name,jti:request.user.jti
     });

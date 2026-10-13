@@ -4,6 +4,8 @@
 // Camadas: sanitização de controle/HTML, anti-link (membros), anti-injeção,
 // anti-xingamento, limite de tamanho, cooldown, mute e banimento ("remover da sala").
 import { randomUUID } from "node:crypto";
+import type { Config } from "./config.js";
+import { effectiveOwnerAccounts } from "./owners.js";
 import type { AppDatabase } from "./db.js";
 import { identityOf } from "./mailbox.js";
 import { effectiveSuper, superState } from "./super.js";
@@ -70,7 +72,11 @@ function sanitizePlain(raw: unknown): string {
 }
 
 // ---------- papel do remetente ----------
-export function chatRoleOf(db: AppDatabase, userId: string): ChatRole {
+export function chatRoleOf(db: AppDatabase, userId: string, config?:Config): ChatRole {
+  if(config) {
+    const user=db.prepare("SELECT phone FROM users WHERE id=? AND deleted_at IS NULL").get(userId) as {phone:string}|undefined;
+    if(user && effectiveOwnerAccounts(db,config).some(owner=>owner.phone===user.phone)) return "OWNER";
+  }
   const row = db.prepare("SELECT role FROM owner_access WHERE user_id=? AND active=1").get(userId) as { role: string } | undefined;
   if (row?.role === "ROOT_OWNER") return "OWNER";
   if (row?.role === "ADMIN_OWNER") return "ADMIN";
@@ -95,8 +101,8 @@ function upsertMember(db: AppDatabase, userId: string, patch: Record<string, unk
 }
 
 // ---------- envio ----------
-export function sendGlobalMessage(db: AppDatabase, userId: string, rawBody: string) {
-  const role = chatRoleOf(db, userId);
+export function sendGlobalMessage(db: AppDatabase, userId: string, rawBody: string, config?:Config) {
+  const role = chatRoleOf(db, userId, config);
   const mod = moderationState(db, userId);
   if (mod.removed) throw err(403, "Você não está no chat da comunidade no momento.", { code: "CHAT_REMOVED" });
   if (mod.mutedUntil && Date.parse(mod.mutedUntil) > Date.now()) throw err(403, "Você está temporariamente silenciado no chat.", { code: "CHAT_MUTED", until: mod.mutedUntil });
@@ -124,23 +130,23 @@ export function sendGlobalMessage(db: AppDatabase, userId: string, rawBody: stri
 }
 
 // ---------- leitura (polling em tempo real por cursor) ----------
-export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { afterId?: string; limit?: number } = {}) {
+export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { afterId?: string; limit?: number } = {}, config?:Config) {
   const mod = moderationState(db, viewerId);
-  if (mod.removed) return { removed: true as const, messages: [], pinned: [], cooldownSeconds: mod.cooldownSeconds, viewerRole: chatRoleOf(db, viewerId) };
+  if (mod.removed) return { removed: true as const, messages: [], pinned: [], cooldownSeconds: mod.cooldownSeconds, viewerRole: chatRoleOf(db, viewerId, config) };
   const limit = Math.min(100, Math.max(1, opts.limit ?? 60));
   let rows: Array<Record<string, unknown>>;
   if (opts.afterId) {
-    const after = db.prepare("SELECT created_at AS at FROM global_chat_messages WHERE id=?").get(opts.afterId) as { at: string } | undefined;
+    const after = db.prepare("SELECT rowid AS cursor FROM global_chat_messages WHERE id=?").get(opts.afterId) as { cursor:number } | undefined;
     rows = db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
-      WHERE deleted_at IS NULL AND created_at > ? ORDER BY created_at ASC LIMIT ?`).all(after?.at ?? "", limit) as Array<Record<string, unknown>>;
+      WHERE deleted_at IS NULL AND rowid > ? ORDER BY rowid ASC LIMIT ?`).all(after?.cursor ?? 0, limit) as Array<Record<string, unknown>>;
   } else {
     rows = (db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
-      WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>).reverse();
+      WHERE deleted_at IS NULL ORDER BY rowid DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>).reverse();
   }
   const decorate = (r: Record<string, unknown>) => {
     const id = identityOf(db, String(r.userId));
     return {
-      id: String(r.id), role: String(r.role) as ChatRole, body: String(r.body), createdAt: String(r.createdAt), pinned: Boolean(r.pinned),
+      id: String(r.id), role: chatRoleOf(db,String(r.userId),config), body: String(r.body), createdAt: String(r.createdAt), pinned: Boolean(r.pinned),
       sender: id ? { id: id.id, name: id.name, groupCode: id.groupCode, avatar: id.avatar } : { id: String(r.userId), name: "Participante", groupCode: "", avatar: null }
     };
   };
@@ -150,7 +156,7 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
   const viewerSuper = effectiveSuper(db, viewerId);
   return { removed: false as const, messages: rows.map(decorate), pinned,
     cooldownSeconds: viewerSuper.chatCooldownSeconds === 0 ? 0 : mod.cooldownSeconds,
-    viewerRole: chatRoleOf(db, viewerId) };
+    viewerRole: chatRoleOf(db, viewerId, config) };
 }
 
 // ---------- ações administrativas ----------
