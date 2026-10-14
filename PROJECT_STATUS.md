@@ -1,3 +1,25 @@
+## Retomada imediata — 14/10/2026 — comércio e identidade validados
+
+- Fase: código e capturas publicados na branch, conferidos contra GitHub. Commit de código: d2f37dc43ef012bd639fd69b61c1f3006a0acf11. Ponta documental: obter com git rev-parse HEAD e comparar a origin/astra/convergencia-20261012.
+- Worktree de integração existente: YouTube Final/.local-tmp/convergencia-claude-20261012. Branch astra/convergencia-20261012; base da rodada f730ecf3ce7a35cdc0acc00f91a329873b3ac226. Árvores original Sol e espelho Claude preservados.
+- PR #3: https://github.com/Fabiomtt2/sosyt/pull/3 (draft). Main confirmado em b684f236ebf50766b02aacabedc122c82c9111b1. Sem merge/deploy desta rodada.
+- GREEN: 259 API, 25 cliente, 6 Playwright; lint/TypeScript, build e diff check. Execução final em .local-tmp/e2e-commerce-final-20261014.log. Build mantém aviso não bloqueante de chunk >500 kB.
+- Inspeção visual real desktop/mobile: loja, Pular/Passe/SUPER, confirmação +10, inventário, chat global, DM e badge ADMIN. Arte padrão do Passe corrigida para não embutir preço. Relatório: docs/AUDITORIA-COMERCIO-SUPER-20261014.md.
+- Entrega: catálogo aditivo sem sobrescrever configuração Owner; recibos autenticados; celebração somente após crédito confirmado; recuperação de pendências/reload e deduplicação; Pular idempotente; ADMIN público; moldura e fala SUPER vinculadas à assinatura, preservando avatar; CTA animada e movimento reduzido.
+- RED real corrigido no gate: nome legado do Owner retornava após modo participante. Mantém o nome público no mesmo usuário e consulta telefone efetivo persistido na elevação. ROOT_OWNER de Fábio/Rafael preservado.
+- PASSE e PULAR são distintos. 10 moedas/R$20 sem passe bônus antigo; preços editados pelos Owners permanecem. Produto já inativado pelo Owner continua inativo.
+- Railway relido em 14/10: Web/API online SUCCESS 1/1; volume 500 MB em /data; artefatos de 10/10 ativos. Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 segue STAGED, removendo pin 65d5b2c.
+- Publicação coordenada ainda pendente. Cancelamento anterior de accept-deploy veio da camada de aprovação apesar de autorização de Fábio e Allow all actions. Causa específica não exposta; não atribuir recusa ao usuário, não contornar via CLI/browser e não alegar deploy.
+- Próximo: conferir a ponta documental e PR; resolver publicação conjunta API/Web. Main dispara Pages. Não entregar frontend novo com API antiga.
+- Bot definitivo e pagamentos reais dependem das APIs/credenciais já documentadas. Gate local usa fixtures e não certifica provedores externos nem atenção humana.
+- Checkpoint atualizado em 2026-10-14T14:11:49.253750-03:00. Estado operacional pós-commit/push também em .local-tmp/publication-20261014.json.
+
+### Commits desta rodada
+- bb501609a98767dc10afac27e7ed46e6f0f7df05 fix(api): reconcile purchases and subscription identity
+- 82de44751fa7492578f4931b683ea59f736cf98b fix(auth): preserve owner identity across participant sessions
+- 840903a34f0e4d52b938989133ee51ab3404543e feat(web): celebrate purchases and unify premium community identity
+- d2f37dc43ef012bd639fd69b61c1f3006a0acf11 test(e2e): verify commerce and refresh responsive visual evidence
+
 ## Retomada imediata — entrega auditada publicada em branch / PR draft
 - PR: https://github.com/Fabiomtt2/sosyt/pull/3
 - Branch astra/convergencia-20261012; código e capturas verificados no commit a07ca66896ed8578cbb319bbe19b4b7ae9e035f7. A ponta documental posterior deve ser obtida com git rev-parse HEAD e confrontada com origin/astra/convergencia-20261012.
