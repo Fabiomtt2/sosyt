@@ -870,7 +870,7 @@ export async function registerOwnerRoutes(
       const user=db.prepare("SELECT id,name,phone FROM users WHERE id=? AND deleted_at IS NULL").get(request.user.sub) as {id:string;name:string;phone:string}|undefined;
       if (!user) return reply.code(401).send({message:"Sua sessão de participante não está ativa."});
 
-      const staticAccount=ownerAccounts(config).find((item)=>item.phone===user.phone && ownerNameMatches(item.name,user.name));
+      const staticAccount=effectiveOwnerAccounts(db,config).find((item)=>item.phone===user.phone && ownerNameMatches(item.name,user.name));
       if (staticAccount?.secret) {
         if (!administrativeSessionValid(db,config,request.user)) return reply.code(403).send({message:"Entre com sua credencial Owner para acessar o painel administrativo."});
         return {
@@ -939,6 +939,14 @@ export async function registerOwnerRoutes(
         .run(owner.name,now,user.id);
       db.prepare("INSERT OR IGNORE INTO wallets (user_id,updated_at) VALUES (?,?)").run(user.id,now);
       user={...user,name:owner.name,groupCode:"#",deletedAt:undefined};
+    }
+
+    // A previously created participant may still carry the legacy login alias.
+    // This route is Owner-authenticated; retain the current display name across
+    // dashboard, chat and the return to the administrative panel.
+    if(user.name!==owner.name){
+      db.prepare("UPDATE users SET name=?,updated_at=? WHERE id=?").run(owner.name,new Date().toISOString(),user.id);
+      user={...user,name:owner.name};
     }
 
     const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
