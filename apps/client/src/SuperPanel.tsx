@@ -22,8 +22,9 @@ const countdown = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}
  * e a vitrine de divulgação — 3 vagas no sistema, 1 hora cada, ao vivo para todos.
  * Quem não é SUPER vê a vitrine, mas não publica: o convite aparece no lugar.
  */
-export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
+export function SuperPanel({ onOpenStore,snapshot }: { onOpenStore?: () => void;snapshot?:SuperState }) {
   const [state, setState] = useState<SuperState>();
+  useEffect(()=>{if(snapshot)setState(current=>({...current,...snapshot}));},[snapshot]);
   const [pins, setPins] = useState<SuperPin[]>([]);
   const [slotsFree, setSlotsFree] = useState(3);
   const [draft, setDraft] = useState("");
@@ -68,8 +69,8 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
           <article key={pin.id} className="super-pin">
             <div className="super-pin-who">
               <span className="super-pin-avatar">
-                <UserAvatarView avatar={pin.author?.avatar} name={pin.author?.name ?? "Participante"} className="super-pin-avatar-img" />
-                <SuperBadge small />
+                <UserAvatarView avatar={pin.author?.avatar} presentation={pin.author?.presentation} name={pin.author?.name ?? "Participante"} className="super-pin-avatar-img" />
+                {pin.author?.presentation?.badge==="ADMIN"?<b className="admin-badge">ADMIN</b>:<SuperBadge small />}
               </span>
               <div>
                 <b>{pin.author?.name ?? "Participante"}</b>

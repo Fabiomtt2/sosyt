@@ -1,10 +1,10 @@
 import { useCallback,useEffect,useState,useRef,type FormEvent } from "react";
 import { Gift,Inbox,Package,Send,X } from "lucide-react";
-import { api,type ChatSender,type MailMessage,type MailThread,type SuperState } from "./api";
+import { api,type ChatSender,type MailMessage,type MailThread,type SuperState,type Dashboard } from "./api";
 import { UserAvatarView } from "./AvatarModal";
 import { useModalLifecycle } from "./useModalLifecycle";
 
-export function CommunityModal({onClose,targetId,currentUserId}:{onClose:()=>void;targetId?:string;currentUserId:string}){
+export function CommunityModal({onClose,targetId,currentUserId,wallet}:{onClose:()=>void;targetId?:string;currentUserId:string;wallet?:Dashboard["wallet"]}){
  const [threads,setThreads]=useState<MailThread[]>([]),[items,setItems]=useState<Array<{itemCode:string;quantity:number}>>([]);
  const [subscription,setSubscription]=useState<SuperState>();
  const [selected,setSelected]=useState<string|undefined>(targetId),[who,setWho]=useState<ChatSender>();
@@ -62,27 +62,29 @@ export function CommunityModal({onClose,targetId,currentUserId}:{onClose:()=>voi
    <button className="close" aria-label="Fechar mensagens e inventário" disabled={busy} onClick={onClose}><X size={20}/></button>
    <div className="community-intro"><div><p className="eyebrow dark">SEU ESPAÇO NA COMUNIDADE</p><h2>Conversas que aproximam.</h2></div><img src={import.meta.env.BASE_URL+"assets/user/messages-editorial-v3.webp"} alt=""/></div>
    <p className="muted">Recados da equipe, conversas e presentes ficam juntos aqui.</p>
+   <details className="inventory-panel" open={!selected}><summary><Package size={16}/><strong>Meu inventário</strong><span>{subscription?.active?"SUPER ativo":"Moedas, passes e Pular"}</span></summary>
    <section className="inventory-shelf" aria-label="Meu inventário">
     <div><Package size={20}/><strong>Meu inventário</strong></div>
-    {items.length?items.map(item=><span key={item.itemCode}><b>{item.quantity===Number.MAX_SAFE_INTEGER?"∞":item.quantity.toLocaleString("pt-BR")}</b> {item.itemCode==="SKIP"?"Pular":item.itemCode}</span>):<p>Você ainda não tem itens. As compras confirmadas aparecem aqui.</p>}
-    <small>Pular permite participar de outra fila, mantendo a atual.</small>
+    {wallet&&<><span><b>{wallet.total.toLocaleString("pt-BR",{maximumFractionDigits:3})}</b> moedas</span><span><b>{wallet.extraPasses}</b> passe{wallet.extraPasses===1?"":"s"}</span></>}
+    {items.length?items.map(item=><span key={item.itemCode}><b>{item.quantity===Number.MAX_SAFE_INTEGER?"∞":item.quantity.toLocaleString("pt-BR")}</b> {item.itemCode==="SKIP"?"Pular":item.itemCode}</span>):<p>Você ainda não tem itens Pular. Suas compras confirmadas aparecem aqui.</p>}
+    <small>Passe: contribuição extra na mesma fila, usando também 1 moeda. Pular: entrada em outra fila, mantendo a atual.</small>
     {subscription&&<p className="inventory-subscription">{subscription.active?"SUPER ativo":"SUPER não contratado"}{subscription.active&&subscription.expiresAt?" · até "+new Date(subscription.expiresAt).toLocaleDateString("pt-BR"):""}</p>}
-   </section>
+   </section></details>
    <div className="community-columns">
     <nav aria-label="Conversas" className="community-threads"><h3><Inbox size={16}/> Mensagens</h3>
      {!threads.length&&<p className="muted">Toque no avatar de alguém no chat para iniciar uma conversa.</p>}
-     {threads.map(t=><button key={t.key} type="button" disabled={busy||Boolean(confirmGift)} aria-pressed={selected===(t.withId??"broadcast")} onClick={()=>{setSelected(t.withId??"broadcast");setError("");}}><strong>{t.with?.name??"Equipe SOS YouTuber"}</strong><span>{t.lastBody}</span>{t.unread>0&&<b>{t.unread} nova{t.unread===1?"":"s"}</b>}</button>)}
+     {threads.map(t=><button key={t.key} type="button" disabled={busy||Boolean(confirmGift)} aria-pressed={selected===(t.withId??"broadcast")} onClick={()=>{setSelected(t.withId??"broadcast");setError("");}}><div className="conversation-person"><UserAvatarView name={t.with?.name??"Equipe SOS YouTuber"} avatar={t.with?.avatar??undefined} presentation={t.with?.presentation}/><strong>{t.with?.name??"Equipe SOS YouTuber"}</strong></div><span>{t.lastBody}</span>{t.unread>0&&<b>{t.unread} nova{t.unread===1?"":"s"}</b>}</button>)}
     </nav>
     <section className="community-conversation" aria-label="Conversa selecionada">
-     {selected?<><div className="conversation-person"><UserAvatarView name={who?.name??"Equipe SOS YouTuber"} avatar={who?.avatar??undefined}/><strong>{selected==="broadcast"?"Avisos da equipe":who?.name??"Participante"}</strong></div>
-      <div className="community-messages" aria-live="polite">{!messages.length&&<p className="muted">Comece com um olá. Seu recado fica salvo para a pessoa ler depois.</p>}{messages.map(m=><article key={m.id} className={m.mine?"mine":""}>{m.role==="OWNER"&&m.sender&&<div className="conversation-person"><UserAvatarView name={m.sender.name} avatar={m.sender.avatar??undefined}/><b>{m.sender.name} · Owner</b></div>}<p>{m.body}</p><time>{new Date(m.createdAt).toLocaleString("pt-BR")}</time></article>)}</div>
+     {selected?<><div className="conversation-person"><UserAvatarView name={who?.name??"Equipe SOS YouTuber"} avatar={who?.avatar??undefined} presentation={who?.presentation}/><strong>{selected==="broadcast"?"Avisos da equipe":who?.name??"Participante"}</strong></div>
+      <div className="community-messages" aria-live="polite">{!messages.length&&<p className="muted">Comece com um olá. Seu recado fica salvo para a pessoa ler depois.</p>}{messages.map(m=><article key={m.id} className={(m.mine?"mine ":"")+(m.sender?.presentation?.badge==="SUPER"?"message-super":m.sender?.presentation?.badge==="ADMIN"?"message-admin":"")}>{m.sender&&<div className="conversation-person"><UserAvatarView name={m.sender.name} avatar={m.sender.avatar??undefined} presentation={m.sender.presentation}/><b>{m.sender.name}{m.sender.presentation?.badge&&<small className="conversation-badge">{m.sender.presentation.badge}</small>}</b></div>}<p>{m.body}</p><time>{new Date(m.createdAt).toLocaleString("pt-BR")}</time></article>)}</div>
       {selected!=="broadcast"&&selected!==currentUserId&&<><form className="community-compose" onSubmit={send}><textarea aria-label="Seu recado" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={2000} placeholder="Escreva uma mensagem gentil…"/><button className="primary compact" disabled={busy||!draft.trim()}><Send size={16}/>Enviar</button></form>
        {who&&who.id===selected&&items.length>0&&<div className="community-gifts"><span><Gift size={16}/> Presentear {who.name}</span>{items.map(item=><button className="secondary compact" key={item.itemCode} disabled={busy} onClick={()=>setConfirmGift({item:item.itemCode,to:who.id,name:who.name})}>1 {item.itemCode==="SKIP"?"Pular":item.itemCode}</button>)}</div>}
       </>}
      </>:<p className="community-empty">Escolha uma conversa ou encontre alguém no chat da comunidade.</p>}
     </section>
    </div>
-   {confirmGift&&<div className="gift-confirm" role="group" aria-label="Confirmar presente"><strong>Enviar 1 {confirmGift.item==="SKIP"?"Pular":confirmGift.item} para {confirmGift.name}?</strong><p>{subscription?.source==="ROOT_OWNER"?"O item será concedido pela sua conta Owner.":"Esse item sai do seu inventário e entra na conta dessa pessoa."}</p><button className="secondary" disabled={busy} onClick={()=>setConfirmGift(undefined)}>Voltar</button><button className="primary" disabled={busy} onClick={()=>void gift()}>{busy?"Entregando…":"Confirmar presente"}</button></div>}
+   {confirmGift&&<div className="gift-confirm" role="group" aria-label="Confirmar presente"><strong>Enviar 1 {confirmGift.item==="SKIP"?"Pular":confirmGift.item} para {confirmGift.name}?</strong><p>{subscription?.source==="ROOT_OWNER"?"O item será concedido pela sua conta ADMIN.":"Esse item sai do seu inventário e entra na conta dessa pessoa."}</p><button className="secondary" disabled={busy} onClick={()=>setConfirmGift(undefined)}>Voltar</button><button className="primary" disabled={busy} onClick={()=>void gift()}>{busy?"Entregando…":"Confirmar presente"}</button></div>}
    {notice&&<p role="status">{notice}</p>}{error&&<p className="error" role="alert">{error}</p>}
   </section>
  </div>;

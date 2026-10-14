@@ -55,7 +55,7 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
     <section ref={modalRef} className="modal user-account-menu" role="dialog" aria-modal="true" aria-label="Minha conta" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar minha conta" onClick={onClose}><X size={20}/></button>
       <div className="account-menu-head">
-        <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
+        <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
         <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2><p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
       </div>
 

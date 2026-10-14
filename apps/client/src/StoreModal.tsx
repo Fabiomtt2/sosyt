@@ -1,3 +1,4 @@
+import {productKind,productExplanation} from "./commerce";
 import { CommerceArtwork } from "./CommerceArtwork";
 import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
@@ -31,10 +32,11 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
         </div>
         <div className="store-balance" aria-label="Saldo atual">
           <span>Você tem agora</span>
-          <div><strong><Coins size={18}/>{data.wallet.total.toLocaleString("pt-BR",{maximumFractionDigits:3})}<small>moedas</small></strong><strong><Ticket size={18}/>{data.wallet.extraPasses}<small>passes</small></strong></div>
+          <div><strong><Coins size={18}/>{data.wallet.total.toLocaleString("pt-BR",{maximumFractionDigits:3})}<small>moedas</small></strong><strong><Ticket size={18}/>{data.wallet.extraPasses}<small>passes</small></strong><strong><Package size={18}/>{data.queues.skipsAvailable===Number.MAX_SAFE_INTEGER?"∞":data.queues.skipsAvailable}<small>Pular</small></strong></div>
         </div>
       </div>
 
+      {data.subscription?.active&&<p className="store-super-status"><Sparkles size={16}/> {data.subscription.source==="ROOT_OWNER"?"Privilégios SUPER incluídos no seu acesso ADMIN":"SUPER ativo"+(data.subscription.expiresAt?" até "+new Date(data.subscription.expiresAt).toLocaleDateString("pt-BR"):"")}</p>}
       <div className="store-products store-products-v2">
         {products.length===0 && <p className="muted">Nenhum item disponível na loja no momento.</p>}
         {products.map((item)=>(
@@ -44,15 +46,16 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
                   marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
               {item.imageDataUrl
                 ? <img className="store-editorial-art" src={item.imageDataUrl} alt={item.title}/>
-                : <CommerceArtwork kind={item.credits>0?"coins":item.subscriptionDays?"super":item.grantsItem==="SKIP"?"skip":"item"}/>}
+                : <CommerceArtwork kind={productKind(item)}/>}
             </div>
             <div className="store-product-copy store-product-copy-v2">
               <h3>{item.title}</h3>
               <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
+              {productExplanation(item)&&<details className="store-product-how"><summary>Como usar este benefício</summary><p>{productExplanation(item)}</p></details>}
               <ul className="store-product-benefits">
                 {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
                 {item.extraPasses>0 && <li><Ticket size={15}/> {item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
-                {item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li><Package size={15}/> {item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
+                {!item.subscriptionDays && item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li><Package size={15}/> {item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
                 {(item.subscriptionDays ?? 0)>0 && <li><Sparkles size={15}/> {item.subscriptionDays} dias de assinatura</li>}
               </ul>
               <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
@@ -63,7 +66,7 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
 
       <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
         <span><Coins size={16}/><b>1 moeda</b> salva 1 URL</span>
-        <span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
+        <span><Ticket size={16}/><b>Passe</b> permite outra contribuição na mesma fila</span><span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
       </div>
 
       <div className={data.commerce.pixAvailable?"store-payment-state ready":"store-payment-state pending"}>

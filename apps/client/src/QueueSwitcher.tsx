@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef,useState } from "react";
 import { Layers, Plus, Lock, LoaderCircle } from "lucide-react";
 import { api, type QueuesState } from "./api";
 
@@ -15,6 +15,7 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip }: {
   onChanged: () => void;
   onNeedSkip?: () => void;
 }) {
+  const skipReference=useRef<string|undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const mine = queues.mine;
@@ -27,7 +28,9 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip }: {
   async function useSkip() {
     setBusy(true); setError("");
     try {
-      const result = await api.queueSkip();
+      skipReference.current??=crypto.randomUUID();
+      const result = await api.queueSkip(skipReference.current);
+      skipReference.current=undefined;
       onSelect(result.queue.id);
       onChanged();
     } catch (cause) {

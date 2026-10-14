@@ -249,3 +249,75 @@
  .app-shell:has(.global-chat.open){padding-bottom:0}
  .app-shell:has(.global-chat.open) .dashboard{height:calc(100dvh - 116px - min(340px,42dvh));max-height:calc(100dvh - 116px - min(340px,42dvh));overflow-y:auto;overscroll-behavior:contain;margin-top:12px;padding-top:8px;padding-bottom:32px;scroll-padding-block:20px;scrollbar-width:thin}
 }
+
+/* Confirmed commerce and subscription identity — 14/10/2026. */
+.premium-super .super-cta{position:relative;isolation:isolate;overflow:hidden;background:linear-gradient(115deg,#eadff9,#f5e2ed 58%,#deefef)!important;border-color:#b49fd3;transition:transform .14s ease,box-shadow .2s ease}
+.premium-super .super-cta::after{content:"";position:absolute;inset:-60% auto -60% -45%;width:25%;background:linear-gradient(90deg,transparent,#fff9,transparent);transform:skewX(-22deg);animation:sos-super-shimmer 8s ease-in-out infinite;pointer-events:none;z-index:-1}
+.premium-super .super-cta:hover{transform:translateY(-2px);box-shadow:0 8px 24px #8a7bff35}
+.premium-super .super-cta:active{transform:translateY(1px)}
+.premium-super .super-badge{background:linear-gradient(120deg,#64409b,#9d467f,#426f80,#64409b)!important;background-size:260% 100%!important;color:#fff!important;box-shadow:0 3px 12px #8a7bff30!important;animation:sos-super-gradient 8s ease-in-out infinite}
+@keyframes sos-super-gradient{0%,85%,100%{background-position:0% 50%}45%{background-position:100% 50%}}
+@keyframes sos-super-shimmer{0%,82%{left:-45%;opacity:0}83%{opacity:1}96%,100%{left:125%;opacity:0}}
+.user-avatar.avatar-tier-super{box-shadow:0 0 0 2px #faf6ff,0 0 0 4px #8a7bff,0 0 0 6px #eba7ce55,0 3px 18px #8a7bff45;animation:sos-super-halo 8s ease-in-out infinite}
+@keyframes sos-super-halo{50%{box-shadow:0 0 0 2px #faf6ff,0 0 0 4px #a076b7,0 0 0 6px #a9e1e766,0 3px 18px #8a7bff35}}
+.global-chat .gc-msg-super .gc-bubble{background:#f2eaf8!important;border:1px solid #d8c6e5;border-left:3px solid #9c77b5}
+.global-chat .gc-msg-super .gc-name{color:#633d70}
+.global-chat .gc-super-text{color:#493141!important;background:transparent!important;box-shadow:none!important;border:0!important;padding:0;animation:none!important;text-shadow:none}
+.global-chat .gc-msg-super .gc-time{color:#716273}
+.conversation-badge{display:inline-flex;margin-left:6px;font-size:.61rem;padding:3px 5px;border-radius:5px;background:#e9dcf0;color:#61436f}
+.community-messages .message-super{background:#f2eaf8!important;color:#493141;border-left:3px solid #9c77b5}
+.community-messages .message-admin{background:#fcf1db!important;border-left:3px solid #b38a39;color:#493b2d}
+.community-messages .conversation-person{margin-bottom:8px;gap:8px;font-size:.76rem;flex-wrap:wrap}
+.community-threads .conversation-person{margin:0;min-width:0}
+.community-threads .conversation-person strong{overflow-wrap:anywhere}
+.community-threads .user-avatar{width:30px;height:30px}
+.premium-store .store-product-how{font-size:.77rem;line-height:1.55;color:#715969}
+.premium-store .store-super-status{display:flex;align-items:center;gap:8px;margin:20px 28px 0;padding:12px 16px;border-radius:12px;background:#ece1f3;color:#654778;font-size:.83rem}
+.purchase-product-art{display:grid;place-items:center;min-width:0;width:180px;max-width:100%}
+.purchase-product-art .store-editorial-art{width:100%;height:180px;object-fit:contain;mix-blend-mode:multiply}
+.purchase-product-art .commerce-art{height:180px}
+.premium-store .primary,.purchase-modal .primary,.community-modal .primary{transition:transform .14s ease,box-shadow .18s ease}
+.premium-store .primary:active,.purchase-modal .primary:active,.community-modal .primary:active{transform:scale(.98)}
+.purchase-celebration{position:fixed;right:26px;top:92px;z-index:1400;width:min(390px,calc(100vw - 32px));display:flex;gap:14px;align-items:flex-start;padding:22px 36px 18px 20px;border-radius:22px;background:#fffcf5;border:1px solid #d7bd88;box-shadow:0 18px 60px #49314135;color:#493141;animation:sos-purchase-arrive .3s ease-out}
+.purchase-celebration.is-super{background:linear-gradient(135deg,#f1e6ff,#fff0f6 68%,#e1f3f2);border-color:#af91d5;box-shadow:0 18px 60px #7657a538}
+.purchase-celebration strong,.purchase-celebration small{display:block}
+.purchase-celebration small{font-size:.6rem;letter-spacing:.1em;font-weight:800;margin:0 0 7px;color:#796375}
+.purchase-celebration strong{font-family:Manrope,sans-serif;font-size:1.1rem;line-height:1.35}
+.purchase-celebration p{margin:8px 0;font-size:.83rem;line-height:1.5;overflow-wrap:anywhere}
+.purchase-celebration .text-button{font-size:.8rem;font-weight:700;min-height:32px;color:#694879}
+.celebration-emblem{display:grid;place-items:center;flex-shrink:0;width:52px;height:52px;border-radius:17px;background:#f7e6b8;color:#8b611f;box-shadow:inset 0 0 0 1px #e6d0a0}
+.is-super .celebration-emblem{background:linear-gradient(135deg,#a292e7,#e1a2ca,#b5d8dd);color:#fff;box-shadow:0 4px 20px #8a7bff55;animation:sos-super-welcome 1.9s ease-out}
+.celebration-close{position:absolute;right:9px;top:9px;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;color:#725d6e;border-radius:50%}
+.purchase-arrival{position:fixed;z-index:1401;pointer-events:none;color:#926016}
+.purchase-arrival i{position:absolute;left:-12px;top:-12px;color:#af7920;filter:drop-shadow(0 3px 3px #9f752b50);opacity:0;animation:sos-item-drop 950ms var(--delay) ease-in forwards}
+.purchase-arrival b{position:absolute;left:0;top:-26px;transform:translateX(-50%);border-radius:16px;background:#493141;color:white;padding:6px 12px;white-space:nowrap;font-size:1rem;opacity:0;animation:sos-balance-plus 2s .2s ease-out forwards}
+@keyframes sos-item-drop{0%{opacity:0;transform:translate(var(--spread),-115px) rotate(-25deg)}15%{opacity:1}80%{opacity:1}100%{opacity:0;transform:translate(0,12px) rotate(25deg) scale(.65)}}
+@keyframes sos-balance-plus{10%,75%{opacity:1}100%{opacity:0;transform:translate(-50%,-32px)}}
+@keyframes sos-super-welcome{0%{transform:scale(.6) rotate(-16deg)}45%{transform:scale(1.16) rotate(6deg)}100%{transform:scale(1)}}
+@keyframes sos-purchase-arrive{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:680px){
+ .purchase-celebration{top:14px;right:16px;padding:18px 32px 14px 16px}
+ .purchase-product-art{width:130px}
+ .premium-store .store-balance{align-items:flex-start;flex-direction:column}
+ .premium-store .store-super-status{margin:16px 18px 0}
+}
+@media(prefers-reduced-motion:reduce){
+ .premium-super .super-cta::after,.purchase-arrival{display:none}
+ .premium-super .super-badge,.user-avatar.avatar-tier-super,.purchase-celebration,.is-super .celebration-emblem{animation:none!important}
+ .premium-super .super-cta,.premium-store .primary,.purchase-modal .primary,.community-modal .primary{transition:none}
+}
+
+.premium-super .super-slots{color:#d9cee6}
+.premium-store .store-product-how summary{cursor:pointer;font-weight:600;color:#76516d;padding:5px 0}
+.premium-store .store-product-how p{margin:8px 0 0!important;font-size:.78rem!important}
+.inventory-panel{margin:20px 0;border:1px solid #e0d2c8;border-radius:16px;background:#f6eee4}
+.inventory-panel>summary{display:flex;gap:8px;align-items:center;flex-wrap:wrap;cursor:pointer;padding:14px 16px;font-size:.87rem;color:#493141}
+.inventory-panel>summary>span{margin-left:auto;color:#795e74;font-size:.73rem}
+.inventory-panel .inventory-shelf{margin:0;padding:16px;border-top:1px solid #e0d2c8;border-radius:0 0 16px 16px}
+
+/* A price-free ticket stays accurate when Owners edit the catalog. */
+.pass-ribbon{position:absolute;width:85px;height:138px;background:linear-gradient(120deg,#4d293c,#9c6278 48%,#5d3446);border-radius:12px 12px 4px 4px;transform:translate(-12px,4px) rotate(-20deg);box-shadow:0 12px 20px #4a354820}
+.pass-ticket{position:absolute;display:flex;align-items:center;gap:14px;padding:16px;width:138px;height:88px;box-sizing:border-box;border:1px solid #b99970;border-radius:14px;background:linear-gradient(135deg,#fffbee,#efddbc);box-shadow:inset 0 0 0 5px #fff8,0 10px 20px #4a354826;color:#8a6341;transform:rotate(-9deg)}
+.pass-ticket i{height:50px;border-left:2px dashed #bb9b73}
+.pass-ticket::after{content:"";position:absolute;width:9px;height:9px;right:12px;top:38px;border:1px solid #b99970;border-radius:50%;background:#f8edda}
+.pass-spark{position:absolute;right:3px;top:20px;color:#ad8444;transform:rotate(9deg)}

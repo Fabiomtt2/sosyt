@@ -1,34 +1,28 @@
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useState, type FormEvent } from "react";
 import { Check, Copy, Gift, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
-import { api, type CommerceProduct, type Pix } from "./api";
+import {CommerceArtwork} from "./CommerceArtwork";
+import {benefitLabels,productKind,productExplanation} from "./commerce";
+import { api, type CommerceProduct, type Pix, type PaymentState, type PurchaseReceipt } from "./api";
 
 // AUDITORIA / loja configurável: a cópia é derivada do produto que o servidor
 // informou (título, moedas, passes), com imagem conforme o benefício.
 function describe(item:CommerceProduct){
-  const parts:string[]=[];
-  if(item.credits>0) parts.push(item.credits+(item.credits===1?" moeda":" moedas"));
-  if(item.extraPasses>0) parts.push(item.extraPasses+(item.extraPasses===1?" passe":" passes"));
-  const benefit=parts.join(" + ")||item.title;
-  const isPassOnly=item.extraPasses>0 && item.credits===0;
-  return {
-    eyebrow:isPassOnly?"MAIS FLEXIBILIDADE NA FILA":"LOJA SOS YOUTUBER",
-    title:item.title||benefit,
-    description:item.description||(item.credits>0?"As moedas são créditos internos usados para salvar URLs na fila. Ficam registradas na sua carteira do SOS.":"O passe libera uma contribuição extra em uma fila na qual você já participou."),
-    benefit:item.extraPasses>0?"O passe libera uma contribuição extra; a nova URL ainda consome 1 moeda.":"Use as moedas para salvar URLs na fila. Cada URL salva consome 1 moeda.",
-    image:isPassOnly?"/assets/user/pass.webp":"/assets/user/coins.webp",
-    alt:isPassOnly?"Ilustração do passe SOS YouTuber":"Ilustração do pacote de moedas SOS YouTuber",
-    success:"Pagamento confirmado: "+benefit+" adicionado à sua conta."
-  };
+ return {title:item.title,description:item.description,benefit:productExplanation(item),
+  eyebrow:item.subscriptionDays?"SEU MOMENTO SUPER":"LOJA SOS YOUTUBER",
+  success:"Pagamento confirmado: "+benefitLabels(item).join(" + ")+".",
+  kind:productKind(item)};
 }
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const providerName=(value?:string)=>value==="MERCADO_PAGO"?"Mercado Pago":value==="ASAAS"?"Asaas":value==="PAGBANK"?"PagBank":value==="DEMO"?"Simulação":"provedor Pix";
 
-export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:string;productInfo?:CommerceProduct;onClose:()=>void;onApproved:(message:string)=>void}) {
-  if(!productInfo) return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}><section className="modal purchase-modal" role="dialog" aria-modal="true"><button className="close" aria-label="Fechar" onClick={onClose}><X size={20}/></button><p className="muted" style={{padding:"2rem"}}>Este item não está mais disponível. Atualize a loja.</p></section></div>;
-  const copy=describe(productInfo);
+export function PurchaseModal({product,productInfo,onClose,onApproved,onTracked,paymentStates}:{product:string;productInfo?:CommerceProduct;onClose:()=>void;onApproved:(receipt:PurchaseReceipt)=>void;onTracked:(pix:Pix)=>void;paymentStates:Record<string,PaymentState>}) {
+
+  const copy=productInfo?describe(productInfo):undefined;
   const [form,setForm]=useState({email:"",cpf:""});
-  const [pix,setPix]=useState<Pix>();
+  const [createdPix,setPix]=useState<Pix>();
+  const observed=createdPix?paymentStates[createdPix.id]:undefined;
+  const pix=createdPix?{...createdPix,...observed}:undefined;
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [copied,setCopied]=useState(false);
@@ -39,31 +33,21 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
     event.preventDefault();setBusy(true);setError("");
     try {
       const result=await api.createPix(form.email,form.cpf,product);
-      if(result.status==="APPROVED") onApproved(copy.success); else setPix(result);
+      onTracked(result);
+      if(result.status==="APPROVED"&&result.receipt)onApproved(result.receipt);else setPix(result);
     } catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível gerar o Pix.");}
     finally{setBusy(false);}
   }
 
   useEffect(()=>{
-    if(!pix || pix.providerPaymentId.startsWith("demo_") || pix.status!=="PENDING") return;
-    let cancelled=false;
-    const poll=async()=>{
-      try{
-        const result=await api.paymentStatus(pix.id);
-        if(cancelled) return;
-        setError("");
-        if(result.status==="APPROVED") onApproved(copy.success);
-        else if(result.status!=="PENDING") setPix((current)=>current?{...current,status:result.status}:current);
-      }catch(cause){if(!cancelled)setError(cause instanceof Error?cause.message:"Não conseguimos consultar o pagamento agora.");}
-    };
-    void poll();
-    const timer=window.setInterval(()=>void poll(),5000);
-    return()=>{cancelled=true;window.clearInterval(timer);};
-  },[pix?.id,pix?.status,pix?.providerPaymentId,onApproved,productInfo,copy]);
+    if(observed?.status==="APPROVED"&&observed.receipt)onApproved(observed.receipt);
+  },[observed,onApproved]);
 
   async function demoApprove(){
     if(!pix)return;setBusy(true);setError("");
-    try{await api.approveDemoPix(pix.id);onApproved(copy.success);}
+    try{await api.approveDemoPix(pix.id);const confirmed=await api.paymentStatus(pix.id);
+      if(confirmed.receipt)onApproved(confirmed.receipt);
+      else setError("O pagamento ainda está sendo confirmado. Seu pedido permanece salvo.");}
     catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível concluir a simulação.");}
     finally{setBusy(false);}
   }
@@ -74,11 +58,13 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
     catch{setError("Não conseguimos copiar automaticamente. Selecione o código abaixo e copie manualmente.");}
   }
 
+  if(!productInfo||!copy) return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}><section className="modal purchase-modal" role="dialog" aria-modal="true"><button className="close" aria-label="Fechar" onClick={onClose}><X size={20}/></button><p className="muted" style={{padding:"2rem"}}>Este item não está mais disponível. Atualize a loja.</p></section></div>;
+
   return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}>
     <section ref={modalRef} className="modal purchase-modal" role="dialog" aria-modal="true" aria-label={"Comprar "+copy.title} onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar compra" onClick={onClose}><X size={20}/></button>
       <div className="purchase-hero">
-        <img className="purchase-product-image" src={copy.image} alt={copy.alt}/>
+        <div className="purchase-product-art">{productInfo.imageDataUrl?<img className="purchase-product-image" src={productInfo.imageDataUrl} alt=""/>:<CommerceArtwork kind={copy.kind}/>}</div>
         <div><p className="eyebrow dark">{copy.eyebrow}</p><h2>{copy.title}</h2><div className="purchase-price"><strong>{money(productInfo.amountCents)}</strong></div><small className="purchase-server-note">Preço e benefício confirmados pelo servidor</small></div>
       </div>
       <div className="purchase-explain">
@@ -86,7 +72,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
         <p><Gift size={17}/><span>{copy.benefit}</span></p>
       </div>
       {!pix ? <form className="purchase-form" onSubmit={create}>
-        <div className="purchase-data-note"><ShieldCheck size={20}/><div><strong>Pagamento identificado e conciliado</strong><span>O e-mail e CPF são enviados ao provedor ativo somente para gerar/conciliar esta cobrança. O SOS registra o pedido, produto, valor e estado do pagamento, mas não grava esses dois campos no histórico da compra.</span></div></div>
+        <div className="purchase-data-note"><ShieldCheck size={20}/><div><strong>Pagamento identificado e conciliado</strong><span>Seu e-mail e CPF identificam o pagamento no provedor Pix. Esses dois campos não ficam no histórico de compras do SOS.</span></div></div>
         <label>E-mail do pagador<input type="email" autoComplete="email" value={form.email} onChange={(event)=>setForm({...form,email:event.target.value})} placeholder="Seu e-mail para o pagamento" required/></label>
         <label>CPF do pagador<input inputMode="numeric" autoComplete="off" value={form.cpf} onChange={(event)=>setForm({...form,cpf:event.target.value.replace(/\D/g,"").slice(0,11)})} placeholder="11 números" minLength={11} required/></label>
         {error&&<p className="error" role="alert">{error}</p>}
@@ -97,7 +83,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved}:{product:
         {pix.qrCode&&<><div className="pix-copy-head"><p>Pix copia e cola</p><button className="text-button" onClick={()=>void copyPix()}><Copy size={15}/>{copied?"Copiado":"Copiar"}</button></div><textarea readOnly value={pix.qrCode}/></>}
         {pix.providerPaymentId.startsWith("demo_")&&<div className="demo-code"><Sparkles size={20}/><strong>Simulação segura</strong><span>Nenhum dinheiro será movimentado neste ambiente de teste.</span></div>}
         {pix.providerPaymentId.startsWith("demo_")&&<button className="primary" onClick={()=>void demoApprove()} disabled={busy}>Simular confirmação</button>}
-        {!pix.providerPaymentId.startsWith("demo_")&&<p role="status" className="purchase-wait">{pix.status==="PENDING"?"Aguardando confirmação do provedor. Esta tela consulta o servidor automaticamente a cada 5 segundos.":"Este Pix não foi aprovado. Nenhum crédito foi aplicado."}</p>}
+        {!pix.providerPaymentId.startsWith("demo_")&&<p role="status" className="purchase-wait">{pix.status==="PENDING"?"Aguardando confirmação do provedor. Esta tela consulta o servidor automaticamente a cada 10 segundos. Você pode fechar esta janela; o pedido fica salvo.":"Este Pix não foi aprovado. Nenhum crédito foi aplicado."}</p>}
         {["CANCELLED","REJECTED"].includes(pix.status)&&<button className="secondary" onClick={()=>setPix(undefined)}>Gerar outro Pix</button>}
         {pix.ticketUrl&&<a className="secondary" href={pix.ticketUrl} target="_blank" rel="noreferrer">Abrir página do pagamento</a>}
         {error&&<p className="error" role="alert">{error}</p>}

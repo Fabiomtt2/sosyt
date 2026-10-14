@@ -11,7 +11,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: 
 // AUDITORIA / chat global: canal único translúcido, sempre visível. Texto é
 // renderizado como TEXTO (React escapa); nunca dangerouslySetInnerHTML. Fontes
 // distintas: nome em Manrope, mensagem em DM Sans. Admin/Owner ganham faixa dourada.
-export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpenProfile?: (userId: string) => void; onOpenInbox:()=>void; currentUserId:string }) {
+export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptionActive }: { onOpenProfile?: (userId: string) => void; onOpenInbox:()=>void; currentUserId:string;subscriptionActive?:boolean }) {
   const [open, setOpen] = useState(()=>sessionStorage.getItem("sos-chat-open")!=="false");
   const [unread,setUnread]=useState(0);
   const toggle=()=>setOpen(value=>{sessionStorage.setItem("sos-chat-open",String(!value));return !value;});
@@ -37,6 +37,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpen
       // Snapshot limitado: reconcilia avatar, assinatura, edição e moderação.
       const data = await api.chatList();
       setConnected(true);
+      if(data.cooldownSeconds===0||data.viewerRole==="ADMIN"||data.viewerRole==="OWNER")setCooldownLeft(0);
       setState((prev) => {
         if (data.removed) return { ...prev, removed: true, messages: [], pinned: [], viewerRole: data.viewerRole };
         const merged = data.messages;
@@ -47,6 +48,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpen
     finally { syncingRef.current=false; }
   }, []);
 
+  useEffect(()=>{void sync();},[subscriptionActive,sync]);
   useEffect(()=>{let active=true;const update=()=>void api.mailUnread().then(data=>{if(active)setUnread(data.unread);}).catch(()=>{});update();const timer=setInterval(update,10000);return()=>{active=false;clearInterval(timer);};},[]);
   useEffect(() => { void sync(); const t = window.setInterval(() => void sync(), POLL_MS); return () => window.clearInterval(t); }, [sync]);
   useEffect(() => { if (cooldownLeft <= 0) return; const t = window.setInterval(() => setCooldownLeft((s) => Math.max(0, s - 1)), 1000); return () => window.clearInterval(t); }, [cooldownLeft]);
@@ -58,9 +60,9 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpen
     if (!body || busy) return;
     setBusy(true); setError("");
     try {
-      await api.chatSend(body);
+      const sent=await api.chatSend(body);
       setDraft("");
-      if (!isStaff) setCooldownLeft(state.cooldownSeconds);
+      setCooldownLeft(sent.role==="USER"?state.cooldownSeconds:0);
       await sync();
     } catch (cause) {
       const e = cause as { message?: string; code?: string; retryAfterSeconds?: number };
@@ -100,18 +102,18 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpen
           {state.messages.length === 0 && <div className="gc-empty"><img src={import.meta.env.BASE_URL+"assets/user/messages-editorial-v3.webp"} alt=""/><strong>Uma boa conversa começa com um olá.</strong><p>Apresente seu projeto e conheça quem cria com você.</p></div>}
           {state.messages.map((m) => {
             const staff = m.role === "ADMIN" || m.role === "OWNER";
-            const isSuper = m.role === "SUPER";
+            const isSuper = m.role === "SUPER" && (!m.sender.presentation?.superExpiresAt || Date.parse(m.sender.presentation.superExpiresAt)>Date.now());
             return (
               <div key={m.id} className={"gc-msg" + (staff ? " gc-msg-staff" : isSuper ? " gc-msg-super" : "") + (m.pinned ? " gc-msg-pinned" : "")+(m.sender.id===currentUserId?" gc-msg-mine":"")}>
                 <button type="button" className={"gc-avatar-btn" + (staff ? " has-admin-badge" : isSuper ? " has-super-ring" : "")} onClick={() => setZoom(m.sender)} aria-label={"Ver " + m.sender.name} title={"Ver " + m.sender.name}>
-                  <UserAvatarView avatar={m.sender.avatar ?? undefined} name={m.sender.name} className="gc-avatar" />
-                  {staff && <b className="admin-badge gc-admin-badge">{m.role==="OWNER"?"OWNER":"ADMIN"}</b>}
+                  <UserAvatarView avatar={m.sender.avatar ?? undefined} name={m.sender.name} presentation={m.sender.presentation} className="gc-avatar" />
+                  {staff && <b className="admin-badge gc-admin-badge">ADMIN</b>}
                   {isSuper && <span className="gc-admin-badge"><SuperBadge small /></span>}
                 </button>
                 <div className="gc-bubble">
                   <div className="gc-meta">
                     <b className="gc-name">{m.sender.name}</b>
-                    {staff ? <span className="gc-role-tag">{m.role === "OWNER" ? "Owner" : "Admin"}</span>
+                    {staff ? <span className="gc-role-tag">ADMIN</span>
                       : isSuper ? <span className="gc-role-tag super">SUPER</span>
                       : m.sender.groupCode && m.sender.groupCode!=="#" ? <span className="gc-group">SOS {m.sender.groupCode}</span> : null}
                     <time className="gc-time">{time(m.createdAt)}</time>
@@ -158,7 +160,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId }: { onOpen
       </>}
       {zoom && createPortal(
         <AvatarLightbox
-          avatar={zoom.avatar ?? undefined}
+          avatar={zoom.avatar ?? undefined} presentation={zoom.presentation}
           name={zoom.name}
           subtitle={zoom.groupCode === "#" ? "Participação administrativa" : zoom.groupCode ? `SOS YOUTUBER ${zoom.groupCode}` : undefined}
           onClose={() => setZoom(null)}

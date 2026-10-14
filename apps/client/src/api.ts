@@ -48,7 +48,7 @@ export const api = {
   superMe: () => request<SuperState>("/super/me"),
   superPins: () => request<{ pins: SuperPin[]; slotsFree: number; slots: number }>("/super/pins"),
   createSuperPin: (body: string) => request<{ id: string; expiresInSeconds: number }>("/super/pins", { method: "POST", body: JSON.stringify({ body }) }),
-  queueSkip: () => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST" }),
+  queueSkip: (referenceId?:string) => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST",body:JSON.stringify({referenceId}) }),
   giftItem: (toUserId: string, itemCode: string, quantity = 1,referenceId?:string) =>
     request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity, referenceId }) }),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
@@ -69,7 +69,7 @@ export const api = {
   avatarCatalog: () => request<{ avatars: CatalogAvatarItem[] }>("/avatars"),
   elevateAdmin: () => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST"}),
   deleteAccount: () => request<{ok:true;userId:string;deletedAt:string}>("/profile/account", { method:"DELETE", body:JSON.stringify({confirmation:"DELETE_MY_ACCOUNT"}) }),
-  paymentStatus: (id: string) => request<{ id: string; status: string }>(`/payments/${id}`),
+  paymentStatus: (id: string) => request<PaymentState>(`/payments/${id}`),
   approveDemoPix: (id: string) => request(`/payments/${id}/demo-approve`, { method: "POST" }),
   youtubeConnect: (returnTo: "web" | "app", roundId?: string) => request<{ url: string }>(`/youtube/connect?returnTo=${returnTo}${roundId ? `&roundId=${encodeURIComponent(roundId)}` : ""}`),
   exportRound: (id: string) => request<{ playlistId: string }>(`/rounds/${id}/export`, { method: "POST" }),
@@ -84,6 +84,9 @@ export const api = {
 };
 
 export type AvatarTier = "COMMON" | "SUPER" | "OWNER";
+export type UserPresentation={badge:"ADMIN"|"SUPER"|null;superActive:boolean;superExpiresAt?:string};
+export type PurchaseReceipt={userId:string;paymentId:string;productCode:string;amountCents:number;approvedAt:string;credits:number;extraPasses:number;items:Array<{itemCode:string;quantity:number}>;subscriptionDays:number};
+export type PaymentState={id:string;status:string;receipt?:PurchaseReceipt};
 export type UserAvatar =
   | { kind:"PRESET"; presetId:string }
   | { kind:"CUSTOM"; dataUrl:string }
@@ -103,9 +106,9 @@ export type SuperState = {
 };
 export type SuperPin = {
   id:string; body:string; createdAt:string; expiresInSeconds:number;
-  author:{ id:string; name:string; avatar?:UserAvatar; channel?:{title?:string;thumbnailUrl?:string}|null } | null;
+  author:{ id:string; name:string; presentation?:UserPresentation; avatar?:UserAvatar; channel?:{title?:string;thumbnailUrl?:string}|null } | null;
 };
-export type ChatSender = { id: string; name: string; groupCode: string; avatar: UserAvatar | null };
+export type ChatSender = { id: string; name: string; groupCode: string; presentation?:UserPresentation; avatar: UserAvatar | null };
 export type MailThread={key:string;withId:string|null;lastBody:string;lastAt:string;unread:number;with:ChatSender|null};
 export type MailMessage={sender?:ChatSender;id:string;mine:boolean;role:string;body:string;createdAt:string;readAt:string|null};
 export type ChatMessage = { id: string; role: ChatRole; body: string; createdAt: string; pinned: boolean; sender: ChatSender };
@@ -115,7 +118,7 @@ export type CommerceProduct={code:string;title:string;amountCents:number;credits
 export type Slot = {
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;
   videoTitle?: string; videoChannelTitle?: string; videoThumbnailUrl?: string;
-  userChannelTitle?: string; userChannelThumbnailUrl?: string; avatar?: UserAvatar; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER"; participantPhone?:string;
+  userChannelTitle?: string; userChannelThumbnailUrl?: string; presentation?:UserPresentation; avatar?: UserAvatar; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER"; participantPhone?:string;
 };
 export type WatchProgressState = { watchedSeconds: number[]; durations: number[]; percent: number; rewardCoins?: number; rewardDeltaCoins?: number; walletTotal?: number; finalizedAt?: string; finalizeReason?: string; cooldownUntil?: string; secondsRemaining?: number; updatedAt?: string };
 export type WatchObservation = {
@@ -139,8 +142,9 @@ export type UserProfileSummary = {
   };
 };
 export type Dashboard = {
-  user: { id: string; name: string; phone: string; groupCode: string; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
+  user: { id: string; name: string; phone: string; groupCode: string; presentation?:UserPresentation; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
+  subscription:SuperState;
   openRound: Round;
   readyRounds: Round[];
   viewer: { contributionBlockedByPendingTask?:boolean; contributionAllowance?:number; contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
@@ -150,8 +154,8 @@ export type Dashboard = {
   commerce:{pixAvailable:boolean;provider:"MERCADO_PAGO"|"ASAAS"|"PAGBANK"|"DISABLED"|"DEMO";products:CommerceProduct[]};
 };
 export type Pix = {
-  id: string; providerPaymentId: string; status: string; qrCode?: string; qrCodeBase64?: string; ticketUrl?: string;
-  provider?: string; product?: PaymentProductCode; credits?: number; extraPasses?: number;
+  id: string; userId?:string; providerPaymentId: string; status: string; qrCode?: string; qrCodeBase64?: string; ticketUrl?: string;
+  receipt?:PurchaseReceipt; provider?: string; product?: PaymentProductCode; credits?: number; extraPasses?: number;
 };
 
 
