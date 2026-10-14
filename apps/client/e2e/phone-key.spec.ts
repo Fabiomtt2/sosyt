@@ -1,11 +1,10 @@
+import { ownerSession } from "./helpers/owner-session";
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
 test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma conta",async({page,request})=>{
   const api="http://127.0.0.1:17333", phone="5571999998077";
-  const owner=await request.post(api+"/admin/login",{data:{name:"Fabio0",identifier:"5571999990001",groupCode:"#",secret:"e2e-owner-secret-32-characters-long"}});
-  expect(owner.ok(),await owner.text()).toBeTruthy();
-  const token=(await owner.json()).token;
+  const token=await ownerSession(request);
   // Activate the production UI while the isolated fixture returns the key.
   // No WhatsApp message is sent by this test.
   await page.route("**/auth/options",route=>route.fulfill({json:{proofRequired:true,googleRequired:false,googleConfigured:false,whatsappConfigured:true}}));

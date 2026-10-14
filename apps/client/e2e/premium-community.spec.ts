@@ -1,14 +1,12 @@
+import { ownerSession } from "./helpers/owner-session";
 import {test,expect} from "@playwright/test";
 import {resolve} from "node:path";
-import {readFileSync,existsSync} from "node:fs";
+import {readFileSync} from "node:fs";
 test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no navegador",async({page,request})=>{
  test.setTimeout(180000);
  const server="http://127.0.0.1:17333",evidence=resolve("../../docs/evidencias");
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
- const sessionFile=resolve("../../.local-tmp/browser-owner-session.json");
- let owner:string;
- if(existsSync(sessionFile))owner=JSON.parse(readFileSync(sessionFile,"utf8")).token;
- else {const login=await request.post(server+"/admin/login",{data:{name:"Fabio0",identifier:"5571999990001",groupCode:"#",secret:"e2e-owner-secret-32-characters-long"}});expect(login.ok(),await login.text()).toBe(true);owner=(await login.json()).token;}
+ const owner=await ownerSession(request);
  const ownerHeaders={authorization:"Bearer "+owner};
  const webp="data:image/webp;base64,"+readFileSync(resolve("public/assets/user/coins-editorial-v2.webp")).toString("base64");
  const cat=await request.post(server+"/admin/avatars",{headers:ownerHeaders,data:{tier:"OWNER",category:"OBJECTS",label:"Avatar Premium E2E",dataUrl:webp}});
@@ -61,8 +59,9 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  await expect(page.locator(".global-chat")).toHaveClass(/open/);
  const room=page.getByRole("complementary",{name:"Chat global da comunidade"});
  await expect(room.getByText("Bem-vindos! Este é nosso espaço de conversa.",{exact:true})).toBeVisible();
- await expect(room.locator(".gc-msg-staff .user-avatar.catalog")).toHaveCount(1);
- await expect.poll(()=>room.locator(".gc-msg-staff .user-avatar.catalog img").evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
+ const welcome=room.locator(".gc-msg-staff").filter({hasText:"Bem-vindos! Este é nosso espaço de conversa."});
+ await expect(welcome.locator(".user-avatar.catalog")).toHaveCount(1);
+ await expect.poll(()=>welcome.locator(".user-avatar.catalog img").evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
  await room.getByLabel("Mensagem para o chat global").fill("Bom dia, comunidade! Vamos criar juntos.");
  await room.getByRole("button",{name:"Enviar mensagem à comunidade"}).click();
  await expect(room.locator(".gc-msg-mine")).toContainText("Bom dia, comunidade!");
@@ -87,10 +86,10 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
   expect(await store.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await expect.poll(async()=>{const box=await store.boundingBox();return box?Math.abs(box.x+box.width-width):Infinity;}).toBeLessThanOrEqual(1);
   expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).toBe("hidden");
-  for(const code of ["SKIP_1","SUPER_30"]){
+  for(const code of ["SKIP_1","SUPER_30","PASS_SINGLE"]){
    const card=store.locator('[data-product-code="'+code+'"]');
    const bounds=await card.boundingBox();
-   for(const art of await card.locator(".art-video-card,.super-medallion,.art-orbit").all()){
+   for(const art of await card.locator(".art-video-card,.super-medallion,.art-orbit,.pass-ticket,.pass-ribbon").all()){
     const box=await art.boundingBox();expect(bounds).not.toBeNull();expect(box).not.toBeNull();
     expect(box!.x).toBeGreaterThanOrEqual(bounds!.x+1);
     expect(box!.x+box!.width).toBeLessThanOrEqual(bounds!.x+bounds!.width-1);
@@ -98,6 +97,8 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
   }
   await store.locator('[data-product-code="SUPER_30"]').scrollIntoViewIfNeeded();
   await page.screenshot({animations:"disabled",path:resolve(evidence,"premium-store-super-"+width+".png"),fullPage:false});
+  await store.locator('[data-product-code="PASS_SINGLE"]').scrollIntoViewIfNeeded();
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"premium-store-pass-"+width+".png"),fullPage:false});
   await store.evaluate(el=>el.scrollTop=0);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"premium-store-"+width+".png"),fullPage:false});
  }

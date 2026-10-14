@@ -1,19 +1,12 @@
+import { ownerSession } from "./helpers/owner-session";
 import { test,expect } from "@playwright/test";
 import { resolve } from "node:path";
-import { existsSync,readFileSync } from "node:fs";
 
 // Integrated UI: the added management panels must be reachable in a real browser
 // and fit desktop/mobile after converging the two branches.
 test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",async({page,request})=>{
   const api="http://127.0.0.1:17333";
-  const session=resolve("../../.local-tmp/browser-owner-session.json");
-  let token:string;
-  if(existsSync(session)) token=JSON.parse(readFileSync(session,"utf8")).token;
-  else {
-    const owner=await request.post(api+"/admin/login",{data:{name:"Fabio0",identifier:"5571999990001",groupCode:"#",secret:"e2e-owner-secret-32-characters-long"}});
-    expect(owner.ok(),await owner.text()).toBe(true);
-    token=(await owner.json()).token;
-  }
+  const token=await ownerSession(request);
   await page.goto("/?audit=convergencia-visual");
   await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},token);
   await page.reload();
