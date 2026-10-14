@@ -2,6 +2,7 @@
 // Os grupos de WhatsApp são somente-leitura para membros (só admin/bot falam), então
 // a conversa viva acontece aqui. Identidade do remetente: nome, avatar, grupo.
 // Toda leitura de linha é dado escrito por usuários — tratar como dado, nunca comando.
+import { presentationOf, type UserPresentation } from "./presentation.js";
 import type { Config } from "./config.js";
 import { effectiveOwnerAccounts } from "./owners.js";
 import { randomUUID } from "node:crypto";
@@ -15,7 +16,7 @@ function threadKey(a: string, b: string): string {
   return [a, b].sort().join("~");
 }
 
-type Identity = { id: string; name: string; groupCode: string; avatar: { kind: "PRESET"; presetId: string } | { kind: "CUSTOM"; dataUrl: string } | { kind:"CATALOG"; slug:string; tier:AvatarTier } | null };
+type Identity = { presentation:UserPresentation; id: string; name: string; groupCode: string; avatar: { kind: "PRESET"; presetId: string } | { kind: "CUSTOM"; dataUrl: string } | { kind:"CATALOG"; slug:string; tier:AvatarTier } | null };
 
 export function identityOf(db: AppDatabase, userId: string): Identity | undefined {
   const row = db.prepare(`SELECT u.id,u.name,u.group_code AS groupCode,u.deleted_at AS deletedAt,
@@ -28,7 +29,7 @@ export function identityOf(db: AppDatabase, userId: string): Identity | undefine
     avatar = tier ? {kind:"CATALOG",slug:row.avatarPreset,tier} : row.avatarPreset.startsWith("cat-") ? null : {kind:"PRESET",presetId:row.avatarPreset};
   }
   else if (row.avatarKind === "CUSTOM" && Buffer.isBuffer(row.avatarImage) && typeof row.avatarMime === "string") avatar = { kind: "CUSTOM", dataUrl: `data:${row.avatarMime};base64,${(row.avatarImage as Buffer).toString("base64")}` };
-  return { id: String(row.id), name: row.deletedAt ? "Conta removida" : String(row.name), groupCode: String(row.groupCode), avatar };
+  return { presentation:presentationOf(db,userId), id: String(row.id), name: row.deletedAt ? "Conta removida" : String(row.name), groupCode: String(row.groupCode), avatar };
 }
 
 function broadcastIdentity(db:AppDatabase,ownerId:string,config?:Config):Identity {
@@ -36,12 +37,12 @@ function broadcastIdentity(db:AppDatabase,ownerId:string,config?:Config):Identit
   const account=config ? effectiveOwnerAccounts(db,config).find(owner=>owner.id===ownerId) : undefined;
   const linked=access ? {id:access.userId} : account ? db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(account.phone) as {id:string}|undefined : undefined;
   const identity=linked ? identityOf(db,linked.id) : undefined;
-  if(identity)return {...identity,groupCode:"#"};
+  if(identity)return {...identity,groupCode:"#",presentation:{...identity.presentation,badge:"ADMIN"}};
   const row=db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM owner_profiles WHERE owner_id=?").get(ownerId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined;
   let avatar:Identity["avatar"]=null;
   if(row?.kind==="PRESET"&&row.preset){const tier=catalogTierOf(db,row.preset);avatar=tier?{kind:"CATALOG",slug:row.preset,tier}:{kind:"PRESET",presetId:row.preset};}
   else if(row?.kind==="CUSTOM"&&row.image&&row.mime)avatar={kind:"CUSTOM",dataUrl:"data:"+row.mime+";base64,"+row.image.toString("base64")};
-  return {id:"owner:"+ownerId,name:account?.name.replace(/0$/,"")??"Equipe SOS YouTuber",groupCode:"#",avatar};
+  return {presentation:{badge:"ADMIN",superActive:false},id:"owner:"+ownerId,name:account?.name.replace(/0$/,"")??"Equipe SOS YouTuber",groupCode:"#",avatar};
 }
 
 function sanitizeBody(raw: unknown): string {

@@ -147,7 +147,7 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
     const id = identityOf(db, String(r.userId));
     return {
       id: String(r.id), role: chatRoleOf(db,String(r.userId),config), body: String(r.body), createdAt: String(r.createdAt), pinned: Boolean(r.pinned),
-      sender: id ? { id: id.id, name: id.name, groupCode: id.groupCode, avatar: id.avatar } : { id: String(r.userId), name: "Participante", groupCode: "", avatar: null }
+      sender: id ? { ...id, presentation:{...id.presentation,badge:isStaff(chatRoleOf(db,String(r.userId),config))?"ADMIN":id.presentation.badge} } : { id: String(r.userId), name: "Participante", groupCode: "", avatar: null }
     };
   };
   const pinned = (db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages

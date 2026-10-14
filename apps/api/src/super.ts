@@ -113,7 +113,7 @@ export function setAutoRenew(db: AppDatabase, userId: string, autoRenew: boolean
 export function activePins(db: AppDatabase) {
   const cutoff = new Date(Date.now() - SUPER_PIN_MINUTES * 60_000).toISOString();
   return db.prepare(`SELECT p.id,p.user_id AS userId,p.body,p.channel_url AS channelUrl,p.created_at AS createdAt
-    FROM super_pins p WHERE p.removed_at IS NULL AND p.created_at > ? ORDER BY p.created_at ASC`).all(cutoff) as
+    FROM super_pins p WHERE p.removed_at IS NULL AND p.created_at > ? AND (EXISTS(SELECT 1 FROM owner_access a WHERE a.user_id=p.user_id AND a.active=1 AND a.role='ROOT_OWNER') OR EXISTS(SELECT 1 FROM super_subscriptions s WHERE s.user_id=p.user_id AND s.revoked_at IS NULL AND s.expires_at>?)) ORDER BY p.created_at ASC`).all(cutoff,new Date().toISOString()) as
     Array<{ id: string; userId: string; body: string; channelUrl?: string; createdAt: string }>;
 }
 

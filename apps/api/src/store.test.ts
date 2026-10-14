@@ -24,7 +24,7 @@ describe("loja configurável", () => {
   it("seed mantém o catálogo aprovado: 10 moedas por R$20 sem passe", () => {
     const p = getActiveStoreProduct(db, "COINS_10")!;
     expect(p).toMatchObject({ amountCents: 2000, creditsMillis: 10000, extraPasses: 0, active: true });
-    expect(getActiveStoreProduct(db, "PASS_SINGLE")).toBeUndefined();
+    expect(getActiveStoreProduct(db, "PASS_SINGLE")).toMatchObject({creditsMillis:0,extraPasses:1,active:true});
     expect(getActiveStoreProduct(db, "COINS_LAUNCH")).toBeUndefined();
     expect(listStoreProducts(db).some((x) => x.code === "COINS_LAUNCH")).toBe(true);
   });

@@ -1,3 +1,5 @@
+import { presentationOf } from "./presentation.js";
+import { paymentReceipt } from "./payment-receipts.js";
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
 import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, normalizeSetupCode, passwordSchemaMin, passwordSchemaMax } from "./password.js";
@@ -171,7 +173,7 @@ function getUser(db: AppDatabase, userId: string) {
   if (!row) return undefined;
   return {
     id:row.id,name:row.name,phone:row.phone,groupCode:row.groupCode,
-    avatar:avatarFromRow(db,row),
+    avatar:avatarFromRow(db,row), presentation:presentationOf(db,userId),
     youtubeChannel:row.youtubeChannelTitle ? {id:row.youtubeChannelId,title:row.youtubeChannelTitle,thumbnailUrl:row.youtubeChannelThumbnailUrl} : undefined
   };
 }
@@ -305,7 +307,7 @@ function roundView(db: AppDatabase, roundId: string, includeAdminPrivate=false) 
     userId:item.userId,userName:item.userName,groupCode:item.groupCode,userChannelTitle:item.userChannelTitle,
     userChannelThumbnailUrl:item.userChannelThumbnailUrl,adminRole:item.adminRole,
     ...(includeAdminPrivate ? {participantPhone:item.userPhone} : {}),
-    avatar:avatarFromRow(db,item)
+    avatar:avatarFromRow(db,item), presentation:presentationOf(db,String(item.userId))
   }));
   const bySlot = new Map(submissions.map((item) => [item.slot, item]));
   return { ...round, slots: Array.from({ length: 10 }, (_, index) => bySlot.get(index + 1) ?? { slot: index + 1 }) };
@@ -606,15 +608,20 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // Usa um "Pular": entra na próxima fila livre em que ainda NÃO está; se não houver,
   // CRIA uma. O item nunca é desperdiçado — consumo e entrada na mesma transação.
   app.post("/queues/skip", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const {referenceId}=z.object({referenceId:z.string().uuid().optional()}).parse(request.body??{});
     try {
       const result = db.transaction(() => {
+        const previous=referenceId ? db.prepare("SELECT result_json FROM queue_skip_requests WHERE user_id=? AND reference_id=?").get(request.user.sub,referenceId) as {result_json:string}|undefined : undefined;
+        if(previous) return JSON.parse(previous.result_json) as {id:string;number:number;status:string;vacancies:number};
         if (request.user.adminRole!=="ROOT_OWNER" && itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
           throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
         }
         const target = skipTargetFor(db, request.user.sub);
         if(request.user.adminRole!=="ROOT_OWNER") consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${target.id}:${request.user.sub}`);
         joinRound(db, target.id, request.user.sub, "SKIP");
-        return { id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
+        const joined={ id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
+        if(referenceId) db.prepare("INSERT INTO queue_skip_requests(user_id,reference_id,result_json,created_at) VALUES (?,?,?,?)").run(request.user.sub,referenceId,JSON.stringify(joined),new Date().toISOString());
+        return joined;
       })();
       return reply.send({ queue: result, skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP) });
     } catch (error) {
@@ -650,7 +657,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       return {
         id: pin.id, body: pin.body, createdAt: pin.createdAt,
         expiresInSeconds: Math.max(0, SUPER_PIN_MINUTES * 60 - Math.floor((Date.now() - Date.parse(pin.createdAt)) / 1000)),
-        author: who ? { id: who.id, name: who.name, avatar: who.avatar, channel: who.youtubeChannel ?? null } : null
+        author: who ? { id: who.id, name: who.name, avatar: who.avatar, presentation:who.presentation, channel: who.youtubeChannel ?? null } : null
       };
     });
     return { pins, slotsFree: pinSlotsFree(db), slots: 3 };
@@ -972,7 +979,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     };
     return {
       user: currentUser,
-      wallet: walletView(db, request.user.sub),
+      wallet: walletView(db, request.user.sub), subscription:effectiveSuper(db,request.user.sub),
       openRound: roundView(db, open.id,Boolean(request.user.adminRole)),
       readyRounds: ready.map(({ id }) => {
         const viewerContributed=Boolean(db.prepare("SELECT 1 FROM submissions WHERE round_id=? AND user_id=? LIMIT 1").get(id,request.user.sub));
@@ -1301,7 +1308,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare(`UPDATE payments SET provider_payment_id = ?, status = ?, qr_code = ?, qr_code_base64 = ?, ticket_url = ? WHERE id = ?`)
         .run(pix.providerPaymentId, pix.status === "APPROVED" ? "PENDING" : pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
       if (pix.status === "APPROVED") settlePayment(db, paymentId);
-      return reply.code(201).send({ id: paymentId, ...pix, provider, product:product.code, credits:product.creditsMillis/1000, extraPasses:product.extraPasses });
+      return reply.code(201).send({ id: paymentId, userId:request.user.sub, ...pix, provider, product:product.code, credits:product.creditsMillis/1000, extraPasses:product.extraPasses, receipt:paymentReceipt(db,request.user.sub,paymentId) });
     } catch (error) {
       db.prepare("UPDATE payments SET status = 'REJECTED' WHERE id = ?").run(paymentId);
       throw error;
@@ -1348,7 +1355,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       applyPaymentConfirmation(payment.provider,confirmation);
     }
     const updated = db.prepare("SELECT status FROM payments WHERE id = ?").get(id) as { status: string };
-    return { id, status: updated.status };
+    return { id, status: updated.status, receipt:paymentReceipt(db,request.user.sub,id) };
   });
 
   app.post("/payments/webhooks/mercado-pago", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1377,14 +1384,17 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (!verifyAsaasWebhookToken(paymentConfig.asaasWebhookToken,token)) return reply.code(401).send({ message:"Token de webhook Asaas inválido." });
     const payload=request.body as { id?:string; event?:string; payment?:{ id?:string } };
     if (!payload?.id || !payload.payment?.id) return reply.code(400).send({ message:"Notificação Asaas incompleta." });
-    const recorded=db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('ASAAS',?,?)").run(payload.id,new Date().toISOString());
-    if (!recorded.changes) return { ok:true,duplicate:true };
+    const recorded=db.prepare("SELECT 1 FROM payment_webhook_events WHERE provider='ASAAS' AND event_id=?").get(payload.id);
+    if (recorded) return { ok:true,duplicate:true };
     const providerId=payload.payment.id;
     const known=db.prepare("SELECT 1 FROM payments WHERE provider='ASAAS' AND provider_payment_id=?").get(providerId);
     if (!known) return { ok:true };
     const confirmation=await fetchProviderPayment(paymentConfig,"ASAAS",providerId);
     if (confirmation.providerPaymentId!==providerId) return reply.code(409).send({ message:"Identificador do pagamento divergente." });
-    applyPaymentConfirmation("ASAAS",confirmation);
+    db.transaction(() => {
+      applyPaymentConfirmation("ASAAS",confirmation);
+      db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('ASAAS',?,?)").run(payload.id,new Date().toISOString());
+    })();
     return { ok:true };
   });
 
@@ -1410,15 +1420,18 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const signature=request.headers["x-payload-signature"] as string | string[] | undefined;
     if (!verifyPagBankWebhookSignature(raw,signature,publicKey)) return reply.code(401).send({ message:"Assinatura PagBank inválida." });
     const eventId=createHash("sha256").update(raw).digest("hex");
-    const recorded=db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('PAGBANK',?,?)").run(eventId,new Date().toISOString());
-    if (!recorded.changes) return { ok:true,duplicate:true };
+    const recorded=db.prepare("SELECT 1 FROM payment_webhook_events WHERE provider='PAGBANK' AND event_id=?").get(eventId);
+    if (recorded) return { ok:true,duplicate:true };
     const payload=request.body as { id?:string };
     if (!payload?.id) return reply.code(400).send({ message:"Notificação PagBank sem identificador do pedido." });
     const known=db.prepare("SELECT 1 FROM payments WHERE provider='PAGBANK' AND provider_payment_id=?").get(payload.id);
     if (!known) return { ok:true };
     const confirmation=await fetchProviderPayment(paymentConfig,"PAGBANK",payload.id);
     if (confirmation.providerPaymentId!==payload.id) return reply.code(409).send({ message:"Identificador do pagamento divergente." });
-    applyPaymentConfirmation("PAGBANK",confirmation);
+    db.transaction(() => {
+      applyPaymentConfirmation("PAGBANK",confirmation);
+      db.prepare("INSERT OR IGNORE INTO payment_webhook_events (provider,event_id,received_at) VALUES ('PAGBANK',?,?)").run(eventId,new Date().toISOString());
+    })();
     return { ok:true };
   });
 

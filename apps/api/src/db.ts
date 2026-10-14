@@ -475,21 +475,25 @@ export function createDatabase(filename: string): AppDatabase {
   // Produto de assinatura: concede SUPER por N dias em vez de item avulso.
   addColumn("store_products", "subscription_days", "INTEGER NOT NULL DEFAULT 0");
   // Catálogo inicial configurável. Os valores definidos pelo Owner persistem no banco.
-  if ((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n === 0) {
+  { // Add missing products without changing existing Owner configuration.
     const now = new Date().toISOString();
-    const seed = db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
+    const seed = db.prepare(`INSERT OR IGNORE INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`);
     seed.run("COINS_10","10 moedas","10 moedas para salvar URLs na fila. Cada moeda salva uma URL.",2000,10000,0,1,1,"coins-10",now);
-    // Produtos legados preservados inativos (não aparecem na loja, mas resolvem histórico).
+    // Pacote antigo com bônus inativo; passe avulso mantém identidade própria.
     seed.run("COINS_LAUNCH","Pacote de lançamento","10 moedas + 1 passe bônus (legado).",2000,10000,1,0,90,"coins-launch-10",now);
-    seed.run("PASS_SINGLE","1 passe","Um passe avulso (legado).",2000,0,1,0,91,"pass-single",now);
+    seed.run("PASS_SINGLE","1 passe","Uma contribuição extra na mesma fila. Salvar a URL também usa 1 moeda.",2000,0,1,1,4,"pass-single",now);
     // Item "Pular": permite entrar em outra fila sem ter concluido 100% da atual.
-    db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
+    db.prepare(`INSERT OR IGNORE INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
       VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas e pode alternar entre elas.',2000,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);
     // Assinatura SUPER: 30 dias de privilégios, renovável.
-    db.prepare(`INSERT INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,subscription_days,updated_at)
+    db.prepare(`INSERT OR IGNORE INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,subscription_days,updated_at)
       VALUES ('SUPER_30','SUPER · 30 dias','Chat sem espera, 5 vídeos por fila, selo animado no seu avatar e divulgação fixa do seu canal.',4500,0,0,1,3,'super-30','SUPER',1,30,?)`).run(now);
   }
 
+  db.exec(`CREATE TABLE IF NOT EXISTS queue_skip_requests (
+    user_id TEXT NOT NULL REFERENCES users(id),reference_id TEXT NOT NULL,
+    result_json TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(user_id,reference_id)
+  );`);
   db.exec(`CREATE TABLE IF NOT EXISTS setup_codes (
     phone TEXT PRIMARY KEY,
     code_hash TEXT NOT NULL,
