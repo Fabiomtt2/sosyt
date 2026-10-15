@@ -22,6 +22,8 @@ import { normalizePhone } from "./phone.js";
 import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
 import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
+import { AUTOMATION_CATALOG, automationsByCategory } from "./bot-automations.js";
+import { AutomationValidationError, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^[1-9]\d{0,2}$/);
@@ -498,6 +500,40 @@ export async function registerOwnerRoutes(
     try { saveBotSettings(db, request.body); return { ok: true, status: botStatus(db, config) }; }
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Configuração inválida." }); }
   });
+  // AUDITORIA / HYBRID+: as ATITUDES do bot (falas, eventos, avisos) que o Owner
+  // edita. HIERARQUIA: ROOT_OWNER apenas — quem escreve a fala do bot fala em nome
+  // do projeto para toda a comunidade, e o ADMIN_OWNER nao tem esse poder.
+  ensureBotAutomations(db);
+  app.get("/admin/bot/automations", { preHandler: rootOwnerGuard }, async () => ({
+    automations: listAutomationSettings(db),
+    catalog: AUTOMATION_CATALOG,
+    groups: automationsByCategory().map((g) => ({ category: g.category, events: g.items.map((i) => i.event) }))
+  }));
+  app.patch("/admin/bot/automations/:event", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const account = resolveOwnerContext(request)!;
+    const { event } = request.params as { event: string };
+    try {
+      return { ok: true, automation: saveAutomationSettings(db, event, request.body as Record<string, never>, { id: account.id, name: account.name }) };
+    } catch (error) {
+      if (error instanceof AutomationValidationError) return reply.code(400).send({ message: error.message, code: error.code });
+      throw error;
+    }
+  });
+  app.post("/admin/bot/automations/:event/reset", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const account = resolveOwnerContext(request)!;
+    const { event } = request.params as { event: string };
+    try { return { ok: true, automation: resetAutomationSettings(db, event, { id: account.id, name: account.name }) }; }
+    catch (error) {
+      if (error instanceof AutomationValidationError) return reply.code(400).send({ message: error.message, code: error.code });
+      throw error;
+    }
+  });
+  // Trilha: quem mudou a fala do bot, quando, e qual era o texto anterior.
+  app.get("/admin/bot/automations/audit", { preHandler: rootOwnerGuard }, async (request) => {
+    const { event } = request.query as { event?: string };
+    return { entries: automationAudit(db, event) };
+  });
+
   // AUDITORIA / correio interno: aviso global do Owner e moderação.
   // HIERARQUIA: falar em nome do projeto para TODA a comunidade e ler/moderar a
   // correspondencia privada sao poderes de ROOT_OWNER. ADMIN_OWNER nao acessa.
