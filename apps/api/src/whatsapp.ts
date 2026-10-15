@@ -125,7 +125,7 @@ async function graphJson<T>(config: Config, path: string): Promise<T> {
 export async function syncOfficialWhatsAppGroups(db: AppDatabase, config: Config) {
   config = effectiveWhatsAppConfig(db,config);
   if (config.WHATSAPP_SENDER_VALIDATION_REQUIRED || !config.WHATSAPP_GROUPS_SYNC_ENABLED || !config.WHATSAPP_PHONE_NUMBER_ID || !config.WHATSAPP_ACCESS_TOKEN) {
-    return { discovered: 0, linked: 0, memberships: 0 };
+    return { discovered: 0, linked: 0, memberships: 0, skipped: [] as Array<{ code: string; reason: string; received: number; declaredTotal?: number; previousCount: number }> };
   }
   const listing = await graphJson<{ data?: { groups?: MetaGroupSummary[] } }>(config,`${config.WHATSAPP_PHONE_NUMBER_ID}/groups?limit=1024`);
   const discovered = listing.data?.groups ?? [];
