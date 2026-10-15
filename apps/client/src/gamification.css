@@ -179,3 +179,22 @@
 @media(prefers-reduced-motion:reduce){
  .journey-panel *, .journey-level-badge *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
+
+/* AUDITORIA / progressao de cor do TEXTO por faixa de nivel.
+   O emblema ja mudava de cor por faixa, mas o rotulo "Nivel N" ficava sempre
+   igual — e a especificacao do dono e explicita: nivel 1 com a cor padrao do
+   texto, e o destaque crescendo a cada faixa ate o 30, que alcanca o patamar
+   visual de SUPER/OWNER. Privilegio puramente visual: nenhum poder funcional.
+   Seletores compostos apenas (nao redefinem classe base; ver css-isolation). */
+.journey-tier-beginning .journey-level-label{color:inherit}
+.journey-tier-connection .journey-level-label{color:#7c5068}
+.journey-tier-connection .journey-level-label b{color:#905b79}
+.journey-tier-creator .journey-level-label{color:#7d5a23}
+.journey-tier-creator .journey-level-label b{color:#916829;text-shadow:0 1px 6px #dfb86d33}
+.journey-tier-crown .journey-level-label{color:#654d85}
+.journey-tier-crown .journey-level-label b{color:#755b98;text-shadow:0 1px 8px #c5acd944;letter-spacing:.01em}
+.journey-tier-constellation .journey-level-label{color:#7c4760}
+.journey-tier-constellation .journey-level-label b{
+  background:linear-gradient(110deg,#c6702f,#b2558a 46%,#4f7fa8);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 1px 12px #c6ddea55;letter-spacing:.015em}
