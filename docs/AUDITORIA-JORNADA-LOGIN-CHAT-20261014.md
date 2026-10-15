@@ -64,3 +64,7 @@ Merge confirmou árvore idêntica à ponta testada 7edea71. Próximo passo: Rail
 ## Resultado operacional final — 15/10/2026
 
 PR #3 MERGED; main publicado e sincronizado. A operação accept-deploy foi cancelada pela camada de aprovação, apesar da autorização explícita, com a mensagem “the user did not approve this action”. Releitura confirmou patch7campos STAGED e nenhum novo deploy. Web/API antigos SUCCESS1/1; volume /data500MB intacto. Rafael e Fábio reautenticaram HTTP200. Novas funções estão em main, ainda não em produção. Ação restante: aplicar o patch pelo painel Railway e validar os dois serviços, health com capacidades e migração/backup. Não contornar o bloqueio com CLI/browser.
+
+## Publicação confirmada — 15/10/2026
+
+A aplicação manual por Fábio resolveu o bloqueio anterior. API e Web SUCCESS1/1 em586ca40, capabilities públicas confirmadas, backup/volume preservados. Smoke autenticado e Chromium real concluídos. Passe reativado conforme pedido, sem mudar preço/benefício. Relatório completo e limites reais: docs/DEPLOY-PRODUCAO-20261015.md. A publicação está concluída; WhatsApp/Pix/GoogleOAuth ainda requerem suas credenciais.

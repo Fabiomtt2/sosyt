@@ -1,3 +1,24 @@
+## ESTADO CANÔNICO — VERSÃO NOVA ONLINE — 2026-10-15T03:44:15.681864-03:00
+- Fábio aplicou as7alterações no painel Railway. Patch vazio, nenhum trabalho pendente. Bloqueio anterior é histórico e não requer nova tentativa.
+- APIad9c094f-c783-4c0e-a1ba-8f64147758d5 e Web27559349-38d7-434c-9107-9a975799c0e8 SUCCESS1/1 no mesmo commit586ca40, main, em15/10 às03:19 Bahia.
+- API /health pública confirma jornada-20261014 e3capacidades. Backup pré-migração confirmado em /data/backups; volume /data500MB intacto. Web aguardou API pronta antes de iniciar.
+- URL principal: https://sos-youtuber-web-production.up.railway.app ; API https://sos-youtuber-api-production.up.railway.app .
+- Smoke real: ambosRootHTTP200, canConfigure/canManageOwners=true, Jornada/loja/chat/correio e modo participante administrativo funcionantes; Chromium1440/390 sem errosJS/HTTP5xx ou overflow observado. Capturas reais abertas.
+- Passe estava inativo no banco de produção; foi ativado pela API Root conforme pedido de Fábio, mantendo preçoR$20/1passe e demais campos. Loja pública agora tem Moedas/Pular/SUPER/Passe; pacote antigo com bônus continua inativo.
+- Código integral publicado. Pendências de integração: WhatsApp officialReady=false (modoOFFICIAL), PixDISABLED, GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET ausentes. Chave YouTube de validação configurada e VERIFIED. Não declarar conexão de canal/criação de playlist/Googlelogin ou envios/pagamentos reais disponíveis antes dessas credenciais.
+- Relatório operacional: docs/DEPLOY-PRODUCAO-20261015.md. Pareceres: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md.
+- Gate de código permanece292API/25cliente/8Chromium+lint/build/diff GREEN. Nenhuma alteração de código após esse gate, somente configuração solicitada e documentação.
+- Main local/remoto deve estar sincronizado ao final; commits documentais posteriores a586ca40 não alteram código implantado. Worktree atual convergencia-claude-20261012, branchmain; WIPs originais preservados.
+
+## PRODUÇÃO NOVA CONFIRMADA — 2026-10-15T03:35:29.215920-03:00
+- Fábio aplicou manualmente as7alterações pendentes. Railway confirma patch vazio, sem trabalho pendente; não há mais bloqueio da publicação.
+- API ad9c094f-c783-4c0e-a1ba-8f64147758d5 SUCCESS1/1 e Web27559349-38d7-434c-9107-9a975799c0e8 SUCCESS1/1, ambos commit586ca4028b1de20f8b5aa6bbd1396b6948032699, main, implantados15/10 às03:19 Bahia.
+- APIpública /health confirma release jornada-20261014 e capacidades gamification-v1/reward-redemption-v1/bot-password-v1.
+- Backup consistente confirmado nos logs antes das migrações: /data/backups/pre-payment-benefits-1792045169222-b144ad30-c0c7-4239-8b35-23f245d44629.sqlite. Volume /data500MBpreservado.
+- LogWeb comprova que aguardou capacidadesAPI e sóentão iniciou o servidor. Nenhum novo deploy necessário neste momento.
+- AmbosOwners reautenticaram HTTP200 na versão nova. Smoke de telas públicas/Owner/participante em andamento; não confundir implantação do código com configuração definitiva de bot/Pix.
+- Próximo: concluir smoke público e visão real, atualizar relatório definitivo e publicar checkpoint documental. Estado antigo de “deploy bloqueado” abaixo é histórico.
+
 ## ENTREGA ATUAL — 2026-10-15T03:14:36.405030-03:00
 - PR #3 MERGED (9e1d8bc). Código revisado e documentação publicados em main; último checkpoint anterior a este documento: a1c2b09020f02dc36bb6b245d2f54e048bb805ba. Conferir ponta final com git rev-parse HEAD e origin/main.
 - Gate GREEN: 292 API, 25 cliente, 8 Chromium, lint/TypeScript, build e diff check. Capturas finais vistas pelo integrador e auditor visual. Relatório: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md.
