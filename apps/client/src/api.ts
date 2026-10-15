@@ -296,7 +296,38 @@ export type SuperSubscriber = { userId:string; name:string; phone:string; expire
 export type SuperAdminState = { subscribers:SuperSubscriber[]; pins:Array<{id:string;userId:string;body:string;createdAt:string}>; defaultDays:number };
 export type AdminMailMessage = { id:string;threadKey:string;senderId:string|null;senderRole:string;recipientId:string;body:string;createdAt:string;deletedAt:string|null };
 
+// AUDITORIA / HYBRID+ — atitudes do bot editaveis pelo Owner.
+export type AutomationChannel = "OFFICIAL"|"EVOLUTION";
+export type AutomationTarget = "MEMBER"|"OWNERS"|"GROUP"|"ALL_GROUPS";
+export type AutomationCategory = "ONBOARDING"|"QUEUES"|"REWARDS"|"RETENTION"|"SUPPORT"|"BROADCAST";
+export type AutomationMeta = {
+  event:string; category:AutomationCategory; label:string; description:string;
+  defaultChannel:AutomationChannel; defaultTarget:AutomationTarget; periodic:boolean;
+  defaultIntervalMinutes?:number; canPin:boolean; placeholders:string[];
+  defaultEnabled:boolean; defaultText:string; requires?:string[];
+};
+export type AutomationSettings = {
+  event:string; enabled:boolean; text:string; channel:AutomationChannel; target:AutomationTarget;
+  intervalMinutes?:number; customized:boolean; updatedAt?:string; updatedByName?:string;
+};
+export type AutomationsState = {
+  automations:AutomationSettings[]; catalog:AutomationMeta[];
+  groups:Array<{category:AutomationCategory;events:string[]}>;
+};
+export type AutomationAuditEntry = {
+  event:string; field:string; before:string|null; after:string|null;
+  actorName:string|null; createdAt:string;
+};
+
 export const ownerApi = {
+  botAutomations:()=>ownerRequest<AutomationsState>("/admin/bot/automations"),
+  saveBotAutomation:(event:string,patch:Partial<Pick<AutomationSettings,"enabled"|"text"|"channel"|"target"|"intervalMinutes">>)=>
+    ownerRequest<{ok:true;automation:AutomationSettings}>(`/admin/bot/automations/${event}`,{method:"PATCH",body:JSON.stringify(patch)}),
+  resetBotAutomation:(event:string)=>
+    ownerRequest<{ok:true;automation:AutomationSettings}>(`/admin/bot/automations/${event}/reset`,{method:"POST"}),
+  botAutomationAudit:(event?:string)=>
+    ownerRequest<{entries:AutomationAuditEntry[]}>(`/admin/bot/automations/audit${event?`?event=${event}`:""}`),
+  removeSuperPin:(id:string)=>ownerRequest<{ok:true}>(`/admin/super/pins/${id}`,{method:"DELETE"}),
   botPassword:()=>ownerRequest<BotPasswordState>("/admin/auth/bot-password"),
   saveBotPassword:(body:{enabled:boolean;templateName:string;templateLanguage:string})=>ownerRequest<BotPasswordState>("/admin/auth/bot-password",{method:"POST",body:JSON.stringify(body)}),
   gamificationBot:()=>ownerRequest<GamificationBotData>("/admin/gamification/bot"),

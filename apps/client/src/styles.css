@@ -2294,3 +2294,29 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .owner-panel-head h2 svg,.comms-block-head h3 svg{flex-shrink:0}
 .owner-panel-head p{font-size:.875rem}
 .avatar-drop:focus-within{outline:3px solid #7460a1;outline-offset:4px}
+
+/* AUDITORIA / HYBRID+ — atitudes do bot. Classes novas e compostas apenas: nada
+   aqui redefine seletor de classe unica ja existente (ver css-isolation.test). */
+.automations-panel .automation-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.automation-card{display:grid;gap:10px;padding:16px;border-radius:16px;border:1px solid #e6e2da;background:#fffdf9}
+.automation-card.on{border-color:#c9dcc4;background:#fbfffa}
+.automation-card header{display:flex;align-items:flex-start;gap:8px;justify-content:space-between}
+.automation-toggle{display:flex;align-items:flex-start;gap:9px;cursor:pointer;min-width:0}
+.automation-toggle span{display:grid;gap:2px;min-width:0}
+.automation-toggle small{color:#6d6457;font-size:.78rem;line-height:1.4}
+.automation-tag{font-style:normal;font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;padding:3px 7px;border-radius:999px;background:#efe7d8;color:#6d5a3a;white-space:nowrap}
+.automation-tag.locked{display:inline-flex;align-items:center;gap:3px;background:#efe2e2;color:#8a4a4a}
+.automation-route{font-size:.76rem;color:#6d6457;margin:0}
+.automation-interval{width:68px;padding:2px 6px;border-radius:7px;border:1px solid #ded7cb;font:inherit}
+.automation-card textarea{width:100%;padding:10px;border-radius:12px;border:1px solid #ded7cb;font:inherit;line-height:1.5;resize:vertical}
+.automation-fields{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:0;font-size:.74rem;color:#6d6457}
+.automation-chip{padding:2px 7px;border-radius:999px;border:1px solid #ded7cb;background:#fff;font:inherit;font-size:.72rem;cursor:pointer}
+.automation-chip:hover{background:#f3ece0}
+.automation-preview{padding:11px 13px;border-radius:12px;background:#e9f3e6;border:1px solid #cfe3ca}
+.automation-preview span{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:#55704f}
+.automation-preview p{margin:5px 0 0;white-space:pre-wrap;font-size:.86rem;line-height:1.5}
+.automation-card footer{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+.automation-audit ul{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+.automation-audit li{display:grid;gap:2px;padding-bottom:9px;border-bottom:1px solid #efe9e0}
+.automation-audit small{color:#6d6457;font-size:.73rem}
+.automation-audit-diff{margin:3px 0 0;font-size:.8rem;color:#4a443c;white-space:pre-wrap}
