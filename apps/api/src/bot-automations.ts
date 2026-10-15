@@ -107,10 +107,10 @@ export const AUTOMATION_CATALOG: readonly AutomationMeta[] = [
   },
   {
     event: "UPLOAD_NOTICE", category: "QUEUES",
-    label: "Aviso de upload na fila", description: "\"Fulano (número) enviou na aba X da fila Y\".",
+    label: "Aviso de upload na fila", description: "Anuncia um envio com identificação mínima: nome, sala e posição na fila.",
     defaultChannel: "EVOLUTION", defaultTarget: "GROUP", periodic: false, canPin: false,
-    placeholders: ["nome", "numero", "aba", "fila", "grupo"], defaultEnabled: true,
-    defaultText: "✅ {nome} ({numero}) enviou na aba {aba} da fila {fila}. Bora fechar esse ciclo juntos — ainda dá tempo de participar!",
+    placeholders: ["nome", "sala", "posicao", "aba", "fila"], defaultEnabled: true,
+    defaultText: "✅ {nome} — sala {sala}, posição {posicao} — enviou na aba {aba} da fila {fila}. Bora fechar esse ciclo juntos, ainda dá tempo! 💛",
   },
   {
     event: "QUEUE_FILLING", category: "QUEUES",
