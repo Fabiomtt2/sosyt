@@ -40,7 +40,7 @@ export function queueBotNotification(db:AppDatabase,config:Config,phone:string,b
   const start=proof.at?Date.parse(proof.at):0;
   const expires=start+24*3600_000;
   if(start>0&&start<=Date.now()&&expires>Date.now()) {
-    queue(db,phone,safePayload({type:"text",text:{body:body.slice(0,4096)}}),dedupeKey,new Date(expires).toISOString());
+    queue(db,phone,safePayload({type:"text",text:{preview_url:true,body:body.slice(0,4096)}}),dedupeKey,new Date(expires).toISOString());
   } else if(approvedTemplate?.name) {
     const payload=template(config,approvedTemplate.name,[body.slice(0,1024)]);
     (payload.template as {language:{code:string}}).language.code=approvedTemplate.language;
@@ -94,7 +94,7 @@ export function queueParticipationDecision(
     const body = status === "APPROVED"
       ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} com o mesmo WhatsApp: solicite uma chave de acesso ou use sua identidade Google, se já estiver vinculada à conta. O grupo será identificado pelo seu cadastro aprovado.`
       : `Olá, ${request.name}. Sua solicitação ao SOS YouTube não foi aprovada neste momento. Se acreditar que houve engano, responda por aqui para que os Owners possam revisar.`;
-    queue(db,request.phone,{type:"text",text:{body}},dedupe,serviceExpiresAt.toISOString());
+    queue(db,request.phone,{type:"text",text:{preview_url:true,body}},dedupe,serviceExpiresAt.toISOString());
     return true;
   }
 
@@ -106,7 +106,7 @@ export function queueParticipationDecision(
   return false;
 }
 type MetaGroupSummary = { id: string; subject: string };
-type MetaGroupInfo = { id?: string; subject?: string; participants?: Array<{ wa_id?: string }> };
+type MetaGroupInfo = { id?: string; subject?: string; participants?: Array<{ wa_id?: string }>; total_participant_count?: number };
 
 function groupCodeFromSubject(subject: string): string | undefined {
   return /^SOS\s+YOUTUBER\s+([1-9]\d{0,2})$/iu.exec(subject.trim())?.[1];
@@ -130,12 +130,43 @@ export async function syncOfficialWhatsAppGroups(db: AppDatabase, config: Config
   const listing = await graphJson<{ data?: { groups?: MetaGroupSummary[] } }>(config,`${config.WHATSAPP_PHONE_NUMBER_ID}/groups?limit=1024`);
   const discovered = listing.data?.groups ?? [];
   let linked = 0, memberships = 0;
+  const skipped: Array<{ code: string; reason: string; received: number; declaredTotal?: number; previousCount: number }> = [];
   for (const group of discovered) {
     const code = groupCodeFromSubject(group.subject);
     if (!code) continue;
     const info = await graphJson<MetaGroupInfo>(config,`${group.id}?fields=id,subject,participants,total_participant_count`);
     const phones = new Set((info.participants ?? []).map((item) => item.wa_id ?? "").filter(phoneValid));
     const stamp = now();
+
+    // AUDITORIA / guarda de revogação. Mais abaixo, todo membro que NÃO estiver em
+    // `phones` perde a verificação e a associação ao grupo. Isso é correto quando a
+    // lista veio completa — e catastrófico quando não veio: se a Meta mudar a versão
+    // do Graph, o token perder `whatsapp_business_management`, ou a resposta vier
+    // paginada, `participants` chega vazio ou parcial COM STATUS 200, e o laço
+    // revogaria a base inteira numa transação, devolvendo "sucesso".
+    //
+    // Três freios, do mais barato ao mais conservador:
+    //   1. lista vazia nunca revoga;
+    //   2. a contagem tem de bater com o total que a própria Meta declarou;
+    //   3. queda brusca (>20% dos membros) congela e espera conferência humana.
+    // Em qualquer um deles ainda CONFIRMAMOS quem está presente — só não tiramos
+    // ninguém. Errar para o lado de manter o acesso é sempre o lado seguro.
+    const declaredTotal = typeof info.total_participant_count === "number" ? info.total_participant_count : undefined;
+    const previousCount = (db.prepare(
+      "SELECT COUNT(*) AS n FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND group_code=? AND revoked_at IS NULL"
+    ).get(code) as { n: number }).n;
+    // Saida normal (uma ou duas pessoas sairam) tem de continuar funcionando, senao
+    // a guarda vira estorvo e alguem a desliga. Por isso o teto e o MAIOR entre 2
+    // pessoas e 20% do grupo: grupo pequeno respira, grupo grande fica protegido de
+    // uma revogacao em massa.
+    const removals = Math.max(0, previousCount - phones.size);
+    const allowedRemovals = Math.max(2, Math.ceil(previousCount * 0.2));
+    const blockReason = phones.size === 0 ? "EMPTY_PARTICIPANTS"
+      : declaredTotal !== undefined && declaredTotal !== phones.size ? "PARTIAL_PARTICIPANTS"
+      : removals > allowedRemovals ? "SUSPICIOUS_SHRINK"
+      : undefined;
+    if (blockReason) skipped.push({ code, reason: blockReason, received: phones.size, declaredTotal, previousCount });
+
     db.transaction(() => {
       db.prepare(`INSERT INTO groups (code,enabled,whatsapp_group_id,membership_mode,last_synced_at)
         VALUES (?,1,?,'META_GROUPS_API',?)
@@ -149,17 +180,22 @@ export async function syncOfficialWhatsAppGroups(db: AppDatabase, config: Config
         recordMemberVerification(db,"META_GROUPS_API",code,phone,group.id,true,stamp);
         materializeApprovedMembership(db,phone,code,stamp);
       }
-      const existing = db.prepare("SELECT phone FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND group_code=? AND revoked_at IS NULL")
-        .all(code) as Array<{ phone: string }>;
-      for (const member of existing) if (!phones.has(member.phone)) {
-        recordMemberVerification(db,"META_GROUPS_API",code,member.phone,group.id,false,stamp);
-        db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=? AND group_code=? AND revoked_at IS NULL").run(stamp,member.phone,code);
+      // Só removemos quando a lista é confiável (ver guarda acima).
+      if (!blockReason) {
+        const existing = db.prepare("SELECT phone FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND group_code=? AND revoked_at IS NULL")
+          .all(code) as Array<{ phone: string }>;
+        for (const member of existing) if (!phones.has(member.phone)) {
+          recordMemberVerification(db,"META_GROUPS_API",code,member.phone,group.id,false,stamp);
+          db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=? AND group_code=? AND revoked_at IS NULL").run(stamp,member.phone,code);
+        }
       }
     })();
     linked += 1;
     memberships += phones.size;
   }
-  return { discovered: discovered.length, linked, memberships };
+  // `skipped` sobe para o painel: sincronizar sem remover ninguém não é "sucesso
+  // silencioso", é um aviso de que a Meta respondeu de forma incompleta.
+  return { discovered: discovered.length, linked, memberships, skipped };
 }
 
 function applyGroupParticipantWebhook(db: AppDatabase, config: Config, entryId: string | undefined, group: {
@@ -309,8 +345,8 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
             const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(msg.from) as { stage: string } | undefined;
             if (normalized.includes("quero participar")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
-              queue(db,msg.from,{type:"text",text:{body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`}},`${msg.id}:welcome`,expires);
-              queue(db,msg.from,{type:"text",text:{body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires);
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`}},`${msg.id}:welcome`,expires);
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires);
             } else if (conversation?.stage === "WAITING_NAME" && text.length>=2 && text.length<=80 && !/[\r\n]/.test(text) && !/https?:\/\//i.test(text)) {
               const hasActiveMembership = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
               let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
@@ -342,8 +378,8 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
                 responseBody = `Olá, ${text}! Este número já está registrado em um grupo SOS YOUTUBER. Use o acesso normal do aplicativo com o grupo autorizado.`;
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
-              queue(db,msg.from,{type:"text",text:{body:responseBody}},`${msg.id}:received`,expires);
-              queue(db,msg.from,{type:"text",text:{body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome e o mesmo WhatsApp. O grupo é reconhecido automaticamente e não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires);
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome e o mesmo WhatsApp. O grupo é reconhecido automaticamente e não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
             }
           }
         }

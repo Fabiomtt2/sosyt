@@ -134,14 +134,45 @@ describe("bot oficial WhatsApp", () => {
       if (url.includes("/group-2?")) return new Response(JSON.stringify({id:"group-2",subject:"SOS YOUTUBER 2",participants:detailParticipants}),{status:200});
       return new Response("{}",{status:404});
     }));
-    expect(await syncOfficialWhatsAppGroups(db,config)).toEqual({discovered:2,linked:1,memberships:1});
+    expect(await syncOfficialWhatsAppGroups(db,config)).toEqual({discovered:2,linked:1,memberships:1,skipped:[]});
     expect(db.prepare("SELECT whatsapp_group_id AS groupId,membership_mode AS mode FROM groups WHERE code='2'").get()).toEqual({groupId:"group-2",mode:"META_GROUPS_API"});
     expect(db.prepare("SELECT provider,owner_admin_count AS ownerAdminCount FROM whatsapp_group_verifications WHERE group_code='2'").get()).toEqual({provider:"META_GROUPS_API",ownerAdminCount:0});
     expect(db.prepare("SELECT provider,group_code AS groupCode,revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get()).toEqual({provider:"META_GROUPS_API",groupCode:"2",revokedAt:null});
     expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone='5571999999001'").get()).toBeUndefined();
+    // AUDITORIA / guarda de revogacao: lista VAZIA nao revoga mais ninguem.
+    // Antes, este teste afirmava o contrario — e era exatamente a catastrofe:
+    // se a Meta devolve `participants` vazio com status 200 (versao do Graph
+    // mudou, token perdeu escopo, resposta paginada), a base inteira perdia o
+    // acesso numa transacao e a funcao retornava "sucesso".
     detailParticipants=[];
+    const guarded=await syncOfficialWhatsAppGroups(db,config);
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeNull();
+    expect(guarded.skipped).toEqual([{code:"2",reason:"EMPTY_PARTICIPANTS",received:0,declaredTotal:undefined,previousCount:1}]);
+  });
+
+  it("saida normal de participante continua revogando (a guarda nao e estorvo)",async () => {
+    let detailParticipants=[{wa_id:"5571999999001"},{wa_id:"5571999999002"}];
+    vi.stubGlobal("fetch",vi.fn(async (url:string) => {
+      if (url.includes("/123456/groups?")) return new Response(JSON.stringify({data:{groups:[{id:"group-3",subject:"SOS YOUTUBER 3"}]}}),{status:200});
+      if (url.includes("/group-3?")) return new Response(JSON.stringify({id:"group-3",subject:"SOS YOUTUBER 3",participants:detailParticipants}),{status:200});
+      return new Response("{}",{status:404});
+    }));
     await syncOfficialWhatsAppGroups(db,config);
-    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
+    detailParticipants=[{wa_id:"5571999999001"}];          // uma pessoa saiu de verdade
+    const result=await syncOfficialWhatsAppGroups(db,config);
+    expect(result.skipped).toEqual([]);
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999002'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
+    expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeNull();
+  });
+
+  it("lista parcial (total declarado nao bate) nao revoga",async () => {
+    vi.stubGlobal("fetch",vi.fn(async (url:string) => {
+      if (url.includes("/123456/groups?")) return new Response(JSON.stringify({data:{groups:[{id:"group-4",subject:"SOS YOUTUBER 4"}]}}),{status:200});
+      if (url.includes("/group-4?")) return new Response(JSON.stringify({id:"group-4",subject:"SOS YOUTUBER 4",participants:[{wa_id:"5571999999001"}],total_participant_count:40}),{status:200});
+      return new Response("{}",{status:404});
+    }));
+    const result=await syncOfficialWhatsAppGroups(db,config);
+    expect(result.skipped[0]).toMatchObject({code:"4",reason:"PARTIAL_PARTICIPANTS",received:1,declaredTotal:40});
   });
   it("webhook oficial registra e revoga prova de presença sem conceder aprovação sozinho",async () => {
     db.prepare("UPDATE groups SET whatsapp_group_id='group-1',membership_mode='META_GROUPS_API' WHERE code='1'").run();
