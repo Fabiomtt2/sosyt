@@ -61,7 +61,7 @@ export function OwnerAvatarsPanel() {
     setBusy(true); setError("");
     try {
       await ownerApi.avatarUpload({ tier: draft.tier, category: draft.category, label: draft.label.trim(), dataUrl: draft.dataUrl });
-      flash("Avatar publicado na escolha.");
+      flash("Avatar publicado. Já está disponível no seletor.");
       setDraft((d) => ({ ...d, label: "", dataUrl: "" }));
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível publicar."); }
@@ -80,7 +80,7 @@ export function OwnerAvatarsPanel() {
   return (
     <section className="owner-panel avatars-panel">
       <div className="owner-panel-head">
-        <div><h2><Images size={19} /> Avatares da comunidade</h2><p className="muted">Suba a ilustração (eu te ajudo a gerar), escolha o nível e a categoria. O painel padroniza tamanho e recorte — o avatar aparece na escolha na hora.</p></div>
+        <div><h2><Images size={19} /> Avatares da comunidade</h2><p className="muted">Escolha uma imagem, dê um nome e defina quem pode usá-la. O recorte e o tamanho são ajustados automaticamente.</p></div>
         <button className="text-button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>
       </div>
 
@@ -90,11 +90,11 @@ export function OwnerAvatarsPanel() {
             {draft.dataUrl
               ? <img src={draft.dataUrl} alt="Prévia do avatar" className={"avatar-drop-preview tier-" + tierTag(draft.tier)} />
               : <span className="avatar-drop-empty"><Upload size={20} /><small>Escolher ilustração</small></span>}
-            <input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={async (e) => {
+            <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" aria-label="Escolher ilustração do avatar" onChange={async (e) => {
               const file = e.target.files?.[0]; if (!file) return;
               setError("");
               try { const webp = await toAvatarWebp(file); setDraft((d) => ({ ...d, dataUrl: webp })); }
-              catch { setError("Não consegui preparar essa imagem. Tente outra."); }
+              catch { setError("Não foi possível preparar a imagem. Tente outro arquivo PNG, JPEG ou WebP."); }
             }} />
           </label>
           <div className="avatar-upload-fields">
@@ -105,8 +105,8 @@ export function OwnerAvatarsPanel() {
           </div>
         </div>
         <small className="muted">
-          {draft.tier === "OWNER" ? <><Crown size={12} /> Avatar OWNER: exclusivo dos donos, com halo dourado.</>
-            : draft.tier === "SUPER" ? <><Sparkles size={12} /> Avatar SUPER: só para assinantes SUPER ativos, com anel vaporwave.</>
+          {draft.tier === "OWNER" ? <><Crown size={12} /> Avatar OWNER: exclusivo dos Owners, com contorno dourado.</>
+            : draft.tier === "SUPER" ? <><Sparkles size={12} /> Avatar SUPER: disponível para assinantes ativos, com contorno colorido.</>
             : "Avatar comum: disponível para todos."}
         </small>
       </form>
@@ -125,7 +125,7 @@ export function OwnerAvatarsPanel() {
           </div>
         </div>
       ))}
-      {items.length === 0 && <p className="muted">Nenhum avatar no catálogo ainda. Suba o primeiro acima. ✨</p>}
+      {items.length === 0 && <p className="muted">Seu catálogo ainda está vazio. Escolha uma imagem acima para publicar o primeiro avatar.</p>}
 
       {notice && <p className="bot-notice">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}

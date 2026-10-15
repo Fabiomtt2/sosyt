@@ -1,19 +1,12 @@
+import { ownerSession } from "./helpers/owner-session";
 import { test,expect } from "@playwright/test";
 import { resolve } from "node:path";
-import { existsSync,readFileSync } from "node:fs";
 
 // Integrated UI: the added management panels must be reachable in a real browser
 // and fit desktop/mobile after converging the two branches.
 test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",async({page,request})=>{
   const api="http://127.0.0.1:17333";
-  const session=resolve("../../.local-tmp/browser-owner-session.json");
-  let token:string;
-  if(existsSync(session)) token=JSON.parse(readFileSync(session,"utf8")).token;
-  else {
-    const owner=await request.post(api+"/admin/login",{data:{name:"Fabio0",identifier:"5571999990001",groupCode:"#",secret:"e2e-owner-secret-32-characters-long"}});
-    expect(owner.ok(),await owner.text()).toBe(true);
-    token=(await owner.json()).token;
-  }
+  const token=await ownerSession(request);
   await page.goto("/?audit=convergencia-visual");
   await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},token);
   await page.reload();
@@ -39,6 +32,22 @@ test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",asy
         }
         await action.click();
         await expect(page.locator("#store-product-editor h3")).toContainText("Editando");
+      }
+      if(title==="Acesso" && width===1440){
+        const password=page.getByLabel("Nova credencial",{exact:true});
+        const confirmation=page.getByLabel("Repetir",{exact:true});
+        await password.fill("semnumerosabc");
+        await confirmation.fill("semnumerosabc");
+        await page.locator(".owner-access-form").first().getByRole("button",{name:"Salvar",exact:true}).click();
+        await expect(page.getByRole("alert")).toContainText("letras e números");
+        await expect(password).toHaveValue("semnumerosabc");
+        await expect(confirmation).toHaveValue("semnumerosabc");
+        await password.fill("");await confirmation.fill("");
+      }
+      if(title==="Avatares"){
+        const upload=page.getByLabel("Escolher ilustração do avatar");
+        await upload.focus();
+        await expect(upload).toBeFocused();
       }
       if(title!=="Solicitações") await page.screenshot({path:resolve(`../../docs/evidencias/convergencia-${title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}-${width}.png`),fullPage:true});
     }

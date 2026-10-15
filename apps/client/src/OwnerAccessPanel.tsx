@@ -1,3 +1,4 @@
+import { BotPasswordSettings } from "./BotPasswordSettings";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Phone, Sparkles, ShieldCheck, Wand2, Trash2, RefreshCw, Copy, Check, Gift, Ban } from "lucide-react";
 import { ownerApi, type CredentialsState, type SuperAdminState } from "./api";
@@ -46,8 +47,8 @@ export function OwnerAccessPanel() {
   async function saveMine(event: FormEvent) {
     event.preventDefault();
     if (mine.password !== mine.confirm) { setError("As duas senhas precisam ser iguais."); return; }
-    await run(() => ownerApi.saveCredential({ password: mine.password }), "Sua credencial do painel foi atualizada.");
-    setMine({ password: "", confirm: "" });
+    const saved = await run(() => ownerApi.saveCredential({ password: mine.password }), "Sua credencial do painel foi atualizada.");
+    if (saved) setMine({ password: "", confirm: "" });
   }
 
   if (!creds) return <section className="owner-panel"><p className="muted">{error || "Carregando acesso…"}</p></section>;
@@ -55,7 +56,7 @@ export function OwnerAccessPanel() {
   return (
     <section className="owner-panel owner-access-panel">
       <div className="owner-panel-head">
-        <div><h2><ShieldCheck size={19} /> Acesso e assinaturas</h2><p className="muted">Credenciais do painel, telefone dos Owners e gestão do SUPER. Exclusivo do Owner principal.</p></div>
+        <div><h2><ShieldCheck size={19} /> Acesso e assinaturas</h2><p className="muted">Cuide do acesso ao painel, dos contatos dos Owners e das assinaturas SUPER.</p></div>
         <button className="text-button" onClick={() => void load()} disabled={busy}><RefreshCw size={14} /> Atualizar</button>
       </div>
 
@@ -64,8 +65,8 @@ export function OwnerAccessPanel() {
         <div className="comms-block-head"><h3><KeyRound size={17} /> Minha credencial do painel</h3></div>
         <p className="muted">
           {creds.mine.configured
-            ? <>Definida {creds.mine.updatedAt ? `em ${when(creds.mine.updatedAt)}` : ""}. A credencial longa do ambiente continua valendo como entrada de emergência.</>
-            : <>Ainda não definida. Hoje só a credencial longa do ambiente abre o painel — defina uma senha sua abaixo.</>}
+            ? <>Definida {creds.mine.updatedAt ? `em ${when(creds.mine.updatedAt)}` : ""}. A credencial de emergência também permite acessar o painel.</>
+            : <>Você está usando a credencial de emergência. Crie abaixo uma senha para o painel.</>}
         </p>
         <form className="owner-access-form" onSubmit={saveMine}>
           <label>Nova credencial<input type="password" value={mine.password} onChange={(e) => setMine({ ...mine, password: e.target.value })} placeholder="mínimo 10, com letras e números" autoComplete="new-password" /></label>
@@ -77,7 +78,7 @@ export function OwnerAccessPanel() {
       {/* ---- telefone dos Owners ---- */}
       <div className="comms-block">
         <div className="comms-block-head"><h3><Phone size={17} /> WhatsApp dos Owners</h3></div>
-        <p className="muted">A identidade do Owner é nome + telefone. Trocar o chip aqui passa a valer no login imediatamente, sem deploy.</p>
+        <p className="muted">O acesso usa nome e WhatsApp. Após salvar o novo número, use-o na próxima entrada.</p>
         <div className="owner-access-owners">
           {(["fabio", "rafael"] as const).map((id) => (
             <div key={id} className="owner-access-row">
@@ -100,7 +101,7 @@ export function OwnerAccessPanel() {
       {/* ---- credencial dos admins ---- */}
       <div className="comms-block">
         <div className="comms-block-head"><h3><Wand2 size={17} /> Administradores</h3></div>
-        <p className="muted">O ADMIN nunca compartilha sua credencial. O bot gera uma senha própria, mostrada uma única vez para você repassar.</p>
+        <p className="muted">Cada administrador tem sua própria credencial. Gere uma senha provisória e repasse por um canal seguro.</p>
         {!creds.admins.length ? <p className="muted">Nenhum administrador ativo.</p> : (
           <div className="table-scroll">
             <table><thead><tr><th>Administrador</th><th>Credencial</th><th></th></tr></thead>
@@ -191,6 +192,7 @@ export function OwnerAccessPanel() {
 
       {notice && <p className="bot-notice">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-    </section>
+    <BotPasswordSettings/>
+</section>
   );
 }

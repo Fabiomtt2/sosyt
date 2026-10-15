@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ vars.VITE_API_URL != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,6 +33,10 @@ jobs:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_PUBLIC_BASE: /sosyt/
         run: npm run build -w @conexao/client
+      - name: Verify compatible production API
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: node scripts/verify-api-release.mjs
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

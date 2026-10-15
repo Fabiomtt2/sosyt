@@ -1,7 +1,8 @@
+import { LevelBadge } from "./GamificationPanel";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Lock, X } from "lucide-react";
-import { api, catalogAvatarUrl, type UserAvatar, type CatalogAvatarItem } from "./api";
+import { api, catalogAvatarUrl, type UserAvatar, type UserPresentation, type CatalogAvatarItem } from "./api";
 
 const PRESET_COUNT=34;
 const COLS=8;
@@ -30,7 +31,7 @@ export function avatarPresetStyle(presetId:string): React.CSSProperties {
   };
 }
 
-export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;name:string;className?:string}) {
+export function UserAvatarView({avatar,name,presentation,className=""}:{avatar?:UserAvatar;name:string;presentation?:UserPresentation;className?:string}) {
   const [presetReady,setPresetReady]=useState(false);
   useEffect(()=>{
     if(avatar?.kind!=="PRESET"){setPresetReady(false);return;}
@@ -40,15 +41,21 @@ export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;na
     sprite.src="/assets/user/avatars.webp";
     return()=>{sprite.onload=null;sprite.onerror=null;};
   },[avatar?.kind,avatar?.kind==="PRESET"?avatar.presetId:undefined]);
-  if(avatar?.kind==="CUSTOM") return <span className={`user-avatar ${className}`}><img src={avatar.dataUrl} alt=""/></span>;
-  if(avatar?.kind==="CATALOG") {
-    // Avatar do catálogo: imagem servida pela API, com moldura do tier (o glow do
-    // OWNER pode vazar a borda de propósito; o SUPER tem anel vaporwave).
-    const tierClass=avatar.tier==="OWNER"?"avatar-tier-owner":avatar.tier==="SUPER"?"avatar-tier-super":"";
-    return <span className={`user-avatar catalog ${tierClass} ${className}`}><img src={catalogAvatarUrl(avatar.slug)} alt="" loading="lazy"/></span>;
-  }
-  if(avatar?.kind==="PRESET"&&presetReady) return <span className={`user-avatar preset ${className}`} style={avatarPresetStyle(avatar.presetId)} aria-hidden="true"/>;
-  return <span className={`user-avatar initials ${className}`} aria-hidden="true">{initials(name)}</span>;
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{
+    const until=presentation?.superExpiresAt?Date.parse(presentation.superExpiresAt):0;
+    if(!until||until<=Date.now()){setNow(Date.now());return;}
+    const timer=window.setTimeout(()=>setNow(Date.now()),Math.min(2147483647,Math.max(0,until-Date.now()+50)));
+    return()=>window.clearTimeout(timer);
+  },[presentation?.superExpiresAt]);
+  const superActive=presentation?.superActive && (!presentation.superExpiresAt || Date.parse(presentation.superExpiresAt)>Math.max(now,Date.now()));
+  const badge=presentation?.badge==="ADMIN"?"ADMIN":superActive?"SUPER":undefined;
+  const frame=badge==="ADMIN"?" avatar-tier-owner":badge==="SUPER"?" avatar-tier-super":"";
+  const style=avatar?.kind==="PRESET"&&presetReady?avatarPresetStyle(avatar.presetId):undefined;
+  return <span className={`user-avatar ${avatar?.kind==="CATALOG"?"catalog":avatar?.kind==="PRESET"&&presetReady?"preset":"initials"}${frame} ${className}`}
+    style={style} data-badge={badge} aria-label={badge?`${name} · ${badge}`:undefined}>
+    {avatar?.kind==="CUSTOM"?<img src={avatar.dataUrl} alt=""/>:avatar?.kind==="CATALOG"?<img src={catalogAvatarUrl(avatar.slug)} alt="" loading="lazy"/>:avatar?.kind==="PRESET"&&presetReady?null:initials(name)}
+  </span>;
 }
 
 /**
@@ -56,20 +63,15 @@ export function UserAvatarView({avatar,name,className=""}:{avatar?:UserAvatar;na
  * retrato em tamanho grande, sempre CIRCULAR e sem corte — o mesmo enquadramento
  * da tela de escolha. Fecha no Escape, no fundo ou no botao.
  */
-export function AvatarLightbox({avatar,name,subtitle,onClose,actions}:{
-  avatar?:UserAvatar;name:string;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;
+export function AvatarLightbox({avatar,name,presentation,subtitle,onClose,actions}:{
+  avatar?:UserAvatar;name:string;presentation?:UserPresentation;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;
 }) {
-  useEffect(()=>{
-    const onKey=(event:KeyboardEvent)=>{ if(event.key==="Escape") onClose(); };
-    window.addEventListener("keydown",onKey);
-    const previous=document.body.style.overflow;
-    document.body.style.overflow="hidden";
-    return()=>{ window.removeEventListener("keydown",onKey); document.body.style.overflow=previous; };
-  },[onClose]);
+  const modalRef=useModalLifecycle(onClose);
   return <div className="avatar-lightbox-backdrop" onMouseDown={onClose} role="presentation">
-    <section className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
       <button type="button" className="avatar-lightbox-close" onClick={onClose} aria-label="Fechar">×</button>
-      <UserAvatarView avatar={avatar} name={name} className="avatar-lightbox-image"/>
+      <UserAvatarView avatar={avatar} name={name} presentation={presentation} className="avatar-lightbox-image"/>
+      {presentation?.progress&&<LevelBadge progress={presentation.progress}/>}
       <h3>{name}</h3>
       {subtitle && <p className="avatar-lightbox-sub">{subtitle}</p>}
       {actions && <div className="avatar-lightbox-actions">{actions}</div>}
@@ -80,10 +82,10 @@ export function AvatarLightbox({avatar,name,subtitle,onClose,actions}:{
 type SaveAvatar=(avatar:UserAvatar)=>Promise<{avatar:UserAvatar}>;
 
 export function AvatarModal({
-  name,current,onClose,onChanged,saveAvatar=api.saveAvatar,title="Escolha seu avatar"
+  name,current,presentation,onClose,onChanged,saveAvatar=api.saveAvatar,loadCatalog=api.avatarCatalog,title="Escolha seu avatar"
 }:{
-  name:string;current?:UserAvatar;onClose:()=>void;onChanged:(avatar?:UserAvatar)=>void;
-  saveAvatar?:SaveAvatar;title?:string;
+  name:string;current?:UserAvatar;presentation?:UserPresentation;onClose:()=>void;onChanged:(avatar?:UserAvatar)=>void;
+  saveAvatar?:SaveAvatar;loadCatalog?:()=>Promise<{avatars:CatalogAvatarItem[]}>;title?:string;
 }) {
   const [selected,setSelected]=useState<UserAvatar|undefined>(current);
   const [busy,setBusy]=useState(false);
@@ -136,7 +138,7 @@ export function AvatarModal({
 
   // AUDITORIA / catálogo: avatares gerenciados pelo painel (comum/SUPER/OWNER).
   const [catalog,setCatalog]=useState<CatalogAvatarItem[]>([]);
-  useEffect(()=>{ let alive=true; api.avatarCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[]);
+  useEffect(()=>{ let alive=true; loadCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[loadCatalog]);
   const visibleCatalog=catalog.filter((item)=> category==="ALL" || item.category===category);
   async function chooseCatalog(item:CatalogAvatarItem){
     if(item.locked) return;
@@ -156,7 +158,7 @@ export function AvatarModal({
       <button className="close" aria-label="Fechar escolha de avatar" onClick={onClose}><X size={20}/></button>
       <div className="avatar-picker-head">
         <div><p className="eyebrow dark">AVATAR</p><h2>{title}</h2></div>
-        <UserAvatarView avatar={selected} name={name} className="avatar-picker-current"/>
+        <UserAvatarView avatar={selected} name={name} presentation={presentation} className="avatar-picker-current"/>
       </div>
       <div className="avatar-category-tabs" role="tablist" aria-label="Categorias de avatar">
         {AVATAR_CATEGORIES.map((item)=><button key={item.id} type="button" role="tab" aria-selected={category===item.id} className={category===item.id?"active":""} onClick={()=>{setCategory(item.id);railRef.current?.scrollTo({left:0,behavior:"smooth"});}}>{item.label}</button>)}
@@ -171,10 +173,10 @@ export function AvatarModal({
             const tierClass=item.tier==="OWNER"?"avatar-tier-owner":item.tier==="SUPER"?"avatar-tier-super":"";
             const sel=selected?.kind==="CATALOG"&&selected.slug===item.slug;
             return <button key={item.slug} className={"avatar-choice catalog"+(sel?" selected":"")+(item.locked?" locked":"")} disabled={busy||item.locked}
-              title={item.locked?`${item.label} — exclusivo ${item.tier==="OWNER"?"dos Owners":"de assinantes SUPER"}`:item.label}
+              title={item.locked?`${item.label} — exclusivo ${item.tier==="OWNER"?"de administradores":"de assinantes SUPER"}`:item.label}
               aria-label={item.locked?`${item.label}, exclusivo ${item.tier}`:`Escolher ${item.label}`} onClick={()=>void chooseCatalog(item)}>
               <span className={"avatar-choice-img "+tierClass} style={{backgroundImage:`url(${catalogAvatarUrl(item.slug)})`}}/>
-              {item.locked&&<em className={"avatar-lock "+(item.tier==="OWNER"?"owner":"super")}><Lock size={11}/>{item.tier==="OWNER"?"OWNER":"SUPER"}</em>}
+              {item.locked&&<em className={"avatar-lock "+(item.tier==="OWNER"?"owner":"super")}><Lock size={11}/>{item.tier==="OWNER"?"ADMIN":"SUPER"}</em>}
               {sel&&<i><Check size={13}/></i>}
             </button>;
           })}

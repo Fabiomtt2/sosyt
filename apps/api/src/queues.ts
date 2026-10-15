@@ -114,8 +114,9 @@ export function vacanciesIn(db: AppDatabase, roundId: string): number {
  * em nenhuma, a primeira fila OPEN com vaga (e ele entra nela). É o alvo das
  * contribuições — nunca "a fila mais nova do sistema".
  */
-export function currentRoundFor(db: AppDatabase, userId: string): QueueRow | undefined {
+export function currentRoundFor(db: AppDatabase, userId: string,preferredId?:string): QueueRow | undefined {
   const mine = myRounds(db, userId).filter((r) => r.status === "OPEN");
+  if(preferredId) {const chosen=mine.find(round=>round.id===preferredId);if(chosen)return chosen;}
   if (mine.length) return mine[0];
   ensureOpenQueue(db);
   const candidates = activeRounds(db).filter((r) => r.status === "OPEN" && vacanciesIn(db, r.id) > 0);
@@ -147,6 +148,7 @@ export function currentRoundViewFor(db: AppDatabase, userId: string, preferId?: 
  * está; se não houver, cria uma nova. Não consome o item — quem consome é a rota.
  */
 export function skipTargetFor(db: AppDatabase, userId: string): QueueRow {
+  if(!myRounds(db,userId).length) currentRoundFor(db,userId);
   const mineIds = new Set(myRounds(db, userId).map((r) => r.id));
   const candidate = activeRounds(db).find((r) => r.status === "OPEN" && !mineIds.has(r.id) && vacanciesIn(db, r.id) > 0);
   if (candidate) return candidate;

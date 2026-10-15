@@ -1,3 +1,4 @@
+import { LevelBadge } from "./GamificationPanel";
 import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useState } from "react";
@@ -8,10 +9,12 @@ import { ProfilePhotoActions } from "./ProfilePhotoActions";
 
 const when=(value?:string)=>value?new Date(value).toLocaleString("pt-BR"):"—";
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const productName=(code:string)=>code==="COINS_LAUNCH"?"10 moedas + 1 passe bônus":code==="PASS_SINGLE"?"1 passe":"Compra anterior";
+const legacyProductName=(code:string)=>code==="COINS_LAUNCH"?"Pacote anterior de moedas":code==="PASS_SINGLE"?"Passe anterior":code==="COINS_10"?"10 moedas":code==="SKIP_1"?"1 Pular":code==="SUPER_30"?"Assinatura SUPER":code;
 const paymentStatus=(status:string)=>status==="APPROVED"?"Aprovado":status==="PENDING"?"Aguardando pagamento":status==="CANCELLED"?"Cancelado":status==="REJECTED"?"Não aprovado":status;
 
 export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged,onOpenAdmin,onConnectYoutube}:{data:Dashboard;onClose:()=>void;onLogout:()=>void;onDeleted:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;onOpenAdmin:()=>Promise<void>;onConnectYoutube:()=>void}) {
+  const [passwordForm,setPasswordForm]=useState({current:"",next:"",confirm:""});
+  const [passwordNotice,setPasswordNotice]=useState("");
   const [confirmDelete,setConfirmDelete]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -55,8 +58,8 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
     <section ref={modalRef} className="modal user-account-menu" role="dialog" aria-modal="true" aria-label="Minha conta" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar minha conta" onClick={onClose}><X size={20}/></button>
       <div className="account-menu-head">
-        <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
-        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2><p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
+        <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
+        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2>{data.user.presentation?.progress&&<LevelBadge progress={data.user.presentation.progress}/>}<p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
       </div>
 
       <section className="account-profile-tools">
@@ -76,6 +79,18 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
       </div>
 
       <WatchTimeSummary rewards={data.watchRewards}/>
+      {!administrative&&<details className="account-password-section" open={localStorage.getItem("sos-password-change-required")==="true"}>
+        <summary>Minha senha de acesso</summary>
+        <p>Se recebeu uma senha inicial pelo bot, escolha agora uma senha que você consiga guardar. A chave WhatsApp continua disponível.</p>
+        <form onSubmit={e=>{e.preventDefault();if(passwordForm.next!==passwordForm.confirm){setPasswordNotice("As duas novas senhas precisam ser iguais.");return;}setBusy(true);setPasswordNotice("");void api.setPassword(passwordForm.next,passwordForm.current||undefined).then(()=>{setPasswordForm({current:"",next:"",confirm:""});localStorage.removeItem("sos-password-change-required");setPasswordNotice("Sua nova senha foi salva.");}).catch(e=>setPasswordNotice(e.message)).finally(()=>setBusy(false));}}>
+          <label>Senha atual<input type="password" autoComplete="current-password" value={passwordForm.current} onChange={e=>setPasswordForm({...passwordForm,current:e.target.value})}/></label><small>Se acabou de entrar por chave WhatsApp ou Google, pode deixar em branco.</small>
+          <label>Nova senha<input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={passwordForm.next} onChange={e=>setPasswordForm({...passwordForm,next:e.target.value})} required/></label>
+          <label>Repita a nova senha<input type="password" autoComplete="new-password" value={passwordForm.confirm} onChange={e=>setPasswordForm({...passwordForm,confirm:e.target.value})} required/></label>
+          <button className="primary" disabled={busy}>Salvar minha senha</button>
+        </form>
+        {passwordNotice&&<p role="status">{passwordNotice}</p>}
+      </details>}
+
 
       {profile&&<>
         <section className="account-metrics">
@@ -95,7 +110,7 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
           <div className="section-title"><div><p className="eyebrow dark">HISTÓRICO</p><h3>Minhas compras</h3></div><span>{profile.purchases.history.length} registro{profile.purchases.history.length===1?"":"s"}</span></div>
           {!profile.purchases.history.length?<p className="muted">Você ainda não fez nenhuma compra.</p>:<div className="account-purchase-list">
             {profile.purchases.history.map((purchase)=><article key={purchase.id}>
-              <div><strong>{productName(purchase.productCode)}</strong><span>{when(purchase.approvedAt ?? purchase.createdAt)}</span></div>
+              <div><strong>{data.commerce.products.find(product=>product.code===purchase.productCode)?.title??legacyProductName(purchase.productCode)}</strong><span>{when(purchase.approvedAt ?? purchase.createdAt)}</span></div>
               <div><strong>{money(purchase.amountCents)}</strong><span>{paymentStatus(purchase.status)} · {purchase.provider==="DEMO"?"Simulação":purchase.provider}</span></div>
             </article>)}
           </div>}

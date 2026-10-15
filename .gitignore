@@ -33,3 +33,6 @@ apps/client/playwright-report/
 /apps/client/public/downloads/sos-companion.py
 /apps/client/public/downloads/companion-instrucoes.txt
 /companion/__pycache__/
+
+# Local browser cache may be a symlink in an isolated worktree.
+.playwright-browsers

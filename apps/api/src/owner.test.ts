@@ -82,6 +82,29 @@ describe("Owner e acesso por grupo", () => {
       name:"Rafael",canonicalName:"Rafael0",groupCode:"#",role:"ROOT_OWNER",permissions:{canConfigure:true,canManageOwners:true}
     });
   });
+  it.each([false,true])("preserva alias público ao voltar de participante, telefone alterado=%s", async (changedPhone) => {
+    const phone=changedPhone?"5571999990061":"5571999990001";
+    if(changedPhone){
+      const changed=await app.inject({method:"POST",url:"/admin/owner-phone",headers:authorization(ownerToken),payload:{ownerId:"fabio",phone}});
+      expect(changed.statusCode).toBe(200);
+    }
+    const legacy=await app.inject({method:"POST",url:"/admin/participant-session",headers:authorization(ownerToken)});
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json().user.name).toBe("Fabio0");
+    const login=await app.inject({method:"POST",url:"/admin/login",payload:{...ownerBody,name:"Fábio",identifier:phone}});
+    expect(login.statusCode).toBe(200);
+    const participant=await app.inject({method:"POST",url:"/admin/participant-session",headers:authorization(login.json().token)});
+    expect(participant.statusCode).toBe(200);
+    expect(participant.json().user).toMatchObject({id:legacy.json().user.id,name:"Fábio",phone});
+    const dashboard=await app.inject({url:"/dashboard",headers:authorization(participant.json().token)});
+    expect(dashboard.json().user.name).toBe("Fábio");
+    expect(dashboard.json().wallet.total).toBe(10);
+    const elevated=await app.inject({method:"POST",url:"/admin/elevate",headers:authorization(participant.json().token)});
+    expect(elevated.statusCode).toBe(200);
+    const overview=await app.inject({url:"/admin/overview",headers:authorization(elevated.json().token)});
+    expect(overview.json().owner).toMatchObject({name:"Fábio",role:"ROOT_OWNER",permissions:{canConfigure:true,canManageOwners:true}});
+  });
+
   it("Administrador delegado vem de usuário Fabio/Fábio/Rafael verificado e não recebe configurações sensíveis", async () => {
     const adminPhone="5571999999014";
     await approve(adminPhone,"1","Rafael");

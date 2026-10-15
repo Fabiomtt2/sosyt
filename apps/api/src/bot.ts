@@ -4,14 +4,14 @@
 import { z } from "zod";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
-import { readWhatsAppIntegration, readYouTubeIntegration, readPaymentIntegration } from "./integrations.js";
+import { persistedWhatsAppMode, readWhatsAppIntegration, readYouTubeIntegration, readPaymentIntegration } from "./integrations.js";
 
 // Modo do MOTOR de WhatsApp do bot:
 //  DISABLED  — bot não fala/recebe
 //  OFFICIAL  — preferência pela Cloud API da Meta; não gerencia grupos reais
 //  EVOLUTION — preferência pelo motor não oficial; há risco de bloqueio
 //  HYBRID    — proposta de Meta para mensagens e complemento para grupos
-export const botModeSchema = z.enum(["DISABLED", "OFFICIAL", "EVOLUTION", "HYBRID"]);
+export const botModeSchema = z.enum(["DISABLED", "OFFICIAL", "EVOLUTION", "HYBRID", "HYBRID_PLUS", "META_GROUPS"]);
 export type BotMode = z.infer<typeof botModeSchema>;
 
 // Cada função do bot. `engine` = que motor a função exige.
@@ -42,7 +42,7 @@ function set(db: AppDatabase, key: string, value: string) {
 }
 
 export function botMode(db: AppDatabase): BotMode {
-  return botModeSchema.catch("DISABLED").parse(get(db, MODE_KEY) ?? "DISABLED");
+  return persistedWhatsAppMode(db) ?? "DISABLED";
 }
 export function featureEnabled(db: AppDatabase, code: BotFeatureCode): boolean {
   const stored = get(db, featKey(code));
@@ -53,12 +53,12 @@ export function featureEnabled(db: AppDatabase, code: BotFeatureCode): boolean {
 
 /** Um motor de mensageria está pronto? (oficial OU evolution, conforme o modo) */
 function messagingReady(mode: BotMode, wa: ReturnType<typeof readWhatsAppIntegration>): boolean {
-  if (mode === "OFFICIAL" || mode === "HYBRID") return wa.officialReady;
+  if (mode === "OFFICIAL" || mode === "HYBRID_PLUS" || mode === "META_GROUPS") return wa.officialReady;
   if (mode === "EVOLUTION") return Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured);
   return false;
 }
 function groupReady(mode: BotMode, wa: ReturnType<typeof readWhatsAppIntegration>): boolean {
-  if (mode === "EVOLUTION" || mode === "HYBRID") return Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured);
+  if (mode === "EVOLUTION" || mode === "HYBRID_PLUS") return Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured);
   return false;
 }
 
@@ -77,8 +77,8 @@ export function botStatus(db: AppDatabase, config: Config) {
 
   const missing: string[] = [];
   if (mode === "DISABLED") missing.push("Escolha um modo do bot (OFFICIAL, EVOLUTION ou HYBRID).");
-  if ((mode === "OFFICIAL" || mode === "HYBRID") && !wa.officialReady) missing.push("Configure a Meta Cloud API: Phone Number ID, WABA ID, Access Token, App Secret e Verify Token.");
-  if ((mode === "EVOLUTION" || mode === "HYBRID") && !grpOk) missing.push("Configure o motor Evolution: URL, instância e API key (gestão de grupos).");
+  if ((mode === "OFFICIAL" || mode === "HYBRID_PLUS" || mode === "META_GROUPS") && !wa.officialReady) missing.push("Configure a Meta Cloud API: Phone Number ID, WABA ID, Access Token, App Secret e Verify Token.");
+  if ((mode === "EVOLUTION" || mode === "HYBRID_PLUS") && !grpOk) missing.push("Configure o motor Evolution: URL, instância e API key (gestão de grupos).");
   if (mode !== "DISABLED") missing.push("As funções desta aba ainda não foram conectadas aos fluxos de envio. A configuração salva não ativa o bot.");
 
   const features = BOT_FEATURES.map((f) => {
@@ -124,7 +124,11 @@ const saveSchema = z.object({
 });
 export function saveBotSettings(db: AppDatabase, raw: unknown) {
   const body = saveSchema.parse(raw);
-  if (body.mode) set(db, MODE_KEY, body.mode);
+  if (body.mode) db.transaction(()=>{
+    const mode=body.mode==="HYBRID" ? "HYBRID_PLUS" : body.mode!;
+    set(db,MODE_KEY,mode);
+    set(db,"whatsapp.mode",mode);
+  })();
   if (body.features) {
     for (const [code, on] of Object.entries(body.features)) {
       if (BOT_FEATURES.some((f) => f.code === code)) set(db, featKey(code), on ? "1" : "0");

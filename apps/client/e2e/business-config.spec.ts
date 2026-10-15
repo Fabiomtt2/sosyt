@@ -1,3 +1,4 @@
+import { ownerSession } from "./helpers/owner-session";
 import { test,expect } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -6,9 +7,8 @@ test("Business central: edição Owner propaga ao contato público e sobrevive a
  await page.goto("/?audit=intro-clean");
  await expect(page.locator(".intro-visual-carousel")).toHaveCount(0);
  await expect(page.locator(".brand-panel img")).toHaveCount(0);
- const owner=await request.post(api+"/admin/login",{data:{name:"Fabio0",identifier:"5571999990001",groupCode:"#",secret:"e2e-owner-secret-32-characters-long"}});
- expect(owner.ok()).toBe(true);
- await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},(await owner.json()).token);
+ const owner=await ownerSession(request);
+ await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},owner);
  await page.reload();
  await page.getByRole("button",{name:"Integrações",exact:true}).click();
  await page.getByRole("button",{name:"Configurar integração",exact:true}).click();

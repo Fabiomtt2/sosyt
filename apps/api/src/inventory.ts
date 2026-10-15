@@ -8,7 +8,7 @@ import { isRootOwner } from "./super.js";
 
 export const ITEM_SKIP = "SKIP";
 
-export type GrantKind = "PURCHASE" | "GIFT_IN" | "GIFT_OUT" | "OWNER_ADJUST" | "CONSUME";
+export type GrantKind = "PURCHASE" | "GIFT_IN" | "GIFT_OUT" | "OWNER_ADJUST" | "CONSUME" | "REWARD" | "REWARD_EXCHANGE";
 
 function err(statusCode: number, message: string, extra: Record<string, unknown> = {}) {
   return Object.assign(new Error(message), { statusCode, ...extra });
@@ -75,14 +75,21 @@ export function consumeItem(db: AppDatabase, userId: string, itemCode: string, r
  * Presente entre participantes: debita do remetente e credita no destinatário
  * numa única transação, com a MESMA referência nos dois lados (rastreável).
  */
-export function giftItem(db: AppDatabase, fromUserId: string, toUserId: string, itemCode: string, quantity = 1) {
+export function giftItem(db: AppDatabase, fromUserId: string, toUserId: string, itemCode: string, quantity = 1,rootAccess=false,referenceId?:string) {
   if (fromUserId === toUserId) throw err(400, "Você não pode presentear a si mesmo.");
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw err(400, "Quantidade inválida.");
   const recipient = db.prepare("SELECT id FROM users WHERE id=? AND deleted_at IS NULL").get(toUserId);
   if (!recipient) throw err(404, "Destinatário não encontrado.");
-  const reference = randomUUID();
+  const reference = referenceId??randomUUID();
+  const unlimited=rootAccess||isRootOwner(db,fromUserId);
   return db.transaction(() => {
-    grantItem(db, { userId: fromUserId, itemCode, delta: -quantity, kind: "GIFT_OUT", referenceId: reference, note: `Presente para ${toUserId}` });
+    const previous=db.prepare("SELECT item_code AS itemCode,delta,note FROM item_grants WHERE user_id=? AND kind='GIFT_OUT' AND reference_id=?").get(fromUserId,reference) as {itemCode:string;delta:number;note:string}|undefined;
+    if(previous){
+      if(previous.itemCode!==itemCode||previous.delta!==-quantity||!previous.note.endsWith("para "+toUserId)) throw err(409,"Este presente já foi registrado com outros dados.");
+      return {reference,itemCode,quantity};
+    }
+    if(!unlimited) grantItem(db, { userId: fromUserId, itemCode, delta: -quantity, kind: "GIFT_OUT", referenceId: reference, note: `Presente para ${toUserId}` });
+    if(unlimited) db.prepare("INSERT INTO item_grants (id,user_id,item_code,delta,kind,reference_id,note,created_at) VALUES (?,?,?,?,?,?,?,?)").run(randomUUID(),fromUserId,itemCode,-quantity,"GIFT_OUT",reference,"Presente ROOT_OWNER para "+toUserId,new Date().toISOString());
     grantItem(db, { userId: toUserId, itemCode, delta: quantity, kind: "GIFT_IN", referenceId: reference, note: `Presente de ${fromUserId}` });
     return { reference, itemCode, quantity };
   })();

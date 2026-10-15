@@ -22,8 +22,9 @@ const countdown = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}
  * e a vitrine de divulgação — 3 vagas no sistema, 1 hora cada, ao vivo para todos.
  * Quem não é SUPER vê a vitrine, mas não publica: o convite aparece no lugar.
  */
-export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
+export function SuperPanel({ onOpenStore,snapshot }: { onOpenStore?: () => void;snapshot?:SuperState }) {
   const [state, setState] = useState<SuperState>();
+  useEffect(()=>{if(snapshot)setState(current=>({...current,...snapshot}));},[snapshot]);
   const [pins, setPins] = useState<SuperPin[]>([]);
   const [slotsFree, setSlotsFree] = useState(3);
   const [draft, setDraft] = useState("");
@@ -34,7 +35,7 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
     try {
       const [me, showcase] = await Promise.all([api.superMe(), api.superPins()]);
       setState(me); setPins(showcase.pins); setSlotsFree(showcase.slotsFree);
-    } catch { /* o painel não pode derrubar a página */ }
+    } catch { setError("A vitrine não pôde ser atualizada. Seus dados continuam salvos."); }
   }, []);
   useEffect(() => { void load(); const t = window.setInterval(() => void load(), 15_000); return () => window.clearInterval(t); }, [load]);
   // Relógio local entre as sincronizações: a contagem anda sem esperar o servidor.
@@ -51,11 +52,11 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
     finally { setBusy(false); }
   }
 
-  if (!state) return null;
+  if (!state) return error?<section className="super-panel"><p role="status">{error}</p><button className="text-button" onClick={()=>void load()}>Tentar novamente</button></section>:null;
   const mine = state.myPins?.length ?? 0;
 
   return (
-    <section className="super-panel" aria-label="Vitrine SUPER">
+    <section className="super-panel premium-super" aria-label="Vitrine SUPER">
       <header className="super-head">
         <span className="super-head-title"><Sparkles size={16} /> Vitrine da comunidade</span>
         <span className="super-slots">{slotsFree} de 3 vagas livres</span>
@@ -68,8 +69,8 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
           <article key={pin.id} className="super-pin">
             <div className="super-pin-who">
               <span className="super-pin-avatar">
-                <UserAvatarView avatar={pin.author?.avatar} name={pin.author?.name ?? "Participante"} className="super-pin-avatar-img" />
-                <SuperBadge small />
+                <UserAvatarView avatar={pin.author?.avatar} presentation={pin.author?.presentation} name={pin.author?.name ?? "Participante"} className="super-pin-avatar-img" />
+                {pin.author?.presentation?.badge==="ADMIN"?<b className="admin-badge">ADMIN</b>:<SuperBadge small />}
               </span>
               <div>
                 <b>{pin.author?.name ?? "Participante"}</b>
@@ -112,7 +113,7 @@ export function SuperPanel({ onOpenStore }: { onOpenStore?: () => void }) {
       ) : (
         <button type="button" className="super-cta" onClick={onOpenStore}>
           <SuperBadge />
-          <span><b>Seja SUPER</b><small>Chat sem espera, 5 vídeos por fila, selo no avatar e divulgação do seu canal.</small></span>
+          <span><b>Seja SUPER</b><small>Mais espaço para seu canal: chat sem espera, até 5 vídeos por fila e uma vitrine para divulgar com gentileza. Cada envio continua usando 1 moeda.</small></span>
         </button>
       )}
     </section>

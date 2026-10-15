@@ -1,10 +1,12 @@
 // AUDITORIA C-01: fluxo de senha persistente (login, set, bootstrap, lockout).
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { normalizePhone } from "./phone.js";
 import { hashPassword, verifyPassword, generateBotPassword } from "./password.js";
+import { encryptToken } from "./youtube.js";
+import { flushWhatsAppOutbox } from "./whatsapp.js";
 
 describe("login por senha persistente", () => {
   let db: AppDatabase; let app: Awaited<ReturnType<typeof buildApp>>; let config: Config;
@@ -14,7 +16,7 @@ describe("login por senha persistente", () => {
       AUTH_CODE_PEPPER: "pwd-test-pepper", YOUTUBE_API_KEY: undefined });
     db = createDatabase(":memory:"); app = await buildApp(config, db);
   });
-  afterEach(async () => { await app.close(); db.close(); });
+  afterEach(async () => { vi.restoreAllMocks(); await app.close(); db.close(); });
 
   const phone = "71998887766";
   async function approveAndOtpSession(group = "7") {
@@ -104,4 +106,23 @@ describe("login por senha persistente", () => {
     const boot = await app.inject({ method: "POST", url: "/auth/password/bootstrap", headers: bearer(pwdToken), payload: {} });
     expect(boot.statusCode).toBe(403);
   });
+  it.each(["bootstrap","set"] as const)("%s invalida senha antiga já enfileirada pelo bot",async(action)=>{
+    const otpToken=await approveAndOtpSession();
+    const user=db.prepare("SELECT id FROM users WHERE phone=?").get(normalizePhone(phone)) as {id:string};
+    const stamp=new Date().toISOString(),oldPassword="old-bot-password-123",outboxId="stale-password-job";
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,updated_at) VALUES(?,?,1,?)").run(user.id,hashPassword(oldPassword),stamp);
+    const envelope=JSON.stringify({encryptedNotification:encryptToken(JSON.stringify({type:"text",text:{body:"Sua senha é "+oldPassword}}),config)});
+    db.prepare("INSERT INTO whatsapp_outbox(id,dedupe_key,recipient,payload,available_at,created_at) VALUES(?,?,?,?,?,?)").run(outboxId,"bot-password:"+user.id,normalizePhone(phone),envelope,stamp,stamp);
+    db.prepare("INSERT INTO bot_password_deliveries(user_id,outbox_id,created_at) VALUES(?,?,?)").run(user.id,outboxId,stamp);
+    const response=await app.inject({method:"POST",url:"/auth/password/"+action,headers:bearer(otpToken),payload:action==="set"?{newPassword:"new-participant-password-123"}:{}});
+    expect(response.statusCode).toBe(200);
+    const newPassword=action==="bootstrap"?response.json().password:"new-participant-password-123";
+    expect(db.prepare("SELECT status,last_error AS reason,payload FROM whatsapp_outbox WHERE id=?").get(outboxId)).toEqual({status:"FAILED",reason:"PASSWORD_CHANGED",payload:"{}"});
+    const network=vi.spyOn(globalThis,"fetch").mockRejectedValue(new Error("External sending forbidden in credential replacement test"));
+    await flushWhatsAppOutbox(db,{...config,WHATSAPP_ACCESS_TOKEN:"synthetic-access-token",WHATSAPP_PHONE_NUMBER_ID:"123456",WHATSAPP_BUSINESS_ACCOUNT_ID:"123456",WHATSAPP_APP_SECRET:"synthetic-app-secret",WHATSAPP_VERIFY_TOKEN:"synthetic-verify-token"});
+    expect(network).not.toHaveBeenCalled();
+    expect((await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:oldPassword}})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:newPassword}})).statusCode).toBe(200);
+  });
+
 });

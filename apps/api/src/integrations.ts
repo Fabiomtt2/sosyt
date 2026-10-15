@@ -5,8 +5,18 @@ import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
 
-export const whatsappModeSchema = z.enum(["OFFICIAL", "META_GROUPS", "EVOLUTION", "DISABLED"]);
+export const whatsappModeSchema = z.enum(["OFFICIAL", "META_GROUPS", "HYBRID_PLUS", "EVOLUTION", "DISABLED"]);
 export type WhatsAppMode = z.infer<typeof whatsappModeSchema>;
+
+export function persistedWhatsAppMode(db:AppDatabase):WhatsAppMode|undefined {
+  const rows=db.prepare("SELECT key,value FROM integration_settings WHERE key IN ('whatsapp.mode','bot.mode') ORDER BY updated_at DESC, CASE key WHEN 'whatsapp.mode' THEN 0 ELSE 1 END").all() as Array<{key:string;value:string}>;
+  for(const row of rows){
+    const value=row.value==="HYBRID" ? (row.key==="bot.mode"?"HYBRID_PLUS":"META_GROUPS") : row.value;
+    const parsed=whatsappModeSchema.safeParse(value);
+    if(parsed.success)return parsed.data;
+  }
+  return undefined;
+}
 
 const metaSettingsSchema = z.object({
   mode: whatsappModeSchema.default("OFFICIAL"),
@@ -90,8 +100,7 @@ export function initializeWhatsAppIntegration(db:AppDatabase,config:Config) {
 }
 
 export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
-  const storedMode = get(db,keyNames.mode) ?? "OFFICIAL";
-  const mode = whatsappModeSchema.catch("OFFICIAL").parse(storedMode === "HYBRID" ? "META_GROUPS" : storedMode);
+  const mode = persistedWhatsAppMode(db) ?? "OFFICIAL";
   const businessAccountId = get(db,keyNames.businessAccountId) ?? config.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const phoneNumberId = get(db,keyNames.phoneNumberId) ?? config.WHATSAPP_PHONE_NUMBER_ID;
   const businessPhone = get(db,keyNames.businessPhone) || config.WHATSAPP_BUSINESS_PHONE;
@@ -145,6 +154,7 @@ export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: un
     if(previous.phoneNumberId||body.phoneNumberId||previous.accessTokenConfigured||body.accessToken) set(db,keyNames.senderValidationRequired,"1");
   }
   set(db,keyNames.mode,body.mode);
+  set(db,"bot.mode",body.mode);
   if (body.businessAccountId!==undefined) set(db,keyNames.businessAccountId,body.businessAccountId);
   if (body.phoneNumberId!==undefined) set(db,keyNames.phoneNumberId,body.phoneNumberId);
   if (body.businessPhone!==undefined) set(db,keyNames.businessPhone,body.businessPhone);
@@ -215,10 +225,10 @@ export function effectiveWhatsAppConfig(db: AppDatabase, config: Config): Config
     WHATSAPP_OWNER_ALERT_TEMPLATE: state.ownerAlertTemplate || config.WHATSAPP_OWNER_ALERT_TEMPLATE,
     WHATSAPP_DECISION_TEMPLATE: state.decisionTemplate || config.WHATSAPP_DECISION_TEMPLATE,
     WHATSAPP_TEMPLATE_LANGUAGE: state.templateLanguage || config.WHATSAPP_TEMPLATE_LANGUAGE,
-    WHATSAPP_ACCESS_TOKEN: effectiveSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN),
+    WHATSAPP_ACCESS_TOKEN: state.mode==="DISABLED" || state.mode==="EVOLUTION" ? undefined : effectiveSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN),
     WHATSAPP_APP_SECRET: effectiveSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET),
     WHATSAPP_VERIFY_TOKEN: effectiveSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN),
-    WPP_CONNECT_URL: state.wppUrl || config.WPP_CONNECT_URL,
+    WPP_CONNECT_URL: state.mode==="META_GROUPS" ? (state.wppUrl || config.WPP_CONNECT_URL) : "",
     WPP_CONNECT_SESSION: state.wppSession || config.WPP_CONNECT_SESSION,
     WPP_CONNECT_TOKEN: effectiveSecret(db,config,keyNames.wppToken,config.WPP_CONNECT_TOKEN)
   };

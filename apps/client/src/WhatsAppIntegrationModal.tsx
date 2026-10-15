@@ -1,6 +1,6 @@
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useState, type FormEvent } from "react";
-import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone, Youtube } from "lucide-react";
+import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone } from "lucide-react";
 import { ownerApi, type WhatsAppIntegrationState } from "./api";
 
 type HelpTopic = "businessPhone" | "mode" | "hybrid" | "evolution" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken" | "evolutionUrl" | "evolutionInstance" | "evolutionApiKey";
@@ -59,16 +59,16 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
 
   const modalRef=useModalLifecycle(()=>{if(help)setHelp(undefined);else onClose();});
 
-  const metaMode=form.mode==="OFFICIAL" || form.mode==="META_GROUPS";
+  const metaMode=form.mode==="OFFICIAL" || form.mode==="META_GROUPS" || form.mode==="HYBRID_PLUS";
   const evolutionReady=Boolean(form.evolutionUrl && form.evolutionInstance && (form.evolutionApiKey || state.evolutionApiKeyConfigured));
-  const modeCopy = form.mode==="OFFICIAL"
+  const modeCopy = form.mode==="HYBRID_PLUS" ? "Meta para mensagens; Evolution para grupos. Os dados são salvos juntos. A conexão de grupos ainda está em preparação." : form.mode==="OFFICIAL"
     ? "Usa somente a plataforma oficial da Meta para mensagens, respostas automáticas e webhooks. É o modo recomendado para produção."
     : form.mode==="META_GROUPS"
       ? "Mantém a Meta como canal oficial e acrescenta o WPPConnect somente para grupos, membros e administradores."
       : form.mode==="EVOLUTION"
         ? "Permite guardar os dados do Evolution. O transporte ainda não foi implementado e não envia mensagens."
         : "Pausa o envio e a leitura por provedores externos. Nenhum dado salvo é apagado e a administração manual continua disponível.";
-  const selectedModeHelp = form.mode==="OFFICIAL"
+  const selectedModeHelp = form.mode==="HYBRID_PLUS" ? {title:"Híbrido+ · Meta e Evolution",body:"Combina a Meta para mensagens e a Evolution para grupos. Salvar atualiza também a aba Bot. Credenciais configuradas não significam grupos sincronizados: a execução depende da conexão real de cada motor."} : form.mode==="OFFICIAL"
     ? { title:"Como funciona o modo Meta Oficial?", body:"É o caminho mais estável: o SOS YouTube envia e recebe mensagens pela plataforma oficial da Meta. Ele exige a conta Business, o número cadastrado, as credenciais e o endereço de retorno configurados. É o modo recomendado para produção." }
     : form.mode==="META_GROUPS"
       ? { title:"O que muda em Meta + Grupos?", body:"O canal de mensagens continua sendo a Meta, mas acrescentamos o WPPConnect para consultar grupos tradicionais que a integração oficial pode não enxergar. Ele pode verificar membros e administradores, porém precisa de pareamento próprio e pode exigir reconexão após mudanças no WhatsApp." }
@@ -150,7 +150,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
       </div>
 
       <div className="astra-status-grid">
-        <article><span>Canal selecionado</span><strong>{form.mode==="META_GROUPS" ? "META + GRUPOS" : form.mode==="EVOLUTION" ? "EVOLUTION" : form.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{form.mode==="META_GROUPS" ? "Meta + WPPConnect para grupos" : form.mode==="EVOLUTION" ? "Gateway independente Evolution API" : form.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>
+        <article><span>Canal selecionado</span><strong>{form.mode==="HYBRID_PLUS" ? "HÍBRIDO+" : form.mode==="META_GROUPS" ? "META + GRUPOS" : form.mode==="EVOLUTION" ? "EVOLUTION" : form.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{form.mode==="HYBRID_PLUS" ? "Meta + Evolution" : form.mode==="META_GROUPS" ? "Meta + WPPConnect para grupos" : form.mode==="EVOLUTION" ? "Gateway independente Evolution API" : form.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>
         <article><span>{form.mode==="EVOLUTION" ? "Gateway Evolution" : form.mode==="DISABLED" ? "Automação externa" : "Conexão Meta"}</span><strong>{form.mode==="EVOLUTION" ? (evolutionReady ? "CONFIGURADO" : "PENDENTE") : form.mode==="DISABLED" ? "PAUSADA" : state.tokenValidatedAt ? "VALIDADA" : "PENDENTE"}</strong><small>{form.mode==="EVOLUTION" ? (evolutionReady ? "Dados salvos; envio ainda não implementado." : "Preencha endpoint, instância e API key.") : form.mode==="DISABLED" ? "Nenhum provedor externo será usado." : state.tokenValidatedAt ? `Validada em ${new Date(state.tokenValidatedAt).toLocaleString("pt-BR")}` : "A Meta ainda não confirmou a credencial."}</small></article>
       </div>
 
@@ -167,7 +167,10 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
               <span className="mode-symbol meta">∞</span><span><strong>Meta Oficial</strong><small>Mensagens, respostas e webhooks pela plataforma oficial.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="META_GROUPS"} className={`mode-choice hybrid ${form.mode==="META_GROUPS" ? "selected":""}`} onClick={()=>setForm({...form,mode:"META_GROUPS"})}>
-              <span className="mode-symbol hybrid" aria-hidden="true"><span className="meta-half">∞</span><span className="youtube-half"><Youtube size={17} fill="currentColor"/></span></span><span><strong>Meta + Grupos</strong><small>Meta oficial + WPPConnect apenas para grupos, membros e admins.</small></span>
+              <span className="mode-symbol hybrid" aria-hidden="true"><span className="meta-half">∞</span><span className="wpp-half">W</span></span><span><strong>Meta + Grupos</strong><small>Meta oficial + WPPConnect apenas para grupos, membros e admins.</small></span>
+            </button>
+            <button type="button" role="radio" aria-checked={form.mode==="HYBRID_PLUS"} className={"mode-choice hybrid-plus "+(form.mode==="HYBRID_PLUS"?"selected":"")} onClick={()=>setForm({...form,mode:"HYBRID_PLUS"})}>
+              <span className="mode-symbol hybrid-fusion" aria-hidden="true"><span>∞</span><span>E</span></span><span><strong>Híbrido+</strong><small>Meta para mensagens + Evolution para grupos.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="EVOLUTION"} className={`mode-choice evolution ${form.mode==="EVOLUTION" ? "selected":""}`} onClick={()=>setForm({...form,mode:"EVOLUTION"})}>
               <span className="mode-symbol evolution" aria-hidden="true">E</span><span><strong>Evolution Gateway</strong><small>Configuração reservada · envio ainda não implementado.</small></span>
@@ -215,9 +218,9 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
           </div>
         </section>}
 
-        {form.mode==="EVOLUTION" && <section className="integration-section evolution-section">
-          <div className="integration-section-title"><div><p className="eyebrow dark">EVOLUTION GATEWAY</p><h3>Instância independente</h3></div><Settings2 size={20}/></div>
-          <p className="mode-explanation">Estes campos guardam uma configuração futura. O envio pelo Evolution ainda não foi implementado. A API key permanece protegida no servidor.</p>
+        {(form.mode==="EVOLUTION" || form.mode==="HYBRID_PLUS") && <section className="integration-section evolution-section">
+          <div className="integration-section-title"><div><p className="eyebrow dark">EVOLUTION GATEWAY</p><h3>{form.mode==="HYBRID_PLUS"?"Evolution · motor de grupos":"Instância independente"}</h3></div><Settings2 size={20}/></div>
+          <p className="mode-explanation">URL, instância e chave ficam salvas no servidor. A conexão de grupos ainda está em preparação; salvar não confirma presença no WhatsApp.</p>
           <div className="integration-grid">
             <label><span className="label-with-help">URL do servidor Evolution <HelpButton topic="evolutionUrl" label="Explicar URL da Evolution API"/></span><input value={form.evolutionUrl} onChange={(e)=>setForm({...form,evolutionUrl:e.target.value})} placeholder="https://evolution.seudominio.com"/></label>
             <label><span className="label-with-help">Nome da instância <HelpButton topic="evolutionInstance" label="Explicar instância Evolution"/></span><input value={form.evolutionInstance} onChange={(e)=>setForm({...form,evolutionInstance:e.target.value.replace(/[^A-Za-z0-9_-]/g,"")})} placeholder="sos-youtuber"/></label>

@@ -1,5 +1,5 @@
+import { ownerSession } from "./helpers/owner-session";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { resolve } from "node:path";
 
@@ -38,7 +38,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByRole("heading", { name: "Entre na sua conexão" })).toBeVisible();
   await expect(page.getByText("Quero participar", { exact: true })).toHaveCount(1);
-  await expect(page.getByText("Sempre por escolha sua.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sua comunidade começa aqui.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem views automáticas.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem reprodução oculta.", { exact: true })).toBeVisible();
   await expect(page.getByText("Você mantém o controle.", { exact: true })).toBeVisible();
@@ -92,7 +92,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
   const [joinBox, continueBox] = await Promise.all([joinButton.boundingBox(), continueButton.boundingBox()]);
   expect(joinBox).not.toBeNull(); expect(continueBox).not.toBeNull();
-  expect(Math.abs((joinBox!.y + joinBox!.height / 2) - (continueBox!.y + continueBox!.height / 2))).toBeLessThanOrEqual(1);
+  // CTA sizing stays consistent; the redesigned editorial columns have independent text flow.
+  expect(Math.abs(joinBox!.height - continueBox!.height)).toBeLessThanOrEqual(1);
   expect(joinMetrics.paddingTop).toBe(continueMetrics.paddingTop);
   expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
   expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
@@ -125,7 +126,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Please fill out this field", { exact: false })).toHaveCount(0);
   await joinButton.click();
   await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
-  await expect(page.getByText(/continuaremos pelo WhatsApp/)).toBeVisible();
+  await expect(page.getByText(/Você poderá acompanhar seu cadastro por aqui/)).toBeVisible();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
   const countryTrigger = page.getByRole("button", { name: "Selecionar país e DDI" });
   await expect(countryTrigger).toContainText("DDI");
@@ -188,11 +189,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("heading", { name: "Solicitação em análise" })).toBeVisible();
   await expect(page.getByText("Seu pedido continua salvo e pode ser acompanhado neste aparelho.", { exact: true })).toBeVisible();
 
-  const ownerApproval = await request.post("http://127.0.0.1:17333/admin/login", { data: { name: "Fabio0", identifier: "+55 71 [9]9999-0001", groupCode: "#", secret: "e2e-owner-secret-32-characters-long" } });
-  expect(ownerApproval.ok()).toBeTruthy();
-  const approvalToken = (await ownerApproval.json()).token;
-  // Later visual tests reuse this isolated session instead of exhausting login rate limits.
-  writeFileSync(resolve("../../.local-tmp/browser-owner-session.json"),JSON.stringify({token:approvalToken}));
+  const approvalToken = await ownerSession(request);
   const requestsOverview = await request.get("http://127.0.0.1:17333/admin/overview", { headers: { authorization: `Bearer ${approvalToken}` } });
   const requestData = (await requestsOverview.json()).requests.find((item: { name: string }) => item.name === "Pessoa E2E");
   expect(requestData).toBeTruthy();
@@ -231,7 +228,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const ownerEnter = page.getByRole("button", { name: "Entrar", exact: true });
   const [ownerJoinBox, ownerEnterBox] = await Promise.all([joinButton.boundingBox(), ownerEnter.boundingBox()]);
   expect(ownerJoinBox).not.toBeNull(); expect(ownerEnterBox).not.toBeNull();
-  expect(Math.abs((ownerJoinBox!.y + ownerJoinBox!.height / 2) - (ownerEnterBox!.y + ownerEnterBox!.height / 2))).toBeLessThanOrEqual(1);
+  expect(Math.abs(ownerJoinBox!.height - ownerEnterBox!.height)).toBeLessThanOrEqual(1);
   await page.getByLabel("Credencial", { exact: true }).fill("credencial-errada");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Credencial", exact: true })).toBeVisible();
@@ -243,9 +240,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.getByLabel("Credencial", { exact: true }).fill("e2e-owner-secret-32-characters-long");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
-  await expect(page.getByText("🟢 Usuário aprovado!", { exact: true })).toBeVisible();
-  await expect(page.getByText("Pessoa E2E", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Aprovado em .* por Fabio0/)).toBeVisible();
+  const approvedRequest = page.locator(".request-card").filter({ has: page.getByText("Pessoa E2E", { exact: true }) });
+  await expect(approvedRequest.getByText("🟢 Usuário aprovado!", { exact: true })).toBeVisible();
+  await expect(approvedRequest.getByText("Pessoa E2E", { exact: true })).toBeVisible();
+  await expect(approvedRequest.getByText(/Aprovado em .* por Fabio0/)).toBeVisible();
   await expect(page.getByText("Novo Usuário!", { exact: true })).toBeVisible();
   await expect(page.getByText("🔴 Registro pendente", { exact: true })).toBeVisible();
   await expect(page.getByText("Pessoa Pendente", { exact: true })).toBeVisible();
@@ -255,7 +253,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByRole("button", { name: "Abrir menu do Owner Fábio" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Trocar avatar de Fábio" })).toBeVisible();
   const ownerHeaderBadge=page.locator(".header-admin-badge");
-  await expect(ownerHeaderBadge).toHaveText("OWNER");
+  await expect(ownerHeaderBadge).toHaveText("ADMIN");
   const ownerBadgeStyle=await ownerHeaderBadge.evaluate((el)=>({background:getComputedStyle(el).backgroundImage,color:getComputedStyle(el).color,borderRadius:getComputedStyle(el).borderRadius}));
   expect(ownerBadgeStyle.background).toContain("linear-gradient");
   expect(ownerBadgeStyle.borderRadius).not.toBe("0px");
@@ -438,11 +436,11 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(hybridModeBackground).toContain("linear-gradient");
   const hybridSplit = await hybridMode.locator(".mode-symbol.hybrid").evaluate((element) => {
     const [meta,youtube]=Array.from(element.children).map((child)=>child.getBoundingClientRect());
-    return { metaWidth:meta.width, youtubeWidth:youtube.width, containerWidth:element.getBoundingClientRect().width };
+    return { metaWidth:meta.width, wppWidth:youtube.width, containerWidth:element.getBoundingClientRect().width };
   });
-  expect(Math.abs(hybridSplit.metaWidth-hybridSplit.youtubeWidth)).toBeLessThanOrEqual(1);
-  expect(Math.abs((hybridSplit.metaWidth+hybridSplit.youtubeWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
-  await expect(hybridMode.locator(".youtube-half svg")).toBeVisible();
+  expect(Math.abs(hybridSplit.metaWidth-hybridSplit.wppWidth)).toBeLessThanOrEqual(1);
+  expect(Math.abs((hybridSplit.metaWidth+hybridSplit.wppWidth)-hybridSplit.containerWidth)).toBeLessThanOrEqual(1);
+  await expect(hybridMode.locator(".wpp-half")).toHaveText("W");
   expect(await integrationDialog.evaluate((el:HTMLElement)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.screenshot({animations:"disabled", path: resolve(evidence, "owner-whatsapp-config-desktop.png"), fullPage: true });
   await page.keyboard.press("Escape");
@@ -495,7 +493,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await adminAccountMenu.getByRole("button",{name:"Voltar ao painel administrativo"}).click();
   await expect(page.getByRole("heading",{name:"Sua conexão, em números."})).toBeVisible();
   await expect(page.getByText("Proteção contra cadastro repetido",{exact:true})).toHaveCount(0);
-  await expect(page.locator(".header-admin-badge")).toHaveText("OWNER");
+  await expect(page.locator(".header-admin-badge")).toHaveText("ADMIN");
 
   await page.getByRole("button", { name: "Abrir menu do Owner Fábio" }).click();
   ownerDeskMenu=page.getByRole("dialog",{name:"Menu do Owner"});
@@ -537,10 +535,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
   await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-tempo-desktop.png"),fullPage:false});
   await banners.getByRole("button",{name:"Próximo banner"}).click();
-  await expect(banners.getByText("Uma contribuição extra na mesma fila.",{exact:true})).toBeVisible();
+  await expect(banners.getByText("Um recado pode aproximar criadores.",{exact:true})).toBeVisible();
   await page.setViewportSize({width:390,height:844});
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
-  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-passe-mobile.png"),fullPage:false});
+  await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-mensagens-mobile.png"),fullPage:false});
   await page.setViewportSize({width:1440,height:1000});
   await banners.getByRole("button",{name:"Próximo banner"}).click();
 
@@ -578,28 +576,30 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill("https://youtu.be/dQw4w9WgXcQ");
   await page.getByRole("button", { name: "Salvar no espaço 1" }).click();
-  await expect(page.getByText("Você já participou desta fila.", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Ver moedas e passes" }).click();
+  await expect(page.getByText("Você usou suas contribuições nesta fila.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Explorar a loja", exact: true }).click();
   const storeDialog=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
   await expect(storeDialog).toBeVisible();
   expect(await page.evaluate(()=>document.body.style.overflow)).toBe("hidden");
-  await storeDialog.locator("summary").focus();
+  const historySummary=storeDialog.locator(".store-history summary");
+  await historySummary.focus();
   await page.keyboard.press("Tab");
   await expect(storeDialog.getByRole("button",{name:"Fechar loja"})).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  await expect(storeDialog.locator("summary")).toBeFocused();
+  await expect(historySummary).toBeFocused();
   await storeDialog.evaluate(el=>el.scrollTop=0);
 
   await expect(storeDialog.getByText("10 moedas para salvar URLs na fila.",{exact:false})).toBeVisible();
   await expect(storeDialog.getByRole("heading",{name:"1 Pular",exact:true})).toBeVisible();
-  await expect(storeDialog.getByRole("heading",{name:"1 passe",exact:true})).toHaveCount(0);
+  await expect(storeDialog.getByRole("heading",{name:"1 passe",exact:true})).toHaveCount(1);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-mobile.png"),fullPage:false});
   expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.setViewportSize({width:1366,height:768});
   await storeDialog.locator(".store-editorial-art").evaluateAll(async images=>{await Promise.all(images.map(image=>(image as HTMLImageElement).decode()));});
   const productGeometry=await storeDialog.locator(".store-product").evaluateAll(cards=>cards.map(card=>{
     const visual=card.querySelector(".store-product-visual")!.getBoundingClientRect(),copy=card.querySelector(".store-product-copy")!.getBoundingClientRect();
-    return visual.bottom<=copy.top+1;
+    const cardBox=card.getBoundingClientRect();
+    return (visual.right<=copy.left+1 || visual.bottom<=copy.top+1) && copy.left>=cardBox.left && copy.right<=cardBox.right+1;
   }));
   expect(productGeometry.length).toBeGreaterThanOrEqual(2);
   expect(productGeometry.every(Boolean)).toBe(true);
@@ -616,7 +616,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await buyItem.click();
   await page.getByLabel("E-mail do pagador").fill("e2e@example.com"); await page.getByLabel("CPF do pagador").fill("12345678901");
   await page.getByRole("button", { name: /Gerar Pix de/ }).click(); await page.getByRole("button", { name: "Simular confirmação" }).click();
-  await expect(page.getByText("Pagamento confirmado:", { exact: false })).toBeVisible();
+  await expect(page.getByRole("status",{name:"Compra confirmada"})).toContainText("10 moedas");
   // Comprar moedas não concede um passe: o espaço 2 recebe outra pessoa.
   const participantToken=await page.evaluate(()=>localStorage.getItem("conexao_token"));
   const purchased=await request.get("http://127.0.0.1:17333/dashboard",{headers:{authorization:`Bearer ${participantToken}`}});

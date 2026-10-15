@@ -85,12 +85,12 @@
   width:58px!important;height:38px!important;grid-template-columns:1fr 1fr!important;display:grid!important;padding:0!important;overflow:hidden!important;
   border-radius:11px!important;background:#fff!important
 }
-.astra-integration-modal .mode-symbol.hybrid .meta-half,.astra-integration-modal .mode-symbol.hybrid .youtube-half{
+.astra-integration-modal .mode-symbol.hybrid .meta-half,.astra-integration-modal .mode-symbol.hybrid .wpp-half{
   width:29px!important;height:38px!important;display:grid!important;place-items:center!important;margin:0!important
 }
 .astra-integration-modal .mode-symbol.hybrid .meta-half{background:#edf4ff!important;color:#1769e0!important;font-size:1.15rem!important}
-.astra-integration-modal .mode-symbol.hybrid .youtube-half{background:#fff0f4!important;color:#e72b3b!important}
-.astra-integration-modal .mode-symbol.hybrid .youtube-half svg{width:17px!important;height:17px!important;display:block!important}
+.astra-integration-modal .mode-symbol.hybrid .wpp-half{background:#fff0f4!important;color:#e72b3b!important}
+.astra-integration-modal .mode-symbol.hybrid .wpp-half svg{width:17px!important;height:17px!important;display:block!important}
 .astra-integration-modal .mode-explanation{margin:0!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;color:#6d6570!important;line-height:1.55!important}
 .astra-integration-modal .hybrid-section{padding:22px 0!important;background:transparent!important;border-radius:0!important}
 .astra-integration-modal .webhook-line{padding:18px 0!important;border:0!important;border-top:1px solid #ece4dd!important;background:transparent!important;box-shadow:none!important}

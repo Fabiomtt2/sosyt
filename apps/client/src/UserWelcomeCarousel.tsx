@@ -2,12 +2,12 @@ import { useEffect,useState } from "react";
 import { ChevronLeft,ChevronRight,Pause,Play } from "lucide-react";
 
 const SLIDES=[
- {art:"hero.webp",kind:"community",eyebrow:"CRIADORES APOIAM CRIADORES",title:"10 vídeos. Uma playlist em comum.",copy:"Compartilhe uma URL do YouTube. Quando a fila completar dez vídeos, cada participante poderá criar a playlist na própria conta."},
+ {art:"community-editorial-v3.webp",kind:"community",eyebrow:"CRIADORES APOIAM CRIADORES",title:"10 vídeos. Uma playlist em comum.",copy:"Compartilhe uma URL do YouTube. Quando a fila completar dez vídeos, cada participante poderá criar a playlist na própria conta."},
  {art:"coins-editorial-v2.webp",kind:"time",eyebrow:"CONTINUIDADE ENTRE SESSÕES",title:"Seu tempo continua com você.",copy:"O tempo registrado no player se acumula entre filas e sessões. A cada 20 minutos, você recebe 1 moeda interna para novas contribuições."},
- {art:"pass-editorial-v2.webp",kind:"pass",eyebrow:"MOEDAS E PASSES",title:"Uma contribuição extra na mesma fila.",copy:"O passe libera mais uma posição para você. Salvar a nova URL também usa 1 moeda. Comprar é opcional; confira as condições na loja."}
+ {art:"messages-editorial-v3.webp",kind:"pass",eyebrow:"SEU ESPAÇO NA COMUNIDADE",title:"Um recado pode aproximar criadores.",copy:"Abra suas mensagens e seu inventário. Converse com quem aparece no chat e presenteie itens que já possui."}
 ] as const;
 
-export function UserWelcomeCarousel(){
+export function UserWelcomeCarousel({onOpenStore,onOpenCommunity}:{onOpenStore:()=>void;onOpenCommunity:()=>void}){
  const [index,setIndex]=useState(0),[paused,setPaused]=useState(false),[reduced,setReduced]=useState(false);
  const [hovered,setHovered]=useState(false),[focused,setFocused]=useState(false),[steps,setSteps]=useState(0);
  useEffect(()=>{
@@ -26,9 +26,10 @@ export function UserWelcomeCarousel(){
  return <section className={"user-welcome-hero welcome-carousel informative-banner banner-"+slide.kind} aria-label="Boas-vindas ao SOS YouTuber" aria-roledescription="carrossel"
   onMouseEnter={()=>setHovered(true)} onMouseLeave={()=>setHovered(false)}
   onFocusCapture={()=>setFocused(true)} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setFocused(false);}}>
-  <div className="welcome-carousel-media" aria-hidden="true"><img key={slide.art} className="welcome-carousel-image" src={import.meta.env.BASE_URL+"assets/user/"+slide.art} alt=""/></div>
+  <div className="welcome-carousel-media banner-art-surface" aria-hidden="true"><img key={slide.art} className="welcome-carousel-image" src={import.meta.env.BASE_URL+"assets/user/"+slide.art} alt=""/></div>
   <div className="user-welcome-copy" aria-live={paused||reduced?"polite":"off"}>
    <p className="eyebrow">{slide.eyebrow}</p><strong>{slide.title}</strong><span className="welcome-carousel-line">{slide.copy}</span>
+   <button className="banner-action" type="button" onClick={slide.kind==="pass"?onOpenCommunity:onOpenStore}>{slide.kind==="pass"?"Abrir meu espaço":"Conhecer os benefícios"}</button>
    <div className="banner-controls" aria-label="Controles dos banners">
     <button type="button" aria-label="Banner anterior" onClick={()=>select(index-1)}><ChevronLeft size={18}/></button>
     <span>{index+1} de {SLIDES.length}</span>

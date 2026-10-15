@@ -1,3 +1,5 @@
+import { gamificationData } from "./gamification-view.js";
+import { listCatalog, catalogTierOf } from "./avatar-tiers.js";
 import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
 import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
 import { generateBotPassword, generateAdminCredential } from "./password.js";
@@ -24,7 +26,7 @@ import { groupVerificationState, materializeApprovedMembership } from "./group-v
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^[1-9]\d{0,2}$/);
 const avatarSchema=z.discriminatedUnion("kind",[
-  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^avatar-(?:0[1-9]|[12]\d|3[0-4])$/)}),
+  z.object({kind:z.literal("PRESET"),presetId:z.string().regex(/^(?:avatar-(?:0[1-9]|[12]\d|3[0-4])|cat-[a-z0-9]{12})$/)}),
   z.object({kind:z.literal("CUSTOM"),dataUrl:z.string().max(350_000)})
 ]);
 export function resolveGroupForPhone(db:AppDatabase,phone:string):{groupCode?:string;source:"APPROVED"|"EXTERNAL"|"NONE";provider?:string;verifiedAt?:string} {
@@ -49,17 +51,44 @@ export function hasMembership(db: AppDatabase, phone: string, group?: string): b
   return !verification.required || verification.accessReady;
 }
 
-function avatarFromProfileRow(row?:{kind:string;preset?:string;image?:Buffer;mime?:string}) {
-  if (row?.kind==="PRESET" && row.preset) return {kind:"PRESET" as const,presetId:row.preset};
+function avatarFromProfileRow(db:AppDatabase,row?:{kind:string;preset?:string;image?:Buffer;mime?:string}) {
+  if (row?.kind==="PRESET" && row.preset) {
+    if(row.preset.startsWith("cat-")) { const tier=catalogTierOf(db,row.preset); return tier ? {kind:"CATALOG" as const,slug:row.preset,tier} : undefined; }
+    return {kind:"PRESET" as const,presetId:row.preset};
+  }
   if (row?.kind==="CUSTOM" && Buffer.isBuffer(row.image) && row.mime) return {kind:"CUSTOM" as const,dataUrl:`data:${row.mime};base64,${row.image.toString("base64")}`};
   return undefined;
 }
 function adminAvatar(db:AppDatabase,userId?:string) {
   if (!userId) return undefined;
-  return avatarFromProfileRow(db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM user_profiles WHERE user_id=?").get(userId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
+  return avatarFromProfileRow(db,db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM user_profiles WHERE user_id=?").get(userId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
 }
 function ownerAvatar(db:AppDatabase,ownerId:string) {
-  return avatarFromProfileRow(db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM owner_profiles WHERE owner_id=?").get(ownerId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
+  return avatarFromProfileRow(db,db.prepare("SELECT avatar_kind AS kind,avatar_preset AS preset,avatar_image AS image,avatar_mime AS mime FROM owner_profiles WHERE owner_id=?").get(ownerId) as {kind:string;preset?:string;image?:Buffer;mime?:string}|undefined);
+}
+
+/** Persist configured ROOT identities for inventory, ranking and credential guards. No account or wallet is created. */
+export function syncConfiguredRootOwners(db:AppDatabase,config:Config) {
+  db.transaction(()=>{
+    for(const owner of effectiveOwnerAccounts(db,config)) {
+      const marker="root:"+owner.id;
+      const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
+      if(!user){
+        db.prepare("UPDATE owner_access SET active=0,updated_at=? WHERE created_by_owner_id=? AND role='ROOT_OWNER' AND active=1").run(new Date().toISOString(),marker);
+        continue;
+      }
+      const linked=db.prepare("SELECT id FROM owner_access WHERE user_id=? OR phone=? ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").get(user.id,owner.phone,user.id) as {id:string}|undefined;
+      const id=linked?.id??marker,stamp=new Date().toISOString();
+      db.prepare("UPDATE owner_access SET active=0,updated_at=? WHERE created_by_owner_id=? AND role='ROOT_OWNER' AND id<>? AND active=1").run(stamp,marker,id);
+      db.prepare(`INSERT INTO owner_access(id,user_id,phone,normalized_name,role,active,created_by_owner_id,created_at,updated_at)
+        VALUES(?,?,?,?,'ROOT_OWNER',1,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,phone=excluded.phone,normalized_name=excluded.normalized_name,
+          role='ROOT_OWNER',active=1,created_by_owner_id=excluded.created_by_owner_id,updated_at=excluded.updated_at
+        WHERE owner_access.user_id<>excluded.user_id OR owner_access.phone<>excluded.phone OR owner_access.normalized_name<>excluded.normalized_name
+          OR owner_access.role<>'ROOT_OWNER' OR owner_access.active<>1 OR COALESCE(owner_access.created_by_owner_id,'')<>excluded.created_by_owner_id`)
+        .run(id,user.id,owner.phone,normalizeOwnerName(owner.name),marker,stamp,stamp);
+    }
+  })();
 }
 
 export async function registerOwnerRoutes(
@@ -68,7 +97,32 @@ export async function registerOwnerRoutes(
   config: Config,
   participantGuard?: (request:FastifyRequest,reply:FastifyReply)=>Promise<unknown>
 ) {
+  syncConfiguredRootOwners(db,config);
   for (const code of config.ALLOWED_GROUP_CODES.split(",")) db.prepare("INSERT OR IGNORE INTO groups (code) VALUES (?)").run(code);
+
+  // Reconcile legacy profiles on startup, so existing participant sessions also
+  // receive the avatar saved before this release. No account or wallet is created.
+  const profileLinks=effectiveOwnerAccounts(db,config).flatMap(owner=>{
+    const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
+    return user?[{ownerId:owner.id,userId:user.id}]:[];
+  });
+  const delegatedLinks=db.prepare("SELECT id AS ownerId,user_id AS userId FROM owner_access WHERE active=1").all() as Array<{ownerId:string;userId:string}>;
+  db.transaction(()=>{
+    for(const link of [...profileLinks,...delegatedLinks]){
+      const ownerProfile=db.prepare("SELECT updated_at AS updatedAt FROM owner_profiles WHERE owner_id=?").get(link.ownerId) as {updatedAt:string}|undefined;
+      const userProfile=db.prepare("SELECT updated_at AS updatedAt FROM user_profiles WHERE user_id=?").get(link.userId) as {updatedAt:string}|undefined;
+      if(!ownerProfile&&!userProfile)continue;
+      if(ownerProfile&&(!userProfile||ownerProfile.updatedAt>=userProfile.updatedAt)){
+        db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+          SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+          ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(link.userId,link.ownerId);
+      }else{
+        db.prepare(`INSERT INTO owner_profiles (owner_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+          SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM user_profiles WHERE user_id=?
+          ON CONFLICT(owner_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(link.ownerId,link.userId);
+      }
+    }
+  })();
 
   type OwnerContext={id:string;name:string;canonicalName:string;phone:string;role:OwnerRole;userId?:string;dynamic:boolean};
 
@@ -367,12 +421,16 @@ export async function registerOwnerRoutes(
         FROM account_deletions ORDER BY deleted_at DESC LIMIT 200`).all()
     };
   });
+  app.get("/admin/profile/avatar-catalog",{preHandler:ownerGuard},async()=>({
+    avatars:listCatalog(db,{activeOnly:true}).map(row=>({slug:row.slug,tier:row.tier,category:row.category,label:row.label,locked:false}))
+  }));
   app.put("/admin/profile/avatar", { preHandler: ownerGuard }, async (request,reply) => {
     const account=resolveOwnerContext(request);
     if (!account) return reply.code(401).send({message:"Conta Owner não encontrada."});
     const body=avatarSchema.parse(request.body);
     const now=new Date().toISOString();
     if (body.kind==="PRESET") {
+      if(body.presetId.startsWith("cat-") && !catalogTierOf(db,body.presetId)) return reply.code(404).send({message:"Este avatar não está mais disponível."});
       db.prepare(`INSERT INTO owner_profiles (owner_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
         VALUES (?,'PRESET',?,NULL,NULL,?)
         ON CONFLICT(owner_id) DO UPDATE SET avatar_kind='PRESET',avatar_preset=excluded.avatar_preset,avatar_image=NULL,avatar_mime=NULL,updated_at=excluded.updated_at`)
@@ -387,12 +445,18 @@ export async function registerOwnerRoutes(
         ON CONFLICT(owner_id) DO UPDATE SET avatar_kind='CUSTOM',avatar_preset=NULL,avatar_image=excluded.avatar_image,avatar_mime='image/webp',updated_at=excluded.updated_at`)
         .run(account.id,buffer,now);
     }
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(account.phone) as {id:string}|undefined;
+    if(linked) db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+      SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+      ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(linked.id,account.id);
     return {avatar:ownerAvatar(db,account.id)};
   });
   app.delete("/admin/profile/avatar", { preHandler: ownerGuard }, async (request,reply) => {
     const account=resolveOwnerContext(request);
     if (!account) return reply.code(401).send({message:"Conta Owner não encontrada."});
     db.prepare("DELETE FROM owner_profiles WHERE owner_id=?").run(account.id);
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(account.phone) as {id:string}|undefined;
+    if(linked) db.prepare("DELETE FROM user_profiles WHERE user_id=?").run(linked.id);
     return {ok:true};
   });
 
@@ -423,7 +487,7 @@ export async function registerOwnerRoutes(
     const { userId, action, minutes, seconds } = b.data;
     if (action === "MUTE") return adminMute(db, userId, minutes ?? 10);
     if (action === "UNMUTE") { adminUnmute(db, userId); return { ok: true }; }
-    if (action === "COOLDOWN") { adminSetCooldown(db, userId, seconds ?? 180); return { ok: true }; }
+    if (action === "COOLDOWN") { adminSetCooldown(db, userId, seconds ?? 30); return { ok: true }; }
     if (action === "REMOVE") { adminRemoveFromRoom(db, userId); return { ok: true }; }
     adminRestoreToRoom(db, userId); return { ok: true };
   });
@@ -595,6 +659,7 @@ export async function registerOwnerRoutes(
       purchaseTotals,
       ledger,
       activity,
+      gamification:user ? gamificationData(db,user.id) : undefined,
       watchRewards:user ? watchRewardView(db,user.id) : {verifiedSeconds:0,coins:0,secondsToNextReward:1200},
       verification: effectiveGroup ? groupVerificationState(db,phone,effectiveGroup) : undefined,
       permissions:{canViewSensitive,canAdjustWallet:canViewSensitive,canReviewWallet:canViewSensitive}
@@ -832,7 +897,7 @@ export async function registerOwnerRoutes(
       const user=db.prepare("SELECT id,name,phone FROM users WHERE id=? AND deleted_at IS NULL").get(request.user.sub) as {id:string;name:string;phone:string}|undefined;
       if (!user) return reply.code(401).send({message:"Sua sessão de participante não está ativa."});
 
-      const staticAccount=ownerAccounts(config).find((item)=>item.phone===user.phone && ownerNameMatches(item.name,user.name));
+      const staticAccount=effectiveOwnerAccounts(db,config).find((item)=>item.phone===user.phone && ownerNameMatches(item.name,user.name));
       if (staticAccount?.secret) {
         if (!administrativeSessionValid(db,config,request.user)) return reply.code(403).send({message:"Entre com sua credencial Owner para acessar o painel administrativo."});
         return {
@@ -903,6 +968,19 @@ export async function registerOwnerRoutes(
       user={...user,name:owner.name,groupCode:"#",deletedAt:undefined};
     }
 
+    // A previously created participant may still carry the legacy login alias.
+    // This route is Owner-authenticated; retain the current display name across
+    // dashboard, chat and the return to the administrative panel.
+    if(user.name!==owner.name){
+      db.prepare("UPDATE users SET name=?,updated_at=? WHERE id=?").run(owner.name,new Date().toISOString(),user.id);
+      user={...user,name:owner.name};
+    }
+
+    const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(owner.phone) as {id:string}|undefined;
+    if(linked) db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)
+      SELECT ?,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at FROM owner_profiles WHERE owner_id=?
+      ON CONFLICT(user_id) DO UPDATE SET avatar_kind=excluded.avatar_kind,avatar_preset=excluded.avatar_preset,avatar_image=excluded.avatar_image,avatar_mime=excluded.avatar_mime,updated_at=excluded.updated_at`).run(linked.id,owner.id);
+    syncConfiguredRootOwners(db,config);
     const token=app.jwt.sign({
       sub:user.id,purpose:"session",aud:"conexao-session",adminRole:owner.role,ownerId:owner.id,displayName:owner.name,jti:request.user.jti
     });
@@ -923,6 +1001,7 @@ export async function registerOwnerRoutes(
     db.prepare(`INSERT INTO integration_settings (key,value,updated_at) VALUES (?,?,?)
       ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
       .run(ownerPhoneKey(body.data.ownerId), body.data.phone, new Date().toISOString());
+    syncConfiguredRootOwners(db,config);
     return { ok: true, owners: effectiveOwnerAccounts(db, config).map((o) => ({ id: o.id, name: o.name, phone: o.phone })) };
   });
 
@@ -971,7 +1050,7 @@ export async function registerOwnerRoutes(
     return { ok: true };
   });
   app.get("/admin/owners", { preHandler: rootOwnerGuard }, async () => {
-    const staticRows=ownerAccounts(config).map((item)=>{
+    const staticRows=effectiveOwnerAccounts(db,config).map((item)=>{
       const linked=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(item.phone) as {id:string}|undefined;
       return {id:`static:${item.id}`,name:item.name,phone:item.phone,role:item.role,active:true,static:true,userId:linked?.id};
     });
@@ -979,13 +1058,13 @@ export async function registerOwnerRoutes(
       oa.created_by_owner_id AS createdByOwnerId,oa.created_at AS createdAt,oa.updated_at AS updatedAt
       FROM owner_access oa JOIN users u ON u.id=oa.user_id ORDER BY oa.active DESC,oa.updated_at DESC`).all() as Array<Record<string,unknown>>;
     const dynamicByUser=new Set(dynamicRows.filter((row)=>row.active===1).map((row)=>String(row.userId)));
-    const staticPhones=new Set(ownerAccounts(config).map((item)=>item.phone));
+    const staticPhones=new Set(effectiveOwnerAccounts(db,config).map((item)=>item.phone));
     const users=db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode
       FROM users u JOIN group_memberships gm ON gm.phone=u.phone AND gm.revoked_at IS NULL
       JOIN groups g ON g.code=gm.group_code AND g.enabled=1
       WHERE u.deleted_at IS NULL ORDER BY u.name`).all() as Array<{id:string;name:string;phone:string;groupCode:string}>;
     const candidates=users.filter((user)=>eligibleAdminName(user.name)&&!dynamicByUser.has(user.id)&&!staticPhones.has(user.phone));
-    return {owners:[...staticRows,...dynamicRows],candidates};
+    return {owners:[...staticRows,...dynamicRows.filter(row=>!String(row.createdByOwnerId??"").startsWith("root:"))],candidates};
   });
 
   app.post("/admin/owners", { preHandler: rootOwnerGuard }, async (request, reply) => {
@@ -994,6 +1073,7 @@ export async function registerOwnerRoutes(
       | {id:string;name:string;phone:string;groupCode:string}
       | undefined;
     if (!user) return reply.code(404).send({message:"Usuário verificado não encontrado."});
+    if(effectiveOwnerAccounts(db,config).some(owner=>owner.phone===user.phone)||db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role=\'ROOT_OWNER\' AND active=1").get(user.id))return reply.code(409).send({message:"Owner principal não pode ser rebaixado a administrador."});
     if (!eligibleAdminName(user.name)) return reply.code(403).send({message:"Somente authids Fabio/Fábio ou Rafael podem receber acesso administrativo."});
     if (!hasMembership(db,user.phone,user.groupCode)) return reply.code(409).send({message:"Este authid precisa manter um acesso de participante aprovado antes da promoção."});
     const actor=resolveOwnerContext(request)!;
@@ -1010,6 +1090,8 @@ export async function registerOwnerRoutes(
 
   app.delete("/admin/owners/:id", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const id=z.string().uuid().parse((request.params as {id:string}).id);
+    const target=db.prepare("SELECT phone,role FROM owner_access WHERE id=?").get(id) as {phone:string;role:string}|undefined;
+    if(target&&(target.role==="ROOT_OWNER"||effectiveOwnerAccounts(db,config).some(owner=>owner.phone===target.phone)))return reply.code(409).send({message:"Owner principal não pode ser removido da equipe."});
     const changed=db.prepare("UPDATE owner_access SET active=0,updated_at=? WHERE id=?").run(new Date().toISOString(),id);
     if (!changed.changes) return reply.code(404).send({message:"Administrador não encontrado."});
     return {ok:true};

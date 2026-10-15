@@ -1,3 +1,4 @@
+import { LevelBadge } from "./GamificationPanel";
 import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, CircleDollarSign, Clock3, LoaderCircle, ShieldCheck, UserRoundCog, WalletCards, Youtube } from "lucide-react";
@@ -39,7 +40,7 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   useEffect(()=>{
     let alive=true;
     const timer=window.setInterval(()=>{
-      void ownerApi.participant(phone).then(result=>{if(alive)setDetail(current=>current?{...current,watchRewards:result.watchRewards}:current);}).catch(()=>{});
+      void ownerApi.participant(phone).then(result=>{if(alive)setDetail(current=>current?{...current,watchRewards:result.watchRewards,gamification:result.gamification}:current);}).catch(()=>{});
     },10000);
     return()=>{alive=false;window.clearInterval(timer);};
   },[phone]);
@@ -96,7 +97,8 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
           <article><span>Jornada</span><strong>{detail.activity.playlists} playlists</strong><small>{detail.activity.completedTasks} tarefa{detail.activity.completedTasks===1?"":"s"} concluída{detail.activity.completedTasks===1?"":"s"}</small></article>
         </section>
 
-        <WatchTimeSummary rewards={detail.watchRewards}/>
+        {detail.gamification&&<p><LevelBadge progress={detail.gamification.progress}/> {detail.gamification.progress.xp} XP · {detail.gamification.progress.rewardCoins} moedas de recompensa</p>}
+      <WatchTimeSummary rewards={detail.watchRewards}/>
 
         <form className="participant-edit-form" onSubmit={save}>
           <div className="section-title admin-subtitle"><div><p className="eyebrow dark">DADOS CADASTRAIS</p><h3>Editar participante</h3></div><span>Alterações são exclusivas do Owner.</span></div>

@@ -33,11 +33,11 @@ describe("cérebro do bot (config no painel, tempo real)", () => {
     const token = await ownerToken();
     const save = await app.inject({ method: "POST", url: "/admin/bot", headers: auth(token), payload: { mode: "HYBRID", features: { GROUP_SYNC: true, BROADCAST: true } } });
     expect(save.statusCode).toBe(200);
-    expect(botMode(db)).toBe("HYBRID");
+    expect(botMode(db)).toBe("HYBRID_PLUS");
     expect(featureEnabled(db, "GROUP_SYNC")).toBe(true);
     expect(featureEnabled(db, "BROADCAST")).toBe(true);
     // efeito imediato no status
-    expect(save.json().status.mode).toBe("HYBRID");
+    expect(save.json().status.mode).toBe("HYBRID_PLUS");
   });
 
   it("HYBRID sem credenciais: funções ficam BLOQUEADAS com motivo, não ativas", async () => {
