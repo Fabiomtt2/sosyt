@@ -53,8 +53,10 @@ Os dois pareceres convergem: motor pronto para publicação após gate; experiê
 
 ## Publicação e limites
 
-Branch astra/convergencia-20261012; base bad6c07; PR #3. Seis commits desta expansão publicados até 0296bf240017bf136cd332b2e29c0a78863272e2; ainda não é produção.
+PR #3 MERGED em 15/10/2026. Main local/remoto 9e1d8bca8f81b9e51ddb0b7cc43049e094961973. Branch original de revisão astra/convergencia-20261012; base bad6c07. Seis commits desta expansão publicados até 0296bf240017bf136cd332b2e29c0a78863272e2; ainda não é produção.
 API e Web públicos continuam online com artefatos de 10/10. Patch staged agora inclui espera da Web por capacidades da API antes de expor a nova tela. Pages recebe o mesmo gate e permanece pausado enquanto VITE_API_URL não estiver configurada; a URL principal é Railway Web. Volume /data preservado; backup SQLite consistente antes de migrações aditivas.
 Acesso de ambas as contas Root foi validado por requisições autenticadas públicas nesta rodada. Nenhuma credencial é registrada neste relatório.
 Publicação coordenada exige gate, commits revisáveis, push e confirmação de SUCCESS para ambos os serviços. Aprovação do conector não deve ser contornada.
 A medição registra progresso no player; não comprova atenção humana ou visualizações reconhecidas pelo YouTube. O runtime histórico IFtp não foi localizado. O companion atual é uma implementação posterior opt-in e apenas corrobora observações: não concede recompensas por conta própria.
+
+Merge confirmou árvore idêntica à ponta testada 7edea71. Próximo passo: Railway, ainda sem deploy desta expansão.

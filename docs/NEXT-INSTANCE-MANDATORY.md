@@ -1,3 +1,11 @@
+## Merge confirmado — 2026-10-15T03:12:11.350648-03:00
+- PR #3 MERGED: https://github.com/Fabiomtt2/sosyt/pull/3
+- Main local == GitHub main == 9e1d8bca8f81b9e51ddb0b7cc43049e094961973. Merge preservou os commits; árvore de produto idêntica à ponta testada 7edea71.
+- Gate: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN e revisão visual fresca. WIP/árvores originais Sol/Claude preservados.
+- Código de gamificação, acesso, comunidade, loja e integração dos cinco eventos do bot agora está em main.
+- Ainda não declarar deploy: próximo passo é aplicar patch Railway d1be5c2e-d014-4ee2-bfab-9f295ea61286 (7 campos não destrutivos). Volume /data, variáveis e dados preservados.
+- Fonte Web espera API compatível. Após aplicar: observar SUCCESS dos dois serviços, backup/migrações e smoke público autenticado. APIs definitivas bot/pagamentos não certificadas.
+
 ## Push confirmado — 2026-10-15T03:09:56.147899-03:00
 - Seis commits revisados publicados na branch astra/convergencia-20261012 até 0296bf240017bf136cd332b2e29c0a78863272e2; PR #3 atualizado com escopo final. Sem merge/deploy ainda.
 - API 292, cliente25, Chromium8, lint/build/diff e reinspeção visual GREEN. Ponta documental posterior deve ser conferida por git/remote.
