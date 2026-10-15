@@ -1,3 +1,89 @@
+## Checkpoint executivo — 2026-10-15T03:07:42.586017-03:00
+- Cinco commits de código/teste/publicação concluídos. Documentando estado final para push e merge autorizado.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: afba71ef8ae71da85de985351df3f76724cc26ac. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:42.581550-03:00
+- Commit local confirmado: afba71ef8ae71da85de985351df3f76724cc26ac — fix(deploy): gate frontend publication on compatible API. Próximo: fechar documentação/push/PR/publicação.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: afba71ef8ae71da85de985351df3f76724cc26ac. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:42.535616-03:00
+- Commit local confirmado: 328f2c6120c57e4650bf9706344f11da8780b80e — test(e2e): verify journey commerce and responsive community flows. Próximo: fechar documentação/push/PR/publicação.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: 328f2c6120c57e4650bf9706344f11da8780b80e. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:40.821084-03:00
+- Commit local confirmado: 3df78b2950584dbfb4938786c238b8ad092cc1c7 — feat(web): integrate journey and refine premium community access. Próximo: fechar documentação/push/PR/publicação.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: 3df78b2950584dbfb4938786c238b8ad092cc1c7. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:40.665608-03:00
+- Commit local confirmado: 138917cabd4eed748a44568baa1bd03aa622e2e2 — feat(api): integrate journey events and protect account access. Próximo: fechar documentação/push/PR/publicação.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: 138917cabd4eed748a44568baa1bd03aa622e2e2. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:40.584858-03:00
+- Commit local confirmado: fb6a0ef5ad0ef6e2abc6f40f768f991489da5b43 — feat(rewards): add verified progression and earned coin economy. Próximo: fechar documentação/push/PR/publicação.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: fb6a0ef5ad0ef6e2abc6f40f768f991489da5b43. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Checkpoint executivo — 2026-10-15T03:07:40.054481-03:00
+- Gate encerrado; revisão por domínio concluída. Iniciando commits locais, sem merge/deploy.
+- Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.
+- HEAD desta operação: bad6c07c583800f1fc8f0a45cb5b3078f6e6223c. Ponta documental posterior: conferir git rev-parse HEAD e origin.
+- Branch astra/convergencia-20261012; PR #3. Railway não publicado ainda, patch 7 campos preparado; volume preservado.
+- Relatório dos dois auditores: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Credenciais nunca no Git.
+
+## Retomada confirmada — 15/10/2026, 03h Bahia
+- HEAD de trabalho bad6c07, branch astra/convergencia-20261012; WIP íntegro. Não houve commit/merge/deploy desta expansão.
+- Gate journey-accepted-gate.log: API 292/292, cliente 25/25, lint/build GREEN; navegador 7/8. Último RED foi label acessível da senha atual; corrigido no markup, nova execução journey-final-browser.log em andamento.
+- P1s encontrados pelos auditores foram corrigidos: senha bot pendente invalidada/cifrado apagado após troca/setup/bootstrap; ROOT configurado sincronizado em owner_access, excluído do TOP3, sem senha comum, sem rebaixamento/remoção e com troca de telefone segura.
+- Google, OTP e modo participante sincronizam a identidade Root. Nenhuma credencial Owner foi alterada. Health anuncia capacidades da release jornada-20261014.
+- XP aparece durante acompanhamento somente após confirmação do servidor; dashboard sincroniza a cada 5s com página visível e após operações. Nível 30 visual não substitui assinatura válida.
+- Direct e Jornada possuem título/X fixos durante scroll; layout sem coluna vazia quando Booster indisponível. Capturas finais serão reinspecionadas.
+- Railway patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 agora contém 7 alterações: fonte API/Web + Web espera capacidades da API antes de servir e health timeout300s. Sem volume/variáveis/rede alterados, nada aplicado.
+- Pages também verifica API; variável VITE_API_URL não está disponível no repositório (404), e a API atual só permite origem Railway Web. URL canônica de uso é Railway Web; não publicar um Pages desconectado.
+- Próximo: encerrar E2E, rever novas imagens, atualizar relatório com ambos os pareceres, revisar/commitar por domínio, push/PR/main e uma tentativa autorizada de aplicar patch. Se a camada de aprovação rejeitar, registrar e preservar publicação anterior.
+
+## Checkpoint atual — 14/10/2026 — Jornada, bot e acesso
+- Worktree astra/convergencia-20261012, HEAD bad6c07; WIP preservado, nenhum commit/merge/deploy novo desta expansão.
+- Implementado: XP por cobertura única consolidada no servidor; níveis com curva crescente; recompensas +1/nível, +20/10 níveis e SUPER de 7 dias/30 níveis. Tempo assistido/20 min → 1 moeda preservado.
+- Ranking mensal Bahia com liquidação TOP3 15/10/5 uma vez por mês fechado; ranking permanente por nível/XP. Owners fora de premiações.
+- Booster sexta America/Bahia 06:00–23:59, sorteio criptográfico, uma abertura/data; odds públicas/configuráveis. Troca somente moedas de recompensa por Passe/Pular (100 padrão), presentes idempotentes, receita separada.
+- Integração visual: perfil, filas, chat global/privado, consulta de avatar, Jornada e painel Root. Nível 30 dá destaque visual; privilégio SUPER depende de assinatura/trial válido.
+- Bot: cinco eventos reais, correio interno e outbox WhatsApp com estados explícitos. Senha inicial automática apenas com prova de acesso/conta aprovada/provedor elegível; payload cifrado antes de gravar, senhas existentes e Owners preservados.
+- Login/chats revisados no tema premium; chat comum 30s e ADMIN/ROOT/SUPER isentos conforme regras; moderação usa autorização administrativa real.
+- Gate final pendente após últimas correções: módulos 15 gamificação +4 bot +5 senha GREEN; E2E Jornada passou; último browser 7/8 com microcopy restante corrigida. Não declarar gate inteiro fechado.
+- Dois pareceres serão consolidados em docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md. Capturas de fixtures, não dados pessoais.
+- Rafael e Fábio autenticaram na produção com permissões ROOT confirmadas; credenciais somente em arquivos locais ignorados e conversa, nunca documentação/Git.
+- Railway API/Web ainda artefatos de 10/10, volume /data intacto; patch staged d1be5c2e-d014-4ee2-bfab-9f295ea61286. Publicação depende do gate e operação coordenada; não contornar rejeição de aprovação.
+- Próximo: gate completo, olhar capturas frescas, revisar diff, commits lógicos/push/PR e publicação segura. Histórico abaixo é preservado e não substitui este checkpoint.
+
+## Rodada em andamento — 14/10/2026 — login, sala e recuperação Claude
+
+- Base limpa bad6c07 na branch astra/convergencia-20261012; PR #3 draft. Nenhum merge/deploy novo.
+- Novo pedido Fábio: refinar login no tema creme/ameixa, reformar sala pública para não parecer DM, participantes30s e ROOT_OWNER/ADMIN_OWNER sem cooldown; revisar XP/progresso Claude e cadastro automático pelo bot Híbrido+.
+- Dois agentes somente leitura retomados: auditor_motor_retomada e auditor_visual_retomada. Capturas antes atuais access-before-* e room-admin-before-* abertas pelos auditores.
+- Claude8a1962f ancestral preservado e os2arquivos bot WIP importados byte a byte. XP/níveis constam como proposta F3 no LAUDO-10, sem runtime perdido. Progresso por vídeo/tempo entre filas/20min→1moeda existe e é preservado.
+- REDs: defaultchat180s; contratoADMIN informava180 emboraenvioisento; nota arredondava30spara1min; UI não moderavaSUPER; intro mobile617px; mensagensADMIN cartõessobrepostos.
+- WIPcorrige30sdefault mantendo exceçõesOwner, contratoisento, feedsem balões, moderaçãoexplícita+limpezaconfirmadaROOT, rascunhoeditável duranteespera, introcompacta/microcopy.
+- LoginOTP5min real usaMeta; seleçãoHíbrido+/flags não governamenvio; bootstrapgera senhaapósprova masnão entregaautomaticamente. Chip/provedor definitivo pendente; não declararbotativo nemsenhageradaautomática.
+- Gate novo ainda em andamento: lint inicialGREEN; capturastestes access-room-before1/1GREEN. Não usar259/25/6anteriores como gate desteWIP.
+- Próximo: visualafter, testes moderação/cooldown, gatecompleto, evidências/commits/push. Railwayhold permanece registrado abaixo.
+
 ## Retomada imediata — 14/10/2026 — comércio e identidade validados
 
 - Fase: código e capturas publicados na branch, conferidos contra GitHub. Commit de código: d2f37dc43ef012bd639fd69b61c1f3006a0acf11. Ponta documental: obter com git rev-parse HEAD e comparar a origin/astra/convergencia-20261012.
