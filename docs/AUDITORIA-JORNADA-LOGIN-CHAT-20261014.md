@@ -60,3 +60,7 @@ Publicação coordenada exige gate, commits revisáveis, push e confirmação de
 A medição registra progresso no player; não comprova atenção humana ou visualizações reconhecidas pelo YouTube. O runtime histórico IFtp não foi localizado. O companion atual é uma implementação posterior opt-in e apenas corrobora observações: não concede recompensas por conta própria.
 
 Merge confirmou árvore idêntica à ponta testada 7edea71. Próximo passo: Railway, ainda sem deploy desta expansão.
+
+## Resultado operacional final — 15/10/2026
+
+PR #3 MERGED; main publicado e sincronizado. A operação accept-deploy foi cancelada pela camada de aprovação, apesar da autorização explícita, com a mensagem “the user did not approve this action”. Releitura confirmou patch7campos STAGED e nenhum novo deploy. Web/API antigos SUCCESS1/1; volume /data500MB intacto. Rafael e Fábio reautenticaram HTTP200. Novas funções estão em main, ainda não em produção. Ação restante: aplicar o patch pelo painel Railway e validar os dois serviços, health com capacidades e migração/backup. Não contornar o bloqueio com CLI/browser.

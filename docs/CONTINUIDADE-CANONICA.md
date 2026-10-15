@@ -1,3 +1,18 @@
+## ENTREGA ATUAL — 2026-10-15T03:14:36.405030-03:00
+- PR #3 MERGED (9e1d8bc). Código revisado e documentação publicados em main; último checkpoint anterior a este documento: a1c2b09020f02dc36bb6b245d2f54e048bb805ba. Conferir ponta final com git rev-parse HEAD e origin/main.
+- Gate GREEN: 292 API, 25 cliente, 8 Chromium, lint/TypeScript, build e diff check. Capturas finais vistas pelo integrador e auditor visual. Relatório: docs/AUDITORIA-JORNADA-LOGIN-CHAT-20261014.md.
+- Implementado em main: XP/níveis/emblemas, moedas internas por nível/marcos, TOP3 mensal e ranking permanente, Booster sexta Bahia, trocas Passe/Pular e presentes, trials7dias, perfil/filas/chat/Owner e cinco eventos reais de bot. Saldo de recompensa separado de receita.
+- Acesso/senha alternativa e senha bot cifrada integrados; invalidação de senha obsoleta; ROOT persistido e protegido, fora de premiações, credenciais atuais preservadas.
+- PRODUÇÃO AINDA ANTIGA: Web/API online SUCCESS1/1, artefatos de 10/10 e health apenas {ok:true}. Novas capacidades não publicadas. API volume /data500MB intacto; backup/migrações da release ainda não executados.
+- Tentativa autorizada Railway accept-deploy foi cancelada pela camada de aprovação: “Cancelled — the user did not approve this action. No changes were made.” Não atribuir recusa a Fábio e não contornar com CLI/browser.
+- Patch d1be5c2e-d014-4ee2-bfab-9f295ea61286 continua STAGED, 7 campos, destructive=false: remove pin65d5b2c API/Web, reconecta fonte Web main, aguarda capacidades API no start Web, healthtimeout300s. Sem variáveis/rede/volume alterados.
+- Pendência concreta: aplicar as7alterações pelo painel Railway production ou resolver autorização do conector. Não repetir em loop. Depois confirmar os dois SUCCESS, APIhealth com gamification-v1/reward-redemption-v1/bot-password-v1, backup em /data e smoke autenticado.
+- URL principal funcionando na versão anterior: https://sos-youtuber-web-production.up.railway.app ; API https://sos-youtuber-api-production.up.railway.app .
+- Rafael e Fábio revalidados na API pública HTTP200 nesta entrega. Credenciais reais somente em .env/arquivos privados ignorados e conversa; “sosyout” é histórico e não a credencial atual verificada.
+- Pages está pausado sem VITE_API_URL configurada; workflow não publica uma versão desconectada. Sua configuração e CORS devem ser coordenados se esse canal for ativado.
+- APIs definitivas Meta/Evolution e pagamentos reais seguem dependentes da configuração e validação externa. O gate não certifica atenção humana ou contagem do YouTube.
+- Worktree atual: YouTube Final/.local-tmp/convergencia-claude-20261012, branch main, limpa ao final. Árvores originais Sol/Claude e seu WIP não foram descartados.
+
 ## Merge confirmado — 2026-10-15T03:12:11.350648-03:00
 - PR #3 MERGED: https://github.com/Fabiomtt2/sosyt/pull/3
 - Main local == GitHub main == 9e1d8bca8f81b9e51ddb0b7cc43049e094961973. Merge preservou os commits; árvore de produto idêntica à ponta testada 7edea71.
