@@ -1,3 +1,4 @@
+import { trialSuperView } from "./gamification.js";
 // AUDITORIA / assinatura SUPER: privilégios por tempo, revogados automaticamente.
 //
 // Princípio que mantém isto honesto: **não existe estado "é super" gravado**. A
@@ -35,14 +36,17 @@ export function superState(db: AppDatabase, userId: string): SuperState {
   const row = db.prepare(`SELECT expires_at AS expiresAt, auto_renew AS autoRenew, source
     FROM super_subscriptions WHERE user_id=? AND revoked_at IS NULL`).get(userId) as
     | { expiresAt: string; autoRenew: number; source: string } | undefined;
-  const until = row ? Date.parse(row.expiresAt) : 0;
-  const active = Boolean(row) && until > Date.now();
+  const trial=trialSuperView(db,userId);
+  const paidUntil=row?Date.parse(row.expiresAt):0;
+  const trialUntil=trial.expiresAt?Date.parse(trial.expiresAt):0;
+  const until=Math.max(paidUntil,trialUntil);
+  const active=until>Date.now();
   return {
     active,
-    expiresAt: row?.expiresAt,
+    expiresAt:until>0?new Date(until).toISOString():undefined,
     secondsRemaining: active ? Math.max(0, Math.floor((until - Date.now()) / 1000)) : 0,
-    autoRenew: Boolean(row?.autoRenew),
-    source: row?.source,
+    autoRenew: paidUntil>Date.now() && Boolean(row?.autoRenew),
+    source: trialUntil>paidUntil?trial.source:row?.source,
     uploadsPerRound: active ? SUPER_UPLOADS_PER_ROUND : 1,
     chatCooldownSeconds: active ? 0 : -1,   // -1 = usa o cooldown padrão do chat
     canPin: active
@@ -76,8 +80,9 @@ export function grantSuper(db: AppDatabase, userId: string, opts: { days?: numbe
       const already = db.prepare("SELECT 1 FROM super_events WHERE reference_id=?").get(opts.referenceId);
       if (already) return superState(db, userId);   // idempotente: compra reenviada não duplica
     }
-    const current = superState(db, userId);
-    const base = current.active && current.expiresAt ? Date.parse(current.expiresAt) : now;
+    // Paid renewals extend paid time only; trials remain independent grants.
+    const paid=db.prepare("SELECT expires_at AS expiresAt FROM super_subscriptions WHERE user_id=? AND revoked_at IS NULL").get(userId) as {expiresAt:string}|undefined;
+    const base=paid&&Date.parse(paid.expiresAt)>now?Date.parse(paid.expiresAt):now;
     const expiresAt = new Date(base + days * 86_400_000).toISOString();
     db.prepare(`INSERT INTO super_subscriptions (user_id,started_at,expires_at,auto_renew,source,revoked_at,updated_at)
       VALUES (?,?,?,?,?,NULL,?)
@@ -97,6 +102,7 @@ export function revokeSuper(db: AppDatabase, userId: string, actor: string): voi
     db.prepare("UPDATE super_subscriptions SET revoked_at=?,auto_renew=0,updated_at=? WHERE user_id=? AND revoked_at IS NULL").run(now, now, userId);
     db.prepare("INSERT INTO super_events (id,user_id,kind,days,reference_id,created_at,note) VALUES (?,?,?,?,?,?,?)")
       .run(randomUUID(), userId, "REVOKE", 0, null, now, `Revogado por ${actor}`);
+    db.prepare("UPDATE gamification_trials SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL").run(now,userId);
     // Mensagens fixas do SUPER caem junto: o privilégio acabou.
     db.prepare("UPDATE super_pins SET removed_at=? WHERE user_id=? AND removed_at IS NULL").run(now, userId);
   })();
@@ -113,7 +119,7 @@ export function setAutoRenew(db: AppDatabase, userId: string, autoRenew: boolean
 export function activePins(db: AppDatabase) {
   const cutoff = new Date(Date.now() - SUPER_PIN_MINUTES * 60_000).toISOString();
   return db.prepare(`SELECT p.id,p.user_id AS userId,p.body,p.channel_url AS channelUrl,p.created_at AS createdAt
-    FROM super_pins p WHERE p.removed_at IS NULL AND p.created_at > ? AND (EXISTS(SELECT 1 FROM owner_access a WHERE a.user_id=p.user_id AND a.active=1 AND a.role='ROOT_OWNER') OR EXISTS(SELECT 1 FROM super_subscriptions s WHERE s.user_id=p.user_id AND s.revoked_at IS NULL AND s.expires_at>?)) ORDER BY p.created_at ASC`).all(cutoff,new Date().toISOString()) as
+    FROM super_pins p WHERE p.removed_at IS NULL AND p.created_at > ? AND (EXISTS(SELECT 1 FROM owner_access a WHERE a.user_id=p.user_id AND a.active=1 AND a.role='ROOT_OWNER') OR EXISTS(SELECT 1 FROM super_subscriptions s WHERE s.user_id=p.user_id AND s.revoked_at IS NULL AND s.expires_at>?) OR EXISTS(SELECT 1 FROM gamification_trials t WHERE t.user_id=p.user_id AND t.revoked_at IS NULL AND t.starts_at<=? AND t.expires_at>?)) ORDER BY p.created_at ASC`).all(cutoff,new Date().toISOString(),new Date().toISOString(),new Date().toISOString()) as
     Array<{ id: string; userId: string; body: string; channelUrl?: string; createdAt: string }>;
 }
 

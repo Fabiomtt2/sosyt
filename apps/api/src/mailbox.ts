@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { catalogTierOf, type AvatarTier } from "./avatar-tiers.js";
 import type { AppDatabase } from "./db.js";
 
+const systemIdentity=()=>({id:"system",name:"Sua jornada no SOS",groupCode:"",avatar:null,presentation:{badge:null,superActive:false} as UserPresentation});
 export type MailRole = "USER" | "OWNER" | "SYSTEM";
 const BODY_MAX = 2000;
 
@@ -92,26 +93,26 @@ export function listInbox(db: AppDatabase, userId: string,config?:Config) {
   for (const r of rows) {
     const key = String(r.threadKey);
     const role = String(r.senderRole) as MailRole;
-    const other = role === "OWNER" ? null : (String(r.senderId) === userId ? String(r.recipientId) : String(r.senderId));
+    const other = role === "SYSTEM" ? "system" : role === "OWNER" ? null : (String(r.senderId) === userId ? String(r.recipientId) : String(r.senderId));
     if (!threads.has(key)) threads.set(key, { key, withId: other, role, lastBody: String(r.body), lastAt: String(r.createdAt), unread: 0 });
     if (r.recipientId === userId && r.readAt == null) threads.get(key)!.unread++;
   }
   return Array.from(threads.values()).map((t) => ({
     ...t,
-    with: t.withId ? identityOf(db, t.withId) ?? null : broadcastIdentity(db,String(rows.find(row=>row.threadKey===t.key)?.senderId??""),config)
+    with: t.withId==="system"?systemIdentity():t.withId ? identityOf(db, t.withId) ?? null : broadcastIdentity(db,String(rows.find(row=>row.threadKey===t.key)?.senderId??""),config)
   }));
 }
 
 /** Mensagens de um thread (DM com `otherId`, ou 'broadcast'); marca recebidas como lidas. */
 export function readThread(db: AppDatabase, userId: string, otherId: string,config?:Config) {
-  const key = otherId === "broadcast" ? "broadcast" : threadKey(userId, otherId);
-  const scope = otherId === "broadcast" ? "recipient_id=?" : "(recipient_id=? OR sender_id=?)";
-  const params = otherId === "broadcast" ? [userId] : [userId, userId];
+  const key = ["broadcast","system"].includes(otherId) ? otherId : threadKey(userId, otherId);
+  const scope = ["broadcast","system"].includes(otherId) ? "recipient_id=?" : "(recipient_id=? OR sender_id=?)";
+  const params = ["broadcast","system"].includes(otherId) ? [userId] : [userId, userId];
   const rows = db.prepare(`SELECT id,sender_id AS senderId,sender_role AS senderRole,recipient_id AS recipientId,body,created_at AS createdAt,read_at AS readAt
     FROM mail_messages WHERE thread_key=? AND deleted_at IS NULL AND ${scope} ORDER BY created_at ASC`).all(key, ...params) as Array<Record<string, unknown>>;
   db.prepare("UPDATE mail_messages SET read_at=? WHERE thread_key=? AND recipient_id=? AND read_at IS NULL AND deleted_at IS NULL").run(new Date().toISOString(), key, userId);
   return rows.map((r) => ({
-    id: String(r.id), mine: String(r.senderId) === userId, role: String(r.senderRole), sender:r.senderRole==="OWNER"?broadcastIdentity(db,String(r.senderId??""),config):identityOf(db,String(r.senderId)),
+    id: String(r.id), mine: String(r.senderId) === userId, role: String(r.senderRole), sender:r.senderRole==="SYSTEM"?systemIdentity():r.senderRole==="OWNER"?broadcastIdentity(db,String(r.senderId??""),config):identityOf(db,String(r.senderId)),
     body: String(r.body), createdAt: String(r.createdAt), readAt: r.readAt ?? null
   }));
 }

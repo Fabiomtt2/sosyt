@@ -1,3 +1,6 @@
+import { initializeBotPassword } from "./bot-password.js";
+import { initializeGamificationBot } from "./gamification-bot.js";
+import { initializeGamification } from "./gamification.js";
 import Database from "better-sqlite3";
 import { dirname, join } from "node:path";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
@@ -22,6 +25,19 @@ export async function backupBeforePaymentBenefitsMigration(filename: string): Pr
   } finally {
     source.close();
   }
+}
+
+/** Preserve the existing database before adding the progression/reward ledgers. */
+export async function backupBeforeGamificationMigration(filename:string):Promise<string|undefined>{
+  if(filename===":memory:"||!existsSync(filename))return;
+  const source=new Database(filename,{readonly:true,fileMustExist:true});
+  try{
+    if(source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gamification_events'").get())return;
+    if(!source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get())return;
+    const folder=join(dirname(filename),"backups");mkdirSync(folder,{recursive:true,mode:0o700});
+    const destination=join(folder,"pre-gamification-"+Date.now()+"-"+randomUUID()+".sqlite");
+    await source.backup(destination);chmodSync(destination,0o600);return destination;
+  }finally{source.close();}
 }
 
 const schema = `
@@ -537,6 +553,9 @@ export function createDatabase(filename: string): AppDatabase {
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
     UPDATE submissions SET author_group = (SELECT group_code FROM users WHERE id = submissions.user_id) WHERE author_group IS NULL;`);
   ensureOpenRound(db);
+  initializeGamification(db);
+  initializeGamificationBot(db);
+  initializeBotPassword(db);
   return db;
 }
 

@@ -1,3 +1,4 @@
+import { encryptToken, decryptToken } from "./youtube.js";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -30,6 +31,25 @@ function queue(db: AppDatabase, recipient: string, payload: Payload, dedupeKey: 
 function template(config: Config, name: string, parameters: string[]): Payload {
   return { type: "template", template: { name, language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE }, components: [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] } };
 }
+/** Queues a real notification; dispatch/receipt status stays in the durable outbox. */
+export function queueBotNotification(db:AppDatabase,config:Config,phone:string,body:string,dedupeKey:string,approvedTemplate?:{name:string;language:string},options?:{encryptPayload?:boolean}) {
+  config=effectiveWhatsAppConfig(db,config);
+  if(!phoneValid(phone)||!whatsappConfigured(config))return {queued:false,reason:"PROVIDER_NOT_READY"};
+  const safePayload=(payload:Payload):Payload=>options?.encryptPayload?{encryptedNotification:encryptToken(JSON.stringify(payload),config)}:payload;
+  const proof=db.prepare("SELECT MAX(whatsapp_verified_at) AS at FROM participation_requests WHERE phone=? AND source='WHATSAPP'").get(phone) as {at:string|null};
+  const start=proof.at?Date.parse(proof.at):0;
+  const expires=start+24*3600_000;
+  if(start>0&&start<=Date.now()&&expires>Date.now()) {
+    queue(db,phone,safePayload({type:"text",text:{body:body.slice(0,4096)}}),dedupeKey,new Date(expires).toISOString());
+  } else if(approvedTemplate?.name) {
+    const payload=template(config,approvedTemplate.name,[body.slice(0,1024)]);
+    (payload.template as {language:{code:string}}).language.code=approvedTemplate.language;
+    queue(db,phone,safePayload(payload),dedupeKey);
+  } else return {queued:false,reason:"TEMPLATE_OR_SERVICE_WINDOW_REQUIRED"};
+  const row=db.prepare("SELECT id FROM whatsapp_outbox WHERE dedupe_key=?").get(dedupeKey) as {id:string}|undefined;
+  return {queued:Boolean(row),outboxId:row?.id};
+}
+
 export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: string, phone: string, name: string, eventId: string) {
   config = effectiveWhatsAppConfig(db,config);
   if (!config.WHATSAPP_OWNER_ALERT_TEMPLATE) return;
@@ -209,7 +229,9 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
     })();
     if (!job) break;
     try {
-      const id = await send(config,job.recipient,JSON.parse(job.payload));
+      const stored=JSON.parse(job.payload) as Payload;
+      const payload=typeof stored.encryptedNotification==="string"?JSON.parse(decryptToken(stored.encryptedNotification,config)):stored;
+      const id = await send(config,job.recipient,payload);
       db.prepare("UPDATE whatsapp_outbox SET status='SENT',provider_message_id=?,last_error=NULL,lease_until=NULL WHERE id=?").run(id,job.id);
     } catch (cause) {
       const attempts = job.attempts + 1;

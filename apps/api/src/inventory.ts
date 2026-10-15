@@ -8,7 +8,7 @@ import { isRootOwner } from "./super.js";
 
 export const ITEM_SKIP = "SKIP";
 
-export type GrantKind = "PURCHASE" | "GIFT_IN" | "GIFT_OUT" | "OWNER_ADJUST" | "CONSUME";
+export type GrantKind = "PURCHASE" | "GIFT_IN" | "GIFT_OUT" | "OWNER_ADJUST" | "CONSUME" | "REWARD" | "REWARD_EXCHANGE";
 
 function err(statusCode: number, message: string, extra: Record<string, unknown> = {}) {
   return Object.assign(new Error(message), { statusCode, ...extra });
