@@ -55,7 +55,7 @@ export function GoogleAccess({name,phone,onDone}:{name:string;phone:string;onDon
   if(!configured&&!claim&&!error&&!busy)return null;
   return <aside className="google-access" aria-label="Acesso alternativo com Google">
     {claim&&<div role="status"><strong>Identidade Google</strong><p>{claim.message}</p><div className="ready-actions"><button type="button" className="text-button" disabled={busy} onClick={()=>void refresh()}>Verificar associação</button><button type="button" className="text-button" onClick={()=>{localStorage.removeItem(pendingKey);setClaim(undefined);}}>Ocultar acompanhamento</button></div></div>}
-    {configured&&<><button type="button" className="secondary" disabled={busy} onClick={()=>void start()}>{busy?"Confirmando identidade…":"Continuar com Google"}</button><p className="muted">Opcional. Usamos sua identidade e e-mail para o acesso. Seu WhatsApp e grupo continuam vinculados à mesma conta; criar playlists terá uma autorização separada.</p></>}
+    {configured&&<><button type="button" className="secondary" disabled={busy} onClick={()=>void start()}>{busy?"Confirmando identidade…":"Continuar com Google"}</button><p className="muted">Opcional. Sua identidade e e-mail dão acesso à mesma conta, com seu WhatsApp e grupo. A conexão com o YouTube será pedida separadamente.</p></>}
     {error&&<p className="error" role="alert">{error}</p>}
   </aside>;
 }

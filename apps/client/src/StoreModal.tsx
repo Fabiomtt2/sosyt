@@ -1,8 +1,9 @@
+import { useRef, useState } from "react";
 import {productKind,productExplanation} from "./commerce";
 import { CommerceArtwork } from "./CommerceArtwork";
 import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
-import type { Dashboard } from "./api";
+import { api, type Dashboard } from "./api";
 
 const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const provider=(value:Dashboard["commerce"]["provider"])=>value==="MERCADO_PAGO"?"Mercado Pago":value==="ASAAS"?"Asaas":value==="PAGBANK"?"PagBank":value==="DEMO"?"simulação de teste":"não configurado";
@@ -10,7 +11,17 @@ const status=(value:string)=>value==="APPROVED"?"Confirmado":value==="PENDING"?"
 
 // AUDITORIA / loja configurável: os produtos vêm do servidor (editáveis no painel),
 // então a loja renderiza uma lista dinâmica em vez de dois cards fixos.
-export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>void;onChoose:(product:string)=>void}) {
+export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onClose:()=>void;onChoose:(product:string)=>void;onChanged?:()=>Promise<void>}) {
+  const [trading,setTrading]=useState<string>();
+  const [notice,setNotice]=useState("");
+  const references=useRef<Partial<Record<"SKIP"|"PASS",string>>>({});
+  async function trade(code:"SKIP"|"PASS"){
+    if(trading)return;setTrading(code);setNotice("");
+    const reference=references.current[code]??crypto.randomUUID();references.current[code]=reference;
+    try{await api.redeemReward(code,reference);delete references.current[code];setNotice((code==="SKIP"?"Pular":"Passe")+" chegou ao seu inventário.");await onChanged?.();}
+    catch(e){setNotice(e instanceof Error?e.message:"Não foi possível concluir a troca.");}
+    finally{setTrading(undefined);}
+  }
   const modalRef=useModalLifecycle(onClose);
   const products=data.commerce.products;
   const history=data.profile?.purchases.history.slice(0,5) ?? [];
@@ -59,11 +70,16 @@ export function StoreModal({data,onClose,onChoose}:{data:Dashboard;onClose:()=>v
                 {(item.subscriptionDays ?? 0)>0 && <li><Sparkles size={15}/> {item.subscriptionDays} dias de assinatura</li>}
               </ul>
               <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
+              {data.gamification?.redemptionEnabled&&item.credits===0&&!item.subscriptionDays&&(item.grantsItem==="SKIP"||item.extraPasses===1)&&<div className="store-reward-trade">
+                <span>Ou use {item.grantsItem==="SKIP"?data.gamification.redemption.SKIP:data.gamification.redemption.PASS} moedas de recompensa</span>
+                <button type="button" className="secondary" disabled={Boolean(trading)||data.wallet.reward<(item.grantsItem==="SKIP"?data.gamification.redemption.SKIP:data.gamification.redemption.PASS)} onClick={()=>void trade(item.grantsItem==="SKIP"?"SKIP":"PASS")}>Trocar recompensas</button>
+              </div>}
             </div>
           </article>
         ))}
       </div>
 
+      {notice&&<p role="status">{notice}</p>}
       <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
         <span><Coins size={16}/><b>1 moeda</b> salva 1 URL</span>
         <span><Ticket size={16}/><b>Passe</b> permite outra contribuição na mesma fila</span><span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>

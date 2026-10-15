@@ -1,3 +1,4 @@
+import { LevelBadge } from "./GamificationPanel";
 import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useState } from "react";
@@ -12,6 +13,8 @@ const legacyProductName=(code:string)=>code==="COINS_LAUNCH"?"Pacote anterior de
 const paymentStatus=(status:string)=>status==="APPROVED"?"Aprovado":status==="PENDING"?"Aguardando pagamento":status==="CANCELLED"?"Cancelado":status==="REJECTED"?"Não aprovado":status;
 
 export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged,onOpenAdmin,onConnectYoutube}:{data:Dashboard;onClose:()=>void;onLogout:()=>void;onDeleted:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;onOpenAdmin:()=>Promise<void>;onConnectYoutube:()=>void}) {
+  const [passwordForm,setPasswordForm]=useState({current:"",next:"",confirm:""});
+  const [passwordNotice,setPasswordNotice]=useState("");
   const [confirmDelete,setConfirmDelete]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -56,7 +59,7 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
       <button className="close" aria-label="Fechar minha conta" onClick={onClose}><X size={20}/></button>
       <div className="account-menu-head">
         <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
-        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2><p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
+        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2>{data.user.presentation?.progress&&<LevelBadge progress={data.user.presentation.progress}/>}<p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
       </div>
 
       <section className="account-profile-tools">
@@ -76,6 +79,18 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
       </div>
 
       <WatchTimeSummary rewards={data.watchRewards}/>
+      {!administrative&&<details className="account-password-section" open={localStorage.getItem("sos-password-change-required")==="true"}>
+        <summary>Minha senha de acesso</summary>
+        <p>Se recebeu uma senha inicial pelo bot, escolha agora uma senha que você consiga guardar. A chave WhatsApp continua disponível.</p>
+        <form onSubmit={e=>{e.preventDefault();if(passwordForm.next!==passwordForm.confirm){setPasswordNotice("As duas novas senhas precisam ser iguais.");return;}setBusy(true);setPasswordNotice("");void api.setPassword(passwordForm.next,passwordForm.current||undefined).then(()=>{setPasswordForm({current:"",next:"",confirm:""});localStorage.removeItem("sos-password-change-required");setPasswordNotice("Sua nova senha foi salva.");}).catch(e=>setPasswordNotice(e.message)).finally(()=>setBusy(false));}}>
+          <label>Senha atual<input type="password" autoComplete="current-password" value={passwordForm.current} onChange={e=>setPasswordForm({...passwordForm,current:e.target.value})}/></label><small>Se acabou de entrar por chave WhatsApp ou Google, pode deixar em branco.</small>
+          <label>Nova senha<input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={passwordForm.next} onChange={e=>setPasswordForm({...passwordForm,next:e.target.value})} required/></label>
+          <label>Repita a nova senha<input type="password" autoComplete="new-password" value={passwordForm.confirm} onChange={e=>setPasswordForm({...passwordForm,confirm:e.target.value})} required/></label>
+          <button className="primary" disabled={busy}>Salvar minha senha</button>
+        </form>
+        {passwordNotice&&<p role="status">{passwordNotice}</p>}
+      </details>}
+
 
       {profile&&<>
         <section className="account-metrics">

@@ -14,6 +14,12 @@ export function PurchaseCelebration({receipt,onClose,onInventory}:{receipt:Purch
   const anchor=document.querySelector(receipt.credits>0?'[data-purchase-anchor="coins"]':'[data-purchase-anchor="inventory"]');
   const rect=anchor?.getBoundingClientRect();
   if(rect&&rect.top>=0&&rect.bottom<window.innerHeight&&rect.right<window.innerWidth)setDestination({x:rect.left+rect.width/2,y:rect.top+rect.height/2});
+  // The wallet can sit outside the viewport on a compact dashboard. Keep
+  // quantity feedback visible without scrolling the person unexpectedly.
+  if(!rect || rect.top<0 || rect.bottom>=window.innerHeight || rect.right>=window.innerWidth) {
+    const profile=document.querySelector(".header-actions .profile")?.getBoundingClientRect();
+    if(profile)setDestination({x:Math.min(window.innerWidth-54,profile.left+profile.width/2),y:Math.max(65,profile.bottom+20)});
+  }
   const timer=window.setTimeout(onClose,6500);
   return()=>window.clearTimeout(timer);
  },[receipt.paymentId,onClose,receipt.credits]);

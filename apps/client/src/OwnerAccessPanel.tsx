@@ -1,3 +1,4 @@
+import { BotPasswordSettings } from "./BotPasswordSettings";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Phone, Sparkles, ShieldCheck, Wand2, Trash2, RefreshCw, Copy, Check, Gift, Ban } from "lucide-react";
 import { ownerApi, type CredentialsState, type SuperAdminState } from "./api";
@@ -191,6 +192,7 @@ export function OwnerAccessPanel() {
 
       {notice && <p className="bot-notice">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-    </section>
+    <BotPasswordSettings/>
+</section>
   );
 }

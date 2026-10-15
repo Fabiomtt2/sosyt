@@ -1,3 +1,4 @@
+import type { GamificationData, BoosterClaimResult } from "./GamificationPanel";
 const configuredApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
 const isLocalHost = !isBrowser || ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -32,6 +33,13 @@ export type GoogleIdentityClaim={status:"PENDING"|"APPROVED"|"DECLINED";requestT
 export type GoogleIdentityRequest={id:string;name:string;phone:string;email:string;createdAt:string;groupCode?:string};
 export type CompanionDevice={id:string;label:string;createdAt:string;lastSeenAt?:string;signal?:string;playerMatches:number;authorized:number};
 export const api = {
+  passwordLogin:(phone:string,password:string)=>request<{token:string;mustChangePassword:boolean}>("/auth/password/login",{method:"POST",body:JSON.stringify({phone,password})}),
+  setPassword:(newPassword:string,currentPassword?:string)=>request("/auth/password/set",{method:"POST",body:JSON.stringify({newPassword,currentPassword})}),
+  gamification:()=>request<GamificationData & {enabled:boolean}>("/gamification/me"),
+  claimBooster:()=>request<BoosterClaimResult>("/gamification/booster",{method:"POST"}),
+  redeemReward:(itemCode:"SKIP"|"PASS",referenceId:string)=>request("/gamification/redeem",{method:"POST",body:JSON.stringify({itemCode,referenceId})}),
+  giftRewardCoins:(toUserId:string,coins:number,referenceId:string)=>request("/gamification/gift-coins",{method:"POST",body:JSON.stringify({toUserId,coins,referenceId})}),
+
   companionPairing:()=>request<{pairingCode:string;apiUrl:string;expiresInSeconds:number}>("/companion/pairings",{method:"POST",body:JSON.stringify({consent:true})}),
   companionDevices:()=>request<{devices:CompanionDevice[]}>("/companion/devices"),
   companionRevoke:(id:string)=>request<{ok:true}>(`/companion/devices/${id}`,{method:"DELETE"}),
@@ -59,11 +67,11 @@ export const api = {
   mailSend:(toUserId:string,body:string)=>request<{id:string}>("/mail/dm",{method:"POST",body:JSON.stringify({toUserId,body})}),
   chatList: (afterId?: string) => request<ChatState>("/chat/global" + (afterId ? ("?afterId=" + encodeURIComponent(afterId)) : "")),
   chatSend: (body: string) => request<{ id: string; createdAt: string; role: ChatRole }>("/chat/global", { method: "POST", body: JSON.stringify({ body }) }),
-  chatDelete: (id: string) => request<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id), { method: "DELETE" }),
-  chatPin: (id: string, pinned: boolean) => request<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id) + "/pin", { method: "POST", body: JSON.stringify({ pinned }) }),
-  chatClear: () => request<{ ok: true; cleared: number }>("/admin/chat/global/clear", { method: "POST" }),
+  chatDelete: (id: string) => chatAdminRequest<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id), { method: "DELETE" }),
+  chatPin: (id: string, pinned: boolean) => chatAdminRequest<{ ok: true }>("/admin/chat/global/" + encodeURIComponent(id) + "/pin", { method: "POST", body: JSON.stringify({ pinned }) }),
+  chatClear: () => chatAdminRequest<{ ok: true; cleared: number }>("/admin/chat/global/clear", { method: "POST" }),
   chatModerate: (userId: string, action: ChatModerateAction, opts: { minutes?: number; seconds?: number } = {}) =>
-    request<Record<string, unknown>>("/admin/chat/global/moderate", { method: "POST", body: JSON.stringify({ userId, action, ...opts }) }),
+    chatAdminRequest<Record<string, unknown>>("/admin/chat/global/moderate", { method: "POST", body: JSON.stringify({ userId, action, ...opts }) }),
   saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="CUSTOM" ? {kind:"CUSTOM",dataUrl:avatar.dataUrl} : {kind:"PRESET",presetId:avatar.kind==="CATALOG"?avatar.slug:avatar.presetId}) }),
   clearAvatar: () => request<{ok:true}>("/profile/avatar", { method:"DELETE" }),
   avatarCatalog: () => request<{ avatars: CatalogAvatarItem[] }>("/avatars"),
@@ -84,7 +92,7 @@ export const api = {
 };
 
 export type AvatarTier = "COMMON" | "SUPER" | "OWNER";
-export type UserPresentation={badge:"ADMIN"|"SUPER"|null;superActive:boolean;superExpiresAt?:string};
+export type UserPresentation={badge:"ADMIN"|"SUPER"|null;superActive:boolean;superExpiresAt?:string;progress?:{level:number;xp:number;nextLevelXp:number;levelStartXp:number}};
 export type PurchaseReceipt={userId:string;paymentId:string;productCode:string;amountCents:number;approvedAt:string;credits:number;extraPasses:number;items:Array<{itemCode:string;quantity:number}>;subscriptionDays:number};
 export type PaymentState={id:string;status:string;receipt?:PurchaseReceipt};
 export type UserAvatar =
@@ -126,7 +134,7 @@ export type WatchObservation = {
 };
 export type WatchRewards = {verifiedSeconds:number;coins:number;secondsToNextReward:number};
 export type WatchObservationResult = WatchProgressState & WatchRewards & {
-  acceptedSeconds:number;sessionConflict?:boolean;
+  acceptedSeconds:number;sessionConflict?:boolean;xpDelta?:number;levelRewards?:Array<{level:number;coins:number;trialDays:number}>;
 };
 export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
 export type UserProfileSummary = {
@@ -145,6 +153,7 @@ export type Dashboard = {
   user: { id: string; name: string; phone: string; groupCode: string; presentation?:UserPresentation; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
   subscription:SuperState;
+  gamification?:GamificationData & {enabled:boolean;redemptionEnabled:boolean;milestones:{every:number;coins:number;trialEvery:number;trialDays:number}};
   openRound: Round;
   readyRounds: Round[];
   viewer: { contributionBlockedByPendingTask?:boolean; contributionAllowance?:number; contributionsInOpenRound: number; youtubeConnected: boolean; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER" };
@@ -206,6 +215,7 @@ export type OwnerParticipant = {
   youtubeChannelId?:string;youtubeChannelTitle?:string;youtubeChannelThumbnailUrl?:string;
 };
 export type ParticipantAdminDetail = {
+  gamification?:GamificationData;
   watchRewards:WatchRewards;
   profile: { name: string; phone: string; groupCode?: string; userId?: string; createdAt?: string; lastSeenAt?: string; cooldownUntil?: string; cooldownReason?: string; avatar?:UserAvatar; youtubeChannel?:{id?:string;title:string;thumbnailUrl?:string} };
   membership?: { phone: string; groupCode: string; approvedAt?: string; revokedAt?: string; source?: string; approvedByOwnerId?: string; approvedByOwnerName?: string };
@@ -252,6 +262,15 @@ export type OwnerOverview = {
 function ownerRequest<T>(path: string, options: RequestInit = {}) {
   return request<T>(path, { ...options, headers: { ...options.headers, authorization: `Bearer ${localStorage.getItem("conexao_owner_token") ?? ""}` } });
 }
+async function chatAdminRequest<T>(path: string, options: RequestInit = {}) {
+  // A participant role alone never authorizes moderation. Obtain/retain a
+  // server-validated administrative session before calling privileged routes.
+  if (!localStorage.getItem("conexao_owner_token")) {
+    const elevated = await api.elevateAdmin();
+    localStorage.setItem("conexao_owner_token", elevated.token);
+  }
+  return ownerRequest<T>(path, options);
+}
 export type OwnerAccessEntry={id:string;name:string;phone?:string;role:"ROOT_OWNER"|"ADMIN_OWNER";active:boolean;static?:boolean;userId?:string;createdByOwnerId?:string;createdAt?:string;updatedAt?:string};
 export type OwnerAccessCandidate={id:string;name:string;phone:string;groupCode:string};
 export type OwnerParticipantSession={
@@ -278,6 +297,14 @@ export type SuperAdminState = { subscribers:SuperSubscriber[]; pins:Array<{id:st
 export type AdminMailMessage = { id:string;threadKey:string;senderId:string|null;senderRole:string;recipientId:string;body:string;createdAt:string;deletedAt:string|null };
 
 export const ownerApi = {
+  botPassword:()=>ownerRequest<BotPasswordState>("/admin/auth/bot-password"),
+  saveBotPassword:(body:{enabled:boolean;templateName:string;templateLanguage:string})=>ownerRequest<BotPasswordState>("/admin/auth/bot-password",{method:"POST",body:JSON.stringify(body)}),
+  gamificationBot:()=>ownerRequest<GamificationBotData>("/admin/gamification/bot"),
+  saveGamificationBot:(body:GamificationBotSettings)=>ownerRequest<GamificationBotData>("/admin/gamification/bot",{method:"POST",body:JSON.stringify(body)}),
+  gamification:()=>ownerRequest<OwnerGamificationData>("/admin/gamification"),
+  saveGamification:(body:GamificationSettings)=>ownerRequest<{config:GamificationSettings}>("/admin/gamification",{method:"POST",body:JSON.stringify(body)}),
+  settleGamification:()=>ownerRequest("/admin/gamification/settle",{method:"POST"}),
+
   googleIdentities:()=>ownerRequest<{claims:GoogleIdentityRequest[]}>("/admin/google-identities"),
   decideGoogleIdentity:(id:string,approve:boolean,groupCode?:string)=>ownerRequest<{ok:true}>(`/admin/google-identities/${id}/decision`,{method:"POST",body:JSON.stringify({approve,groupCode})}),
   login: (body: { name: string; identifier: string; groupCode: "#"; secret: string }) => request<{ token: string; role: "owner" }>("/admin/login", { method: "POST", body: JSON.stringify(body) }),
@@ -375,3 +402,15 @@ export const participationApi = {
   join: (body: { name: string; phone: string; consent: boolean }) => request<ParticipationStatus & { ok: true; detectedGroup?: string; groupDetectionSource?: string }>("/participation/request", { method: "POST", body: JSON.stringify(body) }),
   status: (token: string) => request<ParticipationStatus>("/participation/status", { method: "POST", body: JSON.stringify({ token }) })
 };
+
+export type GamificationSettings={
+ enabled:boolean;xpEnabled:boolean;boosterEnabled:boolean;redeemEnabled:boolean;monthlyEnabled:boolean;
+ xpPerVideo:number;curve:{firstStep:number;stepIncrease:number};levelCoins:number;milestoneEvery:number;milestoneCoins:number;trialEvery:number;trialDays:number;
+ monthlyRewards:[number,number,number];redeemPrices:{SKIP:number;PASS:number};boosterDrops:Array<{code:string;weight:number}>;
+};
+export type OwnerGamificationData={config:GamificationSettings;ranks:GamificationData["ranks"];events:Array<{id:string;kind:string;name:string;xpDelta:number;createdAt:string;payload:string}>;botEvents:Array<{id:string;event:string;status:string;createdAt:string}>;audits:Array<{actorId:string;createdAt:string}>};
+
+export type GamificationBotSettings={enabled:boolean;events:Record<string,{enabled:boolean;internalEnabled:boolean;whatsappEnabled:boolean;text:string;templateName:string;templateLanguage:string}>};
+export type GamificationBotData={settings:GamificationBotSettings;catalog:Array<{event:string;label:string;placeholders:string[]}>;runtime:{wired:boolean;transport:string;note:string};deliveries:Array<{eventId:string;event:string;name:string;status:string;reason?:string;createdAt:string}>};
+
+export type BotPasswordState={enabled:boolean;templateName:string;templateLanguage:string;deliveries:Array<{userId:string;name:string;status:string;createdAt:string}>};

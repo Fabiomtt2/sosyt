@@ -119,7 +119,8 @@ export function WatchProgress({
   initialWatchRewards,
   onClose,
   onFinalized,
-  onAbandoned
+  onAbandoned,
+  onProgress
 }: {
   playlistId: string;
   roundId: string;
@@ -128,12 +129,14 @@ export function WatchProgress({
   initialProgress?: WatchProgressState;
   initialBalance: number;
   initialWatchRewards: WatchRewards;
+  onProgress?: () => void;
   onClose: () => void;
   onFinalized: (cooldownUntil: string) => void;
   onAbandoned: (result:{percent:number;nextOpenRound?:{id:string;sequence:number}}) => void;
 }) {
   const storageKey = useMemo(() => `conexao_watch_progress:${userId}:${roundId}:${playlistId}`, [playlistId, roundId, userId]);
   const [progress, setProgress] = useState<SavedProgress>(() => mergeProgress(initialProgress));
+  const [xpNotice,setXpNotice]=useState("");
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(false);
   const [currentIndex,setCurrentIndex]=useState(0);
@@ -202,6 +205,12 @@ export function WatchProgress({
       setVerifiedSeconds(saved.verifiedSeconds);
       setSecondsToNextReward(saved.secondsToNextReward);
       if(typeof saved.walletTotal==="number")setWalletTotal(saved.walletTotal);
+      if((saved.xpDelta??0)>0){
+        const gain=saved.levelRewards?.at(-1);
+        setXpNotice("+"+saved.xpDelta+" XP registrados"+(gain?" · Você chegou ao nível "+gain.level+"!":""));
+        onProgress?.();
+      }else if((saved.rewardDeltaCoins??0)>0)onProgress?.();
+
       if(saved.sessionConflict) {
         setActionError("Este acompanhamento já está ativo em outra aba ou dispositivo. Feche a outra sessão ou aguarde alguns segundos antes de continuar aqui.");
         setActive(false);
@@ -400,6 +409,8 @@ export function WatchProgress({
             <span>{formatTime(verifiedSeconds)} de tempo verificado acumulado · {confirmedCoins} moeda(s) por tempo · próxima em {formatTime(secondsToNextReward)} · saldo atual: {walletTotal}</span>
           </div>
         </div>
+
+        {xpNotice&&<p className="watch-xp-notice" role="status">{xpNotice}</p>}
 
         {finalizedHandled.current && <div className="notice"><Check size={18}/><span>Você completou os dez vídeos desta fila. Suas recompensas foram preservadas e o intervalo de 30 minutos começará automaticamente.</span></div>}
 

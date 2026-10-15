@@ -1,3 +1,5 @@
+import { GamificationPanel, LevelBadge } from "./GamificationPanel";
+import { JourneyModal } from "./JourneyModal";
 import { useCallback, useEffect, useState, useRef, type FormEvent } from "react";
 import { Capacitor } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -64,6 +66,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [authRole, setAuthRole] = useState<"user" | "owner">();
   const [joinMode, setJoinMode] = useState(false);
   const [credential, setCredential] = useState("");
+  const [passwordMode,setPasswordMode]=useState(false);
   const [phoneCode,setPhoneCode]=useState("");
   const [keyExpiresAt,setKeyExpiresAt]=useState(0);
   const [resendAt,setResendAt]=useState(0);
@@ -198,7 +201,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   }
 
   function returnToProfile() {
-    setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");
+    setPasswordMode(false);setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");
   }
 
   async function sendPhoneKey(registration:boolean) {
@@ -235,7 +238,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       } else if (step === "profile") {
         const role = await api.resolveRole({ name, phone: form.phone });
         setAuthRole(role.role);
-        setCredential("");
+        if(!passwordMode)setCredential("");
         if (role.role === "owner") {
           suppressPendingResume.current = true;
           sessionStorage.setItem(PENDING_REQUEST_SUPPRESS_KEY,"1");
@@ -246,6 +249,12 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           setStep("credential");
         } else {
           try {
+            if(passwordMode){
+              const result=await api.passwordLogin(form.phone,credential);
+              localStorage.removeItem("conexao_owner_token");localStorage.setItem("conexao_token",result.token);
+              localStorage.setItem("sos-password-change-required",result.mustChangePassword?"true":"false");
+              onDone("user");return;
+            }
             if((await api.authOptions()).proofRequired){await sendPhoneKey(false);return;}
             const result = await api.login({ name, phone: form.phone });
             localStorage.removeItem("conexao_owner_token");
@@ -288,14 +297,14 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const requestBlockActive = Number.isFinite(requestBlockedUntil) && requestBlockedUntil > nowMs;
   const requestBlockRemaining = Math.max(0,requestBlockedUntil-nowMs);
 
-  return <main className="login-shell">
+  return <main className="login-shell access-shell-premium">
     <section className="brand-panel">
       <div className="brand-lockup">
         <div className="brand-mark"><Youtube size={34} fill="currentColor" /></div>
         <p className="eyebrow">SOS YOUTUBER</p>
       </div>
-      <h1>Uma playlist.<br />Dez vozes.</h1>
-      <p className="lead">Organize a curadoria do seu grupo e leve a seleção para a sua própria conta do YouTube.<span className="lead-choice">Sempre por escolha sua.</span></p>
+      <h1>Uma playlist.<br />{" "}Dez vozes.</h1>
+      <p className="lead">Um espaço para compartilhar vídeos, conhecer criadores e montar playlists juntos.<span className="lead-choice">Sua comunidade começa aqui.</span></p>
       <div className="participation-cluster">
         <button className="primary intro-join" type="button" onClick={() => { suppressPendingResume.current=false; setJoinMode(true); returnToProfile(); }}>Quero participar</button>
         <div className="trust-note" aria-label="Compromissos de segurança">
@@ -305,9 +314,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     </section>
     <section className="login-card">
       <div>
-        <p className="eyebrow dark">ACESSO SOS YOUTUBER</p>
+        <p className="eyebrow dark">BOM TER VOCÊ POR AQUI</p>
         <h2>{step==="phone-code" ? "Confira seu WhatsApp" : ownerCredentialMode ? "Credencial" : cooldownActive ? "Intervalo após concluir uma Fila" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
-        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{step==="phone-code" ? "Enviamos uma chave de seis números. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Informe seus dados. Sua solicitação será registrada e continuaremos pelo WhatsApp." : "Informe seus dados. Identificamos seu acesso pelo WhatsApp e grupo." : "Digite sua credencial para abrir o painel administrativo."}</p>
+        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{step==="phone-code" ? "Use a chave de seis números enviada ao seu WhatsApp. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Comece pelo seu nome e WhatsApp. Você poderá acompanhar seu cadastro por aqui." : "Use o WhatsApp cadastrado para encontrar sua conta." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
       {!ownerCredentialMode && cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Seu acesso de participante será liberado em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Este intervalo de 30 minutos existe somente após concluir uma tarefa de Fila. Seu cadastro, saldo, URLs e progresso continuam salvos.</p><button className="secondary" type="button" onClick={accessWithAnotherIdentity}>Acessar outra conta</button></div> : !ownerCredentialMode && joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
         <div className="join-success-heading"><strong>{joined.message}</strong></div>
@@ -339,7 +348,8 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           </> : step === "profile" ? <>
             <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
             <div className="field-block"><label htmlFor="whatsapp">WhatsApp</label><PhoneField id="whatsapp" value={form.phone} onChange={(phone)=>setForm({...form,phone})} required /></div>
-            <div className="group-auto-note"><ShieldCheck size={17}/><div><strong>Seu grupo será identificado pelo WhatsApp</strong><span>Você não precisa digitar o grupo. Usamos seu vínculo aprovado ou a integração do WhatsApp, quando disponível.</span></div></div>
+            <div className="group-auto-note"><ShieldCheck size={17}/><div><strong>Seu grupo será identificado pelo WhatsApp</strong><span>Usamos o vínculo aprovado pela equipe ou a integração do WhatsApp, quando disponível. Você não precisa digitar o grupo.</span></div></div>
+            {!joinMode&&passwordMode&&<label>Senha recebida ou criada por você<input type="password" autoComplete="current-password" value={credential} onChange={e=>setCredential(e.target.value)} placeholder="Digite sua senha"/></label>}
             {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o SOS YouTube a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
           </> : <>
             <label>Credencial<input type="password" autoComplete="current-password" value={credential} onChange={(e) => setCredential(e.target.value)} placeholder="Digite sua credencial" /></label>
@@ -351,6 +361,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : step==="phone-code" ? "Confirmar chave e continuar" : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
         </div>
       </form>}
+      {!joinMode&&!joined&&step==="profile"&&!cooldownActive&&<button type="button" className="text-button" onClick={()=>{setPasswordMode(value=>!value);setCredential("");setError("");}}>{passwordMode?"Prefiro a chave no WhatsApp":"Entrar com senha"}</button>}
       {joinMode&&<ProjectWhatsAppContact/>}
       {step==="profile" && !cooldownActive && <GoogleAccess name={form.name} phone={form.phone} onDone={()=>onDone("user")}/>}
       {!cooldownActive && step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
@@ -371,7 +382,7 @@ function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own,on
         {slot.participantPhone&&onInspectParticipant
           ? <button type="button" className="slot-avatar-admin-button" aria-label={`Administrar ${slot.userName ?? "participante"}`} onClick={()=>onInspectParticipant(slot.participantPhone!)}><span className={slot.adminRole?"slot-avatar-shell has-admin-badge":"slot-avatar-shell"}><UserAvatarView avatar={slot.avatar} presentation={slot.presentation} name={slot.userName ?? "Participante"} className="slot-avatar"/>{slot.adminRole&&<b className="admin-badge">ADMIN</b>}</span></button>
           : <span className={slot.adminRole?"slot-avatar-shell has-admin-badge":"slot-avatar-shell"}><UserAvatarView avatar={slot.avatar} presentation={slot.presentation} name={slot.userName ?? "Participante"} className="slot-avatar"/>{slot.adminRole&&<b className="admin-badge">ADMIN</b>}</span>}
-        <div><strong>{slot.userName}{own ? " · você" : ""}</strong>{slot.userChannelTitle&&<span>Canal do participante: {slot.userChannelTitle}</span>}<small>{slot.groupCode==="#" ? "Participação administrativa" : `SOS YOUTUBER ${slot.groupCode}`} · <Clock3 size={12}/> {new Date(slot.createdAt!).toLocaleString("pt-BR")}</small></div>
+        <div>{slot.presentation?.progress&&<LevelBadge progress={slot.presentation.progress} compact/>}<strong>{slot.userName}{own ? " · você" : ""}</strong>{slot.userChannelTitle&&<span>Canal do participante: {slot.userChannelTitle}</span>}<small>{slot.groupCode==="#" ? "Participação administrativa" : `SOS YOUTUBER ${slot.groupCode}`} · <Clock3 size={12}/> {new Date(slot.createdAt!).toLocaleString("pt-BR")}</small></div>
       </div>
       <div className="slot-video">
         <div className="slot-video-thumb-wrap">
@@ -419,6 +430,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
   const [busy, setBusy] = useState(false);
   const [purchaseProduct,setPurchaseProduct]=useState<PaymentProductCode>();
   const [showStore,setShowStore]=useState(false);
+  const [showJourney,setShowJourney]=useState(false);
   const [showCommunity,setShowCommunity]=useState(false);
   const [communityTarget,setCommunityTarget]=useState<string>();
   const [showAvatar,setShowAvatar]=useState(false);
@@ -443,7 +455,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
     }
   },[onLogout,onCooldown,selectedQueue]);
   const purchaseFeedback=usePurchaseFeedback(data?.user.id,load);
-  useEffect(() => { void load(); const timer = window.setInterval(load, 20_000); return () => window.clearInterval(timer); }, [load]);
+  useEffect(() => { void load(); const refresh=()=>{if(document.visibilityState==="visible")void load();};const timer=window.setInterval(refresh,5_000);window.addEventListener("focus",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh);};},[load]);
   useEffect(() => { if (!Capacitor.isNativePlatform()) return; const listener = CapacitorApp.addListener("appUrlOpen", async ({ url }) => { if (url.startsWith("conexaoyoutube://oauth")) { await Browser.close(); await load(); } }); return () => { void listener.then((handle) => handle.remove()); }; }, [load]);
 
   useEffect(() => {
@@ -504,6 +516,10 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
       <QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>
       {(!hasPendingTask || administrativeParticipant) ? <>
         <UserWelcomeCarousel onOpenStore={()=>setShowStore(true)} onOpenCommunity={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>
+        {data.gamification?.enabled&&<button type="button" className="journey-launcher" onClick={()=>setShowJourney(true)}>
+          <LevelBadge progress={data.gamification.progress}/><span><strong>Minha jornada</strong><small>{data.gamification.progress.xp} XP · veja seu próximo nível</small></span>
+          {data.gamification.booster.available&&<b className="journey-booster-nudge">Você tem um Booster! ✨</b>}
+        </button>}
         <SuperPanel snapshot={data.subscription} onOpenStore={()=>setShowStore(true)}/>
         <section className="hero-row queue-hero">
           <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.number}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>
@@ -532,12 +548,15 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
     {creationRound && <div className="modal-backdrop" onMouseDown={()=>{if(!busy)setCreationRound(undefined);}}><section ref={creationModalRef} className="modal" onMouseDown={(event)=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Criação de playlist"><button className="close" aria-label="Cancelar criação" disabled={busy} onClick={() => setCreationRound(undefined)}>×</button><p className="eyebrow dark">FILA {creationRound.number} · 10 VÍDEOS</p><h2>Criar playlist na sua conta</h2><p className="muted">{data.viewer.youtubeConnected ? "Você autorizou o acesso ao YouTube. Ao confirmar, os dez links salvos serão incluídos em uma playlist privada na sua conta." : "Você será direcionado à autenticação oficial do Google/YouTube. Após autorizar, criaremos uma playlist privada com os dez links permanentes desta fila."}</p><p className="muted">Você pode cancelar. Os registros de autoria e links da fila continuam preservados.</p>{busy && data.viewer.youtubeConnected && <div role="status"><progress max={10} value={included} /><p>{included} de 10 vídeos incluídos · {Math.min(100,included*10)}% da criação</p></div>}{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => { setError(""); if (data.viewer.youtubeConnected) void exportRound(creationRound.id); else { sessionStorage.setItem("conexao_creation_intent",JSON.stringify({userId:data.user.id,roundId:creationRound.id,at:Date.now()})); void connectYoutube(creationRound.id); } }}>{busy ? data.viewer.youtubeConnected ? "Criando…" : "Abrindo autenticação…" : data.viewer.youtubeConnected ? "Confirmar criação" : "Continuar para Google/YouTube"}</button></section></div>}
     <GlobalChat subscriptionActive={data.subscription?.active} currentUserId={data.user.id} onOpenInbox={()=>{setCommunityTarget(undefined);setShowCommunity(true);}} onOpenProfile={(id)=>{setCommunityTarget(id);setShowCommunity(true);}}/>
     {showCommunity&&<CommunityModal wallet={data.wallet} currentUserId={data.user.id} targetId={communityTarget} onClose={()=>setShowCommunity(false)}/>}
-    {showStore && <StoreModal data={data} onClose={()=>setShowStore(false)} onChoose={(product)=>{setShowStore(false);setPurchaseProduct(product);}}/>}
+    {showJourney&&data.gamification&&<JourneyModal onClose={()=>setShowJourney(false)}>
+      <GamificationPanel data={data.gamification} onClaimBooster={async()=>{const result=await api.claimBooster();await load();return result;}} onRedeem={async(code,reference)=>{await api.redeemReward(code,reference);await load();}} onRefresh={load}/>
+    </JourneyModal>}
+    {showStore && <StoreModal onChanged={load} data={data} onClose={()=>setShowStore(false)} onChoose={(product)=>{setShowStore(false);setPurchaseProduct(product);}}/>}
     {purchaseProduct && <PurchaseModal product={purchaseProduct} productInfo={data.commerce.products.find((item)=>item.code===purchaseProduct)} onClose={()=>setPurchaseProduct(undefined)} paymentStates={purchaseFeedback.states} onTracked={purchaseFeedback.track} onApproved={(receipt)=>{setPurchaseProduct(undefined);void purchaseFeedback.confirm(receipt);}}/>}
     {purchaseFeedback.receipt&&<PurchaseCelebration key={purchaseFeedback.receipt.paymentId} receipt={purchaseFeedback.receipt} onClose={purchaseFeedback.dismiss} onInventory={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>}
     {showAccountMenu && <UserAccountMenu data={data} onClose={()=>setShowAccountMenu(false)} onLogout={onLogout} onDeleted={onLogout} onOpenAdmin={onOpenAdmin} onConnectYoutube={()=>{setShowAccountMenu(false);void connectYoutube();}} onAvatarChanged={(avatar)=>{setData((current)=>current?{...current,user:{...current.user,avatar}}:current);void load();}}/>}
     {showAvatar && <AvatarModal name={data.user.name} current={data.user.avatar} presentation={data.user.presentation} onClose={()=>setShowAvatar(false)} onChanged={(avatar)=>{setData((current)=>current?{...current,user:{...current.user,avatar}}:current);void load();}}/>}
-    {watchRound?.export?.playlistId && <WatchProgress playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} slots={watchRound.slots} initialProgress={watchRound.export.watchProgress} initialBalance={data.wallet.total} initialWatchRewards={data.watchRewards} onClose={() => { setWatchRound(undefined); void load(); }} onFinalized={onCooldown} onAbandoned={({percent,nextOpenRound})=>{setWatchRound(undefined);setNotice(nextOpenRound ? `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados. Você voltou para a Fila ${nextOpenRound.sequence}.` : `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados.`);void load();}} />}
+    {watchRound?.export?.playlistId && <WatchProgress onProgress={()=>void load()} playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} slots={watchRound.slots} initialProgress={watchRound.export.watchProgress} initialBalance={data.wallet.total} initialWatchRewards={data.watchRewards} onClose={() => { setWatchRound(undefined); void load(); }} onFinalized={onCooldown} onAbandoned={({percent,nextOpenRound})=>{setWatchRound(undefined);setNotice(nextOpenRound ? `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados. Você voltou para a Fila ${nextOpenRound.sequence}.` : `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados.`);void load();}} />}
     {adminParticipantPhone && administrativeParticipant && <ParticipantAdminModal phone={adminParticipantPhone} groups={adminGroups} onClose={()=>setAdminParticipantPhone(undefined)} onChanged={(next)=>{if(next)setAdminParticipantPhone(next);void load();}}/>}
   </div>;
 }

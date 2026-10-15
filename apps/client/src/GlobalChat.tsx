@@ -1,6 +1,7 @@
+import { LevelBadge } from "./GamificationPanel";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessagesSquare, Send, Pin, PinOff, Trash2, ShieldAlert, VolumeX, UserX, X, ChevronDown, ChevronUp, Mail } from "lucide-react";
+import { MessagesSquare, Send, Pin, PinOff, Trash2, ShieldAlert, VolumeX, UserX, X, ChevronDown, ChevronUp, Mail, SlidersHorizontal, MoreHorizontal } from "lucide-react";
 import { api, type ChatMessage, type ChatRole, type ChatSender } from "./api";
 import { UserAvatarView, AvatarLightbox } from "./AvatarModal";
 import { SuperBadge } from "./SuperPanel";
@@ -18,12 +19,14 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
   const [connected,setConnected]=useState(false);
   const syncingRef=useRef(false);
   const [state, setState] = useState<{ messages: ChatMessage[]; pinned: ChatMessage[]; removed: boolean; viewerRole: ChatRole; cooldownSeconds: number }>(
-    { messages: [], pinned: [], removed: false, viewerRole: "USER", cooldownSeconds: 180 }
+    { messages: [], pinned: [], removed: false, viewerRole: "USER", cooldownSeconds: 30 }
   );
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [cooldownLeft, setCooldownLeft] = useState(0);
+  const [adminTools, setAdminTools] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const [zoom, setZoom] = useState<ChatSender | null>(null);   // avatar ampliado
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -84,14 +87,24 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
   return (
     <aside className={"global-chat" + (open ? " open" : " closed")} aria-label="Chat global da comunidade">
       <div className="gc-head">
-        <div><span className="gc-title"><MessagesSquare size={20}/> Sala da comunidade</span><span className="gc-subtitle">Uma conversa entre todos os grupos</span></div>
+        <div><span className="gc-title"><MessagesSquare size={20}/> Sala da comunidade</span><span className="gc-subtitle">Todos os grupos, uma comunidade.</span></div>
         <button className="gc-toggle" type="button" aria-label={open?"Recolher sala da comunidade":"Expandir sala da comunidade"} onClick={toggle} aria-expanded={open}>{open?<ChevronDown size={18}/>:<ChevronUp size={18}/>}</button>
       </div>
       {open&&<div className="gc-room-bar"><span className={"gc-live"+(connected?"":" offline")} role="status">{connected?"Conversa atualizada":"Reconectando…"}</span><button type="button" onClick={onOpenInbox}><Mail size={15}/> Privadas{unread>0&&<b aria-label={unread+" mensagens não lidas"}>{unread>99?"99+":unread}</b>}</button></div>}
 
       {open && <>
+        {isStaff && <div className="gc-admin-tools">
+          <span><b>ADMIN</b> Mensagens sem espera</span>
+          <button type="button" aria-expanded={adminTools} onClick={() => {setAdminTools(value => !value);setClearConfirm(false);}}><SlidersHorizontal size={16}/> Administrar sala</button>
+        </div>}
+        {isStaff && adminTools && <div className="gc-management" aria-label="Administração da sala">
+          <p>Abra as ações de uma mensagem para fixar, apagar ou moderar o participante.</p>
+          {state.viewerRole === "OWNER" && (!clearConfirm
+            ? <button type="button" onClick={() => setClearConfirm(true)}><Trash2 size={16}/> Limpar mensagens da sala</button>
+            : <div className="gc-clear-confirm" role="alert"><strong>Ocultar todas as mensagens atuais?</strong><span>Esta ação afeta a sala inteira.</span><div><button type="button" onClick={() => {setClearConfirm(false);void moderate(() => api.chatClear());}}>Confirmar limpeza</button><button type="button" onClick={() => setClearConfirm(false)}>Cancelar</button></div></div>)}
+        </div>}
         {state.pinned.length > 0 && (
-          <div className="gc-pinned">
+          <div className="gc-pinned" aria-label="Avisos fixados"><strong className="gc-pinned-heading"><Pin size={13}/> Avisos da comunidade</strong>
             {state.pinned.map((m) => (
               <div key={m.id} className="gc-pinned-item"><Pin size={12} /><b className="gc-name">{m.sender.name}</b><span className="gc-text">{m.body}</span></div>
             ))}
@@ -110,27 +123,28 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
                   {staff && <b className="admin-badge gc-admin-badge">ADMIN</b>}
                   {isSuper && <span className="gc-admin-badge"><SuperBadge small /></span>}
                 </button>
-                <div className="gc-bubble">
+                <div className={"gc-bubble"+((m.sender.presentation?.progress?.level??1)>=30?" gc-level-accent":"")}>
                   <div className="gc-meta">
+                    {m.sender.presentation?.progress&&<LevelBadge progress={m.sender.presentation.progress} compact/>}
                     <b className="gc-name">{m.sender.name}</b>
-                    {staff ? <span className="gc-role-tag">ADMIN</span>
+                    {staff ? null
                       : isSuper ? <span className="gc-role-tag super">SUPER</span>
                       : m.sender.groupCode && m.sender.groupCode!=="#" ? <span className="gc-group">SOS {m.sender.groupCode}</span> : null}
                     <time className="gc-time">{time(m.createdAt)}</time>
                   </div>
-                  {staff
-                    ? <div className="gc-admin-banner"><span className="gc-text gc-text-admin">{m.body}</span></div>
-                    : isSuper ? <span className="gc-super-text">{m.body}</span>
-                    : <span className="gc-text">{m.body}</span>}
-                  {isStaff && (
-                    <div className="gc-mod">
-                      <button type="button" title={m.pinned ? "Desafixar" : "Fixar"} onClick={() => void moderate(() => api.chatPin(m.id, !m.pinned))}>{m.pinned ? <PinOff size={13} /> : <Pin size={13} />}</button>
-                      <button type="button" title="Apagar" onClick={() => void moderate(() => api.chatDelete(m.id))}><Trash2 size={13} /></button>
-                      {m.role === "USER" && <>
-                        <button type="button" title="Silenciar 10 min" onClick={() => void moderate(() => api.chatModerate(m.sender.id, "MUTE", { minutes: 10 }))}><VolumeX size={13} /></button>
-                        <button type="button" title="Remover da sala" onClick={() => void moderate(() => api.chatModerate(m.sender.id, "REMOVE"))}><UserX size={13} /></button>
-                      </>}
-                    </div>
+                  <span className={staff ? "gc-text gc-text-admin" : isSuper ? "gc-super-text" : "gc-text"}>{m.body}</span>
+                  {isStaff && adminTools && (
+                    <details className="gc-mod">
+                      <summary aria-label={"Ações da mensagem de " + m.sender.name}><MoreHorizontal size={18}/><span>Ações</span></summary>
+                      <div className="gc-mod-actions">
+                        <button type="button" onClick={() => void moderate(() => api.chatPin(m.id, !m.pinned))}>{m.pinned ? <PinOff size={15}/> : <Pin size={15}/>} {m.pinned ? "Desafixar" : "Fixar aviso"}</button>
+                        <button type="button" onClick={() => void moderate(() => api.chatDelete(m.id))}><Trash2 size={15}/> Apagar mensagem</button>
+                        {!staff && <>
+                          <button type="button" onClick={() => void moderate(() => api.chatModerate(m.sender.id, "MUTE", { minutes: 10 }))}><VolumeX size={15}/> Silenciar por 10 min</button>
+                          <button type="button" onClick={() => void moderate(() => api.chatModerate(m.sender.id, "REMOVE"))}><UserX size={15}/> Remover da sala</button>
+                        </>}
+                      </div>
+                    </details>
                   )}
                 </div>
               </div>
@@ -138,25 +152,22 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
           })}
         </div>
 
-        {isStaff && (
-          <div className="gc-admin-tools">
-            <button type="button" onClick={() => { if (confirm("Limpar TODO o chat global? Isso oculta todas as mensagens atuais.")) void moderate(() => api.chatClear()); }}><Trash2 size={13} /> Limpar chat</button>
-          </div>
-        )}
-
         <form className="gc-input" onSubmit={send}>
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             maxLength={500}
-            placeholder={cooldownLeft > 0 ? `Aguarde ${cooldownLeft}s…` : isStaff ? "Mensagem da administração…" : "Escreva no chat (sem links)…"}
-            disabled={busy || cooldownLeft > 0}
+            placeholder={isStaff ? "Mensagem da administração…" : "Escreva no chat (sem links)…"}
+            disabled={busy}
             aria-label="Mensagem para o chat global"
           />
           <button className="gc-send" disabled={busy || cooldownLeft > 0 || !draft.trim()} aria-label="Enviar mensagem à comunidade"><Send size={18} /></button>
         </form>
         {error && <p className="gc-error" role="alert"><X size={13} /> {error}</p>}
-        {!isStaff && <small className="gc-note">Respeito sempre · sem links · {state.cooldownSeconds===0?"SUPER: mensagens sem espera":"1 mensagem a cada "+Math.ceil(state.cooldownSeconds/60)+" min"}</small>}
+        {!isStaff && <small className="gc-note" role="status">
+          {cooldownLeft > 0 ? "Você pode enviar novamente em " + cooldownLeft + " s. Continue escrevendo." : state.cooldownSeconds === 0 ? "SUPER · mensagens sem espera" : "Uma mensagem a cada " + state.cooldownSeconds + " segundos"}
+          <span>Compartilhe URLs de vídeos na fila.</span>
+        </small>}
       </>}
       {zoom && createPortal(
         <AvatarLightbox

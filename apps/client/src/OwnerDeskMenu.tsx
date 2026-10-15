@@ -6,7 +6,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 
 const money=(cents=0)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
-export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"comms"|"access"|"avatars";
+export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"comms"|"access"|"avatars"|"gamification";
 
 export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onRefresh,onVersion,onLogout,onAvatarChanged,onParticipate,onManageOwners}:{
   data:OwnerOverview;onClose:()=>void;onNavigate:(target:OwnerMenuTarget)=>void;onWhatsApp:()=>void;onPayments:()=>void;onRefresh:()=>void;onVersion:()=>void;onLogout:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;
@@ -53,6 +53,7 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
 
       <section className="desk-section">
         <div className="desk-section-title"><Bot size={17}/><strong>Integrações e operação</strong></div>
+        {data.owner.permissions.canConfigure&&<button className="owner-menu-link" onClick={()=>go("gamification")}><span><Coins size={17}/><b>Jornada e recompensas</b></span><small>XP, níveis, rankings e Booster de sexta</small></button>}
         <button className="owner-menu-link" onClick={()=>go("integrations")}><span><Bot size={17}/><b>Estado das integrações</b></span><small>Configuração, tentativas e mensagens aceitas pelo provedor</small></button>
         {data.owner.permissions.canConfigure&&<button className="owner-menu-link" onClick={()=>{onWhatsApp();onClose();}}><span><Bot size={17}/><b>WhatsApp e validação</b></span><small>{data.whatsapp.configured?"Transporte configurado":"Integração ainda incompleta"} · {data.whatsapp.groupsLinked} grupo(s) confirmado(s)</small></button>}
         {data.owner.permissions.canManageOwners&&<button className="owner-menu-link" onClick={()=>{onManageOwners();onClose();}}><span><UserCog size={17}/><b>Equipe administrativa</b></span><small>Adicionar ou revogar Administradores vinculados a usuários verificados.</small></button>}

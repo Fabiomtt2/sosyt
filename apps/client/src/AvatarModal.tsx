@@ -1,3 +1,4 @@
+import { LevelBadge } from "./GamificationPanel";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Lock, X } from "lucide-react";
@@ -70,6 +71,7 @@ export function AvatarLightbox({avatar,name,presentation,subtitle,onClose,action
     <section ref={modalRef} className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
       <button type="button" className="avatar-lightbox-close" onClick={onClose} aria-label="Fechar">×</button>
       <UserAvatarView avatar={avatar} name={name} presentation={presentation} className="avatar-lightbox-image"/>
+      {presentation?.progress&&<LevelBadge progress={presentation.progress}/>}
       <h3>{name}</h3>
       {subtitle && <p className="avatar-lightbox-sub">{subtitle}</p>}
       {actions && <div className="avatar-lightbox-actions">{actions}</div>}

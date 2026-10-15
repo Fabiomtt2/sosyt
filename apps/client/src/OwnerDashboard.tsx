@@ -1,3 +1,4 @@
+import { OwnerGamificationPanel } from "./OwnerGamificationPanel";
 import { WelcomeLoading } from "./WelcomeLoading";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Bot, Check, ChevronLeft, ChevronRight, Download, HelpCircle, Menu, RefreshCw, Settings2, ShieldCheck, Users, Youtube } from "lucide-react";
@@ -253,7 +254,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
 
       <div className="owner-service-summary"><span><Bot size={16}/>WhatsApp: {data.whatsapp.configured ? "configuração disponível para envio" : "envio ainda indisponível"}</span><button className="text-button" onClick={()=>setTab("integrations")}>Ver integrações</button></div>
       <nav className="owner-tabs" aria-label="Seções administrativas">
-        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["integrations", "Integrações"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
+        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["integrations", "Integrações"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const,["gamification","Jornada"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
       </nav>
 
       {tab === "integrations" && <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
@@ -314,6 +315,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
         <div className="table-scroll"><table><thead><tr><th>Participante</th><th>Produto</th><th>Valor</th><th>Provedor</th><th>Status</th><th>Data</th></tr></thead><tbody>{data.purchases.map((p) => <tr key={p.id}><td>{p.userDeletedAt ? <><strong>Conta removida</strong><small>ID {p.userId}</small></> : <><button className="participant-link" onClick={()=>setParticipantPhone(p.phone)}>{p.name}</button><small>{p.phone}</small></>}</td><td><strong>{paymentProductName(p.productCode)}</strong><small>{p.creditsMillis/1000} moeda(s) · {p.extraPasses} passe(s)</small></td><td>{money(p.amountCents)}</td><td>{paymentProviderName(p.provider)}</td><td>{p.status}</td><td>{date(p.approvedAt ?? p.createdAt)}</td></tr>)}</tbody></table>{!data.purchases.length && <p className="muted">Nenhuma compra registrada.</p>}</div>
       </section>}
 
+      {tab === "gamification" && data.owner.permissions.canConfigure && <OwnerGamificationPanel/>}
       {tab === "store" && <OwnerStorePanel canEdit={data.owner.permissions.canConfigure}/>}
       {tab === "bot" && <OwnerBotPanel/>}
       {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure} canViewSensitive={data.owner.permissions.canViewSensitive}/>}
