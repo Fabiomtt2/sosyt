@@ -19,6 +19,11 @@ test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma c
   await page.keyboard.type("71");
   await page.getByRole("button",{name:"DDD 71 BA"}).click();
   await page.getByLabel("WhatsApp",{exact:true}).fill("999998077");
+  await expect(page.getByLabel("WhatsApp",{exact:true})).toHaveValue("999998077");
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:resolve("../../docs/evidencias/access-registration-"+width+".png"),fullPage:true,animations:"disabled"});
+  }
   await page.getByRole("checkbox").check();
   const response=page.waitForResponse(result=>result.url().endsWith("/auth/request-code"));
   await page.getByRole("button",{name:"Enviar dados e continuar"}).click();
@@ -29,11 +34,16 @@ test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma c
   await page.getByLabel("Chave recebida no WhatsApp").fill("000000");
   await page.getByRole("button",{name:"Confirmar chave e continuar"}).click();
   await expect(page.getByText("Código inválido ou expirado.",{exact:true})).toBeVisible();
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:900});
+    await page.screenshot({path:resolve("../../docs/evidencias/access-key-"+width+".png"),fullPage:true,animations:"disabled"});
+  }
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:resolve("../../docs/evidencias/login-chave-whatsapp-mobile.png"),fullPage:true});
   await page.getByLabel("Chave recebida no WhatsApp").fill(issued.devCode);
   await page.getByRole("button",{name:"Confirmar chave e continuar"}).click();
   await expect(page.getByRole("heading",{name:"Solicitação em análise"})).toBeVisible();
+  await page.screenshot({path:resolve("../../docs/evidencias/access-pending-390.png"),fullPage:true,animations:"disabled"});
   const approval=await request.post(api+"/admin/members",{headers:{authorization:"Bearer "+token},data:{name:"Pessoa Chave",phone,groupCode:"1"}});
   expect(approval.ok()).toBeTruthy();
   // A fresh key after the resend window is generated through the isolated DB
@@ -54,4 +64,36 @@ test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma c
   const dashboard=await request.get(api+"/dashboard",{headers:{authorization:"Bearer "+session}});
   expect((await dashboard.json()).wallet.total).toBe(10);
   await page.screenshot({path:resolve("../../docs/evidencias/login-chave-conta-mobile.png"),fullPage:true});
+  // Password alternative uses the same verified number, membership and wallet.
+  await page.getByRole("button",{name:"Abrir menu da minha conta"}).click();
+  const account=page.getByRole("dialog",{name:"Minha conta"});
+  await account.getByText("Minha senha de acesso",{exact:true}).click();
+  await account.getByLabel("Nova senha",{exact:true}).fill("Fixture-access-8077!");
+  await account.getByLabel("Repita a nova senha",{exact:true}).fill("Fixture-access-8077!");
+  await account.getByRole("button",{name:"Salvar minha senha",exact:true}).click();
+  await expect(account.getByRole("status").filter({hasText:"Sua nova senha foi salva."})).toBeVisible();
+  await account.getByRole("button",{name:"Sair da minha conta",exact:true}).click();
+  await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa Chave");
+  await page.getByRole("button",{name:"Selecionar país e DDI"}).click();
+  await page.keyboard.type("55");await page.getByRole("button",{name:"Brasil +55"}).click();
+  await page.getByRole("button",{name:"Selecionar DDD do Brasil"}).click();
+  await page.keyboard.type("71");await page.getByRole("button",{name:"DDD 71 BA"}).click();
+  await page.getByLabel("WhatsApp",{exact:true}).fill("999998077");
+  await page.getByRole("button",{name:"Entrar com senha",exact:true}).click();
+  await page.getByLabel("Senha recebida ou criada por você").fill("Fixture-access-8077!");
+  await page.getByRole("button",{name:"Continuar",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Abrir menu da minha conta"})).toBeVisible();
+  const again=await page.evaluate(()=>localStorage.getItem("conexao_token"));
+  expect((await (await request.get(api+"/dashboard",{headers:{authorization:"Bearer "+again}})).json()).user.id).toBe((await dashboard.json()).user.id);
+  await page.getByRole("button",{name:"Abrir menu da minha conta"}).click();
+  await account.getByText("Minha senha de acesso",{exact:true}).click();
+  await account.getByLabel("Senha atual",{exact:true}).fill("Wrong-password");
+  await account.getByLabel("Nova senha",{exact:true}).fill("Fixture-new-8077!");
+  await account.getByLabel("Repita a nova senha",{exact:true}).fill("Fixture-new-8077!");
+  await account.getByRole("button",{name:"Salvar minha senha",exact:true}).click();
+  await expect(account.getByRole("status")).toContainText("Confirme a senha atual");
+  await account.getByLabel("Senha atual",{exact:true}).fill("Fixture-access-8077!");
+  await account.getByRole("button",{name:"Salvar minha senha",exact:true}).click();
+  await expect(account.getByRole("status").filter({hasText:"Sua nova senha foi salva."})).toBeVisible();
+
 });

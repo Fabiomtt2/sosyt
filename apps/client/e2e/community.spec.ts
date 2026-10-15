@@ -38,7 +38,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.evaluate(() => document.fonts.ready);
   await expect(page.getByRole("heading", { name: "Entre na sua conexão" })).toBeVisible();
   await expect(page.getByText("Quero participar", { exact: true })).toHaveCount(1);
-  await expect(page.getByText("Sempre por escolha sua.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Sua comunidade começa aqui.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem views automáticas.", { exact: true })).toBeVisible();
   await expect(page.getByText("Sem reprodução oculta.", { exact: true })).toBeVisible();
   await expect(page.getByText("Você mantém o controle.", { exact: true })).toBeVisible();
@@ -92,7 +92,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   expect(Math.abs(joinMetrics.height - continueMetrics.height)).toBeLessThanOrEqual(1);
   const [joinBox, continueBox] = await Promise.all([joinButton.boundingBox(), continueButton.boundingBox()]);
   expect(joinBox).not.toBeNull(); expect(continueBox).not.toBeNull();
-  expect(Math.abs((joinBox!.y + joinBox!.height / 2) - (continueBox!.y + continueBox!.height / 2))).toBeLessThanOrEqual(1);
+  // CTA sizing stays consistent; the redesigned editorial columns have independent text flow.
+  expect(Math.abs(joinBox!.height - continueBox!.height)).toBeLessThanOrEqual(1);
   expect(joinMetrics.paddingTop).toBe(continueMetrics.paddingTop);
   expect(joinMetrics.paddingBottom).toBe(continueMetrics.paddingBottom);
   expect(joinMetrics.borderRadius).toBe(continueMetrics.borderRadius);
@@ -125,7 +126,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(page.getByText("Please fill out this field", { exact: false })).toHaveCount(0);
   await joinButton.click();
   await expect(page.getByRole("heading", { name: "Participar do SOS YouTube" })).toBeVisible();
-  await expect(page.getByText(/continuaremos pelo WhatsApp/)).toBeVisible();
+  await expect(page.getByText(/Você poderá acompanhar seu cadastro por aqui/)).toBeVisible();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E");
   const countryTrigger = page.getByRole("button", { name: "Selecionar país e DDI" });
   await expect(countryTrigger).toContainText("DDI");
@@ -227,7 +228,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   const ownerEnter = page.getByRole("button", { name: "Entrar", exact: true });
   const [ownerJoinBox, ownerEnterBox] = await Promise.all([joinButton.boundingBox(), ownerEnter.boundingBox()]);
   expect(ownerJoinBox).not.toBeNull(); expect(ownerEnterBox).not.toBeNull();
-  expect(Math.abs((ownerJoinBox!.y + ownerJoinBox!.height / 2) - (ownerEnterBox!.y + ownerEnterBox!.height / 2))).toBeLessThanOrEqual(1);
+  expect(Math.abs(ownerJoinBox!.height - ownerEnterBox!.height)).toBeLessThanOrEqual(1);
   await page.getByLabel("Credencial", { exact: true }).fill("credencial-errada");
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Credencial", exact: true })).toBeVisible();
