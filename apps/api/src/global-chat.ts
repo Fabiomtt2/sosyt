@@ -13,7 +13,7 @@ import { effectiveSuper, superState } from "./super.js";
 // SUPER tem estetica propria no chat, abaixo do destaque de ADMIN/OWNER.
 export type ChatRole = "USER" | "SUPER" | "ADMIN" | "OWNER";
 const BODY_MAX = 500;
-const DEFAULT_COOLDOWN_SECONDS = 180; // 3 minutos para membros comuns (owner configura)
+const DEFAULT_COOLDOWN_SECONDS = 30; // Membros comuns; exceções individuais do Owner permanecem.
 
 // ---------- camadas de segurança ----------
 
@@ -154,9 +154,10 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
     WHERE deleted_at IS NULL AND pinned=1 ORDER BY created_at DESC LIMIT 3`).all() as Array<Record<string, unknown>>).map(decorate);
   // O cooldown informado ao cliente ja considera o privilegio SUPER.
   const viewerSuper = effectiveSuper(db, viewerId);
+  const viewerRole = chatRoleOf(db, viewerId, config);
   return { removed: false as const, messages: rows.map(decorate), pinned,
-    cooldownSeconds: viewerSuper.chatCooldownSeconds === 0 ? 0 : mod.cooldownSeconds,
-    viewerRole: chatRoleOf(db, viewerId, config) };
+    cooldownSeconds: isStaff(viewerRole) || viewerSuper.chatCooldownSeconds === 0 ? 0 : mod.cooldownSeconds,
+    viewerRole };
 }
 
 // ---------- ações administrativas ----------

@@ -1,3 +1,7 @@
+import { ensureBotPassword, readBotPasswordSettings, saveBotPasswordSettings } from "./bot-password.js";
+import { readGamificationBot, saveGamificationBot, dispatchGamificationEvents } from "./gamification-bot.js";
+import { gamificationData, gamificationRanks, dropLabel } from "./gamification-view.js";
+import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, giftRewardCoins, settleClosedMonths } from "./gamification.js";
 import { presentationOf } from "./presentation.js";
 import { paymentReceipt } from "./payment-receipts.js";
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
@@ -6,7 +10,7 @@ import { hashPassword, verifyPassword, generateBotPassword, generateSetupCode, n
 import { listStoreProducts, getActiveStoreProduct } from "./store.js";
 import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox.js";
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
-import { ownerAccounts } from "./owners.js";
+import { ownerAccounts,effectiveOwnerAccounts } from "./owners.js";
 import { credentialState, setCredential } from "./admin-credentials.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP, ROOT_ITEM_QUANTITY } from "./inventory.js";
@@ -19,7 +23,7 @@ import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import helmet from "@fastify/helmet";
 import { z } from "zod";
-import { registerOwnerRoutes, hasMembership, resolveGroupForPhone } from "./owner.js";
+import { registerOwnerRoutes, syncConfiguredRootOwners, hasMembership, resolveGroupForPhone } from "./owner.js";
 import { registerCompanion } from "./companion.js";
 import { registerGoogleLogin } from "./google-login.js";
 import { administrativeSessionValid } from "./owners.js";
@@ -452,6 +456,64 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if(!administrativeParticipant&&config.REQUIRE_GROUP_MEMBERSHIP&&!hasMembership(db,String(user.phone),String(user.groupCode)))return reply.code(403).send({message:"Seu acesso precisa da aprovação do Owner em um grupo SOS YOUTUBER."});
   }
   const {ownerGuard,rootOwnerGuard}=await registerOwnerRoutes(app,db,config,participantIdentityGuard);
+  const invalidateBotPasswordDelivery=(userId:string,stamp:string)=>{
+    db.prepare("UPDATE whatsapp_outbox SET status='FAILED',expires_at=?,last_error='PASSWORD_CHANGED',lease_until=NULL,payload='{}' WHERE id IN (SELECT outbox_id FROM bot_password_deliveries WHERE user_id=?) AND status IN ('PENDING','SENDING','FAILED')").run(stamp,userId);
+  };
+  const prepareBotPassword=(id:string)=>{try{syncConfiguredRootOwners(db,config);return ensureBotPassword(db,config,id,true);}catch(error){app.log.error(error,"Bot password preparation failed");return {created:false,queued:false};}};
+  const reconcileApprovedBotAccounts=()=>{
+    const settings=readBotPasswordSettings(db),wa=effectiveWhatsAppConfig(db,config);
+    if(!settings.enabled||!whatsappConfigured(wa))return;
+    const rows=db.prepare("SELECT p.phone,p.name,gm.group_code AS groupCode FROM participation_requests p JOIN group_memberships gm ON gm.phone=p.phone WHERE p.status='APPROVED' AND p.whatsapp_verified_at IS NOT NULL AND gm.revoked_at IS NULL AND NOT EXISTS(SELECT 1 FROM user_passwords pw JOIN users u ON u.id=pw.user_id WHERE u.phone=p.phone) AND (?<>'' OR (p.source='WHATSAPP' AND p.whatsapp_verified_at>?)) ORDER BY p.approved_at DESC LIMIT 50").all(settings.templateName,new Date(Date.now()-24*3600_000).toISOString()) as Array<{phone:string;name:string;groupCode:string}>;
+    for(const row of rows){
+      if(!hasMembership(db,row.phone,row.groupCode)||effectiveOwnerAccounts(db,config).some(owner=>owner.phone===row.phone))continue;
+      db.transaction(()=>{
+        let user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(row.phone) as {id:string}|undefined;
+        if(!user){
+          const stamp=new Date().toISOString();user={id:randomUUID()};
+          db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,?,?,?)").run(user.id,row.name,row.phone,row.groupCode,stamp,stamp);
+          db.prepare("INSERT INTO wallets(user_id,updated_at) VALUES(?,?)").run(user.id,stamp);
+          db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at) VALUES(?,?,'WELCOME',10000,NULL,?)").run(randomUUID(),user.id,stamp);
+        }
+        prepareBotPassword(user.id);
+      })();
+    }
+  };
+  const notifyJourney=()=>{try{dispatchGamificationEvents(db,config);}catch(error){app.log.error(error,"Gamification notifications failed");}};
+  app.get("/gamification/me",{preHandler:authGuard},async(request)=>gamificationData(db,request.user.sub));
+  app.get("/gamification/rankings",{preHandler:authGuard},async()=>gamificationRanks(db));
+  app.post("/gamification/booster",{preHandler:authGuard},async(request)=>{
+    const result=claimBooster(db,request.user.sub);
+    notifyJourney();
+    return {code:result.reward.code,label:dropLabel(result.reward.code,result.reward.trialDays||7),coins:result.reward.coins,
+      quantity:result.reward.quantity,superDays:result.reward.trialDays,alreadyClaimed:result.replayed,
+      data:gamificationData(db,request.user.sub)};
+  });
+  app.post("/gamification/redeem",{preHandler:authGuard},async(request)=>{
+    const b=z.object({itemCode:z.enum(["SKIP","PASS"]),referenceId:z.string().uuid()}).parse(request.body);
+    const result=redeemRewardItem(db,request.user.sub,b.itemCode,b.referenceId);notifyJourney();
+    return {...result,data:gamificationData(db,request.user.sub)};
+  });
+  app.post("/gamification/gift-coins",{preHandler:authGuard},async(request)=>{
+    const b=z.object({toUserId:z.string().uuid(),coins:z.number().int().min(1).max(10000),referenceId:z.string().uuid()}).parse(request.body);
+    const result=giftRewardCoins(db,request.user.sub,b.toUserId,b.coins,b.referenceId);notifyJourney();return result;
+  });
+  app.get("/admin/gamification",{preHandler:rootOwnerGuard},async()=>({
+    config:gamificationConfig(db),ranks:gamificationRanks(db),
+    events:db.prepare("SELECT e.id,e.kind,e.user_id AS userId,u.name,e.xp_delta AS xpDelta,e.payload_json AS payload,e.created_at AS createdAt FROM gamification_events e JOIN users u ON u.id=e.user_id ORDER BY e.created_at DESC,e.rowid DESC LIMIT 100").all(),
+    botEvents:db.prepare("SELECT id,event,user_id AS userId,status,created_at AS createdAt FROM gamification_bot_events ORDER BY created_at DESC,rowid DESC LIMIT 50").all(),
+    audits:db.prepare("SELECT actor_id AS actorId,created_at AS createdAt FROM gamification_config_audit ORDER BY created_at DESC LIMIT 10").all()
+  }));
+  app.post("/admin/gamification",{preHandler:rootOwnerGuard},async(request)=>({config:saveGamificationConfig(db,request.body,request.user.sub)}));
+  app.get("/admin/auth/bot-password",{preHandler:rootOwnerGuard},async()=>readBotPasswordSettings(db));
+  app.post("/admin/auth/bot-password",{preHandler:rootOwnerGuard},async(request)=>saveBotPasswordSettings(db,request.body,request.user.sub));
+  app.get("/admin/gamification/bot",{preHandler:rootOwnerGuard},async()=>readGamificationBot(db));
+  app.post("/admin/gamification/bot",{preHandler:rootOwnerGuard},async(request)=>saveGamificationBot(db,request.body,request.user.sub));
+  app.post("/admin/gamification/settle",{preHandler:rootOwnerGuard},async()=>settleClosedMonths(db));
+  const settle=()=>{try{settleClosedMonths(db);}catch(error){app.log.error(error,"Gamification month settlement failed");}};
+  let gamificationTimer:ReturnType<typeof setInterval>|undefined;
+  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
+  app.addHook("onClose",async()=>{if(gamificationTimer)clearInterval(gamificationTimer);});
+
   registerGoogleLogin(app,db,config,rootOwnerGuard);
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
   ensureAvatarCatalog(db);
@@ -469,7 +531,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (!request.url.startsWith("/health") && !request.url.startsWith("/public/")) reply.header("cache-control", "no-store");
     return payload;
   });
-  app.get("/health", async () => ({ ok: true }));
+  app.get("/health", async () => ({ ok: true,release:"jornada-20261014",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -566,6 +628,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         db.prepare("UPDATE users SET name=?,group_code=?,updated_at=?,deleted_at=NULL WHERE id=?").run(row.name,row.group_code,now,user.id);
       }
     })();
+    prepareBotPassword(user!.id);
     return reply.send({ token: app.jwt.sign({ sub: user!.id, purpose: "session", aud: "conexao-session", authMethod:"otp", authPhone:row.phone }), user: getUser(db, user!.id) });
   });
 
@@ -733,6 +796,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         VALUES (?,?,0,0,NULL,?)
         ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
         .run(account.id, hashPassword(body.newPassword), stamp);
+      invalidateBotPasswordDelivery(account.id,stamp);
       db.prepare("UPDATE setup_codes SET used_at=? WHERE phone=?").run(stamp, body.phone);
     })();
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(stamp, account.id);
@@ -788,10 +852,13 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       }
     }
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
-      VALUES (?,?,0,0,NULL,?)
-      ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
-      .run(userId, hashPassword(body.newPassword), now);
+    db.transaction(()=>{
+      db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+        VALUES (?,?,0,0,NULL,?)
+        ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+        .run(userId, hashPassword(body.newPassword), now);
+      invalidateBotPasswordDelivery(userId,now);
+    })();
     return reply.send({ ok: true });
   });
 
@@ -804,10 +871,13 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     }
     const generated = generateBotPassword();
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
-      VALUES (?,?,1,0,NULL,?)
-      ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=1,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
-      .run(request.user.sub, hashPassword(generated), now);
+    db.transaction(()=>{
+      db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+        VALUES (?,?,1,0,NULL,?)
+        ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=1,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+        .run(request.user.sub, hashPassword(generated), now);
+      invalidateBotPasswordDelivery(request.user.sub,now);
+    })();
     // Entregue uma unica vez. Opcional: enviar tambem via bot quando houver template Meta.
     return reply.send({ ok: true, password: generated, mustChange: true });
   });
@@ -850,6 +920,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare("DELETE FROM group_memberships WHERE phone=?").run(user.phone);
       db.prepare("DELETE FROM whatsapp_member_verifications WHERE phone=?").run(user.phone);
       db.prepare("DELETE FROM whatsapp_conversations WHERE phone=?").run(user.phone);
+      db.prepare("DELETE FROM bot_password_deliveries WHERE user_id=?").run(user.id);
+      db.prepare("DELETE FROM user_passwords WHERE user_id=?").run(user.id);
+      db.prepare("UPDATE gamification_notification_deliveries SET body=\'Conta removida\' WHERE user_id=?").run(user.id);
       db.prepare("DELETE FROM whatsapp_outbox WHERE recipient=?").run(user.phone);
       db.prepare(`UPDATE submissions SET author_name='Conta removida',author_channel_title=NULL,author_channel_thumbnail_url=NULL WHERE user_id=?`).run(user.id);
       db.prepare(`UPDATE wallets SET promo_millis=0,purchased_millis=0,reward_millis=0,extra_slot_passes=0,payment_hold=0,updated_at=? WHERE user_id=?`).run(deletedAt,user.id);
@@ -1005,6 +1078,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND source='SKIP' AND left_at IS NULL").get(viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound, contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
       profile: profileSummary(db,request.user.sub),
       watchRewards: watchRewardView(db,request.user.sub),
+      gamification:gamificationData(db,request.user.sub),
       // AUDITORIA / multi-fila: navegacao entre as filas do proprio usuario.
       queues: {
         current: viewRound ? { id: viewRound.id, number: viewRound.displayNumber, status: viewRound.status } : null,
@@ -1129,9 +1203,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         .run(credited*1000,now,request.user.sub);
       if(targetCoins!==total.rewardedCoins) db.prepare("UPDATE watch_time_totals SET rewarded_coins=?,updated_at=? WHERE user_id=?")
         .run(targetCoins,now,request.user.sub);
-      return {rewardDeltaCoins:credited};
+      const xp=acceptedMillis>0?recordVerifiedXp(db,request.user.sub,roundId,body.videoIndex):{xpDelta:0,levelRewards:[]};
+      return {rewardDeltaCoins:credited,...xp};
     })();
 
+    if(result.xpDelta>0)notifyJourney();
     const rewards=watchRewardView(db,request.user.sub);
     // AUDITORIA M-01: exige duração confirmada pelo YouTube nos dez slots. Antes, a
     // conclusão era forjável declarando duration:1 em cada vídeo.
@@ -1141,6 +1217,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return {
       watchedSeconds,durations,percent,acceptedSeconds:acceptedMillis/1000,
       rewardCoins:rewards.coins,rewardDeltaCoins:result.rewardDeltaCoins,
+      xpDelta:result.xpDelta,levelRewards:result.levelRewards,
       walletTotal:walletView(db,request.user.sub).total,...rewards,updatedAt:now,...finalization
     };
   });

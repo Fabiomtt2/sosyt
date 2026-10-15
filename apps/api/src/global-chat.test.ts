@@ -55,24 +55,45 @@ describe("chat global — segurança e moderação", () => {
     expect(bad.statusCode).toBe(400); expect(bad.json().code).toBe("CHAT_PROFANITY");
   });
 
-  it("cooldown de 3 min para membros; segunda mensagem imediata é barrada", async () => {
+  it("cooldown de 30 segundos persiste e libera após o intervalo", async () => {
     const a = await register("71990001002");
     expect((await send(a.token, "primeira")).statusCode).toBe(200);
     const second = await send(a.token, "segunda imediata");
     expect(second.statusCode).toBe(429);
     expect(second.json().code).toBe("CHAT_COOLDOWN");
     expect(second.json().retryAfterSeconds).toBeGreaterThan(0);
+    expect(second.json().retryAfterSeconds).toBeLessThanOrEqual(30);
+    expect((await app.inject({ method: "GET", url: "/chat/global", headers: auth(a.token) })).json().cooldownSeconds).toBe(30);
+    db.prepare("UPDATE global_chat_messages SET created_at=? WHERE user_id=?").run(new Date(Date.now()-31_000).toISOString(),a.id);
+    expect((await send(a.token, "após trinta segundos")).statusCode).toBe(200);
   });
 
   it("admin escapa do cooldown e PODE postar link; mensagem vem com role OWNER", async () => {
     const owner = await register("71999990001", "Fabio0"); // mesmo telefone do owner -> vira staff ao logar admin? não: /chat usa owner_access
-    // concede acesso de owner ao usuário para o teste
-    db.prepare("INSERT INTO owner_access (id,user_id,phone,normalized_name,role,active,created_at,updated_at) VALUES (?,?,?,?, 'ROOT_OWNER',1,?,?)").run("oa1", owner.id, "5571999990001", "fabio0", new Date().toISOString(), new Date().toISOString());
+    // Configured ROOT identity is persisted by the real verified access path.
+    expect(db.prepare("SELECT role,active FROM owner_access WHERE user_id=?").get(owner.id)).toEqual({role:"ROOT_OWNER",active:1});
     expect((await send(owner.token, "Comunicado: acessem o site oficial sosyoutuber.com")).statusCode).toBe(200);
     expect((await send(owner.token, "segunda imediata do admin, sem cooldown")).statusCode).toBe(200);
     const list = await app.inject({ method: "GET", url: "/chat/global", headers: auth(owner.token) });
     const mine = list.json().messages.filter((m: { role: string }) => m.role === "OWNER");
     expect(mine.length).toBe(2);
+    expect(list.json().cooldownSeconds).toBe(0);
+  });
+
+  it("ADMIN_OWNER recebe cooldown zero e envia sem espera; exceção de membro permanece", async () => {
+    const admin = await register("71990001007", "Admin");
+    const stamp = new Date().toISOString();
+    db.prepare("INSERT INTO owner_access (id,user_id,phone,normalized_name,role,active,created_at,updated_at) VALUES (?,?,?,?, 'ADMIN_OWNER',1,?,?)").run("oa-admin",admin.id,"5571990001007","admin",stamp,stamp);
+    expect((await send(admin.token,"Primeiro aviso")).statusCode).toBe(200);
+    expect((await send(admin.token,"Segundo aviso")).statusCode).toBe(200);
+    const view = (await app.inject({method:"GET",url:"/chat/global",headers:auth(admin.token)})).json();
+    expect(view.viewerRole).toBe("ADMIN");
+    expect(view.cooldownSeconds).toBe(0);
+    const member = await register("71990001008");
+    db.prepare("INSERT INTO global_chat_members(user_id,cooldown_seconds,updated_at) VALUES (?,120,?)").run(member.id,stamp);
+    expect((await app.inject({method:"GET",url:"/chat/global",headers:auth(member.token)})).json().cooldownSeconds).toBe(120);
+    expect((await send(member.token,"Olá")).statusCode).toBe(200);
+    expect((await send(member.token,"Outra fala")).json().retryAfterSeconds).toBeGreaterThan(30);
   });
 
   it("leitura por cursor traz só o que chegou depois (tempo real)", async () => {
