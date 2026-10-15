@@ -1,3 +1,9 @@
+## Push confirmado — 2026-10-15T03:09:56.147899-03:00
+- Seis commits revisados publicados na branch astra/convergencia-20261012 até 0296bf240017bf136cd332b2e29c0a78863272e2; PR #3 atualizado com escopo final. Sem merge/deploy ainda.
+- API 292, cliente25, Chromium8, lint/build/diff e reinspeção visual GREEN. Ponta documental posterior deve ser conferida por git/remote.
+- Volume Railway /data intacto. Patch7 campos não destrutivo preparado; Web aguarda API compatível. Pages fica pausado enquanto não possui VITE_API_URL configurada.
+- Próximo: confirmar ponta remota do PR, remover draft, merge seguro e aplicar uma vez o patch autorizado. Segredos ficam fora do Git.
+
 ## Checkpoint executivo — 2026-10-15T03:07:42.586017-03:00
 - Cinco commits de código/teste/publicação concluídos. Documentando estado final para push e merge autorizado.
 - Gate final: 292 API, 25 cliente, 8 Chromium, lint/build/diff GREEN. Capturas novas abertas e reinspecionadas.

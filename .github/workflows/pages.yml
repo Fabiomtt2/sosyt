@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ vars.VITE_API_URL != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
