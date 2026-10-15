@@ -55,7 +55,7 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
     const password=generateBotPassword();
     const body="Oi, "+user.name+"! Seu acesso ao SOS YouTuber está pronto. Sua senha para entrar com este WhatsApp é: "+password+". Guarde-a em um lugar seguro e troque-a após entrar. Não compartilhe sua senha com outras pessoas. Você também pode continuar usando a chave temporária de 5 minutos.";
     const result=queueBotNotification(db,config,user.phone,body,"bot-password:"+userId,
-      settings.templateName?{name:settings.templateName,language:settings.templateLanguage}:undefined,{encryptPayload:true});
+      settings.templateName?{name:settings.templateName,language:settings.templateLanguage}:undefined,{encryptPayload:true,deliveryClass:"TRANSACTIONAL",event:"BOT_PASSWORD"});
     if(!result.queued||!result.outboxId)return {created:false,queued:false,reason:result.reason??"DELIVERY_UNAVAILABLE"};
     const outbox=db.prepare("SELECT payload FROM whatsapp_outbox WHERE id=?").get(result.outboxId) as {payload:string}|undefined;
     if(!outbox)return {created:false,queued:false,reason:"OUTBOX_NOT_FOUND"};

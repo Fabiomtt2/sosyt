@@ -186,10 +186,21 @@ describe("bot oficial WhatsApp", () => {
     expect((await post(groupPayload("101","group_participants_remove","removed_participants"))).statusCode).toBe(200);
     expect((db.prepare("SELECT revoked_at AS revokedAt FROM whatsapp_member_verifications WHERE phone='5571999999001'").get() as {revokedAt?:string}).revokedAt).toBeTruthy();
   });
-  it("ignora outro número de atendimento e nome sem contexto; recusa payload malformado",async () => {
-    await post(payload("m1","Quero participar","99999")); await post(payload("m2","Pessoa"));
+  it("ignora outro número de atendimento; recusa payload malformado",async () => {
+    // Numero de atendimento diferente do nosso continua sendo ignorado por completo.
+    await post(payload("m1","Quero participar","99999"));
     expect(count("whatsapp_outbox")).toBe(0); expect(count("participation_requests")).toBe(0);
     expect((await post({object:"whatsapp_business_account",entry:null})).statusCode).toBe(400);
+  });
+  it("nome sem contexto agora recebe acolhimento em vez de silêncio",async () => {
+    // AUDITORIA: antes isto gerava ZERO mensagens — a pessoa escrevia e nada voltava.
+    // A regra passou a ser: nenhuma mensagem de uma pessoa termina em silêncio.
+    // Nenhum cadastro e criado sem o fluxo proprio; so a resposta muda.
+    await post(payload("m2","Pessoa"));
+    expect(count("participation_requests")).toBe(0);
+    expect(count("whatsapp_outbox")).toBe(1);
+    const body=JSON.parse((db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string}).payload)?.text?.body ?? "";
+    expect(body).toMatch(/ENTRAR|FILA|HUMANO/);
   });
   it("não envia resposta livre fora da janela de serviço",async () => {
     await post(payload("m1","Quero participar","123456",Math.floor(Date.now()/1000)-25*3600));
@@ -243,4 +254,52 @@ describe("bot oficial WhatsApp", () => {
     expect((await app.inject({method:"POST",url:"/auth/request-code",payload:{name:"Pessoa",phone:"5571999999001",groupCode:"1"}})).statusCode).toBe(503);
     expect((db.prepare("SELECT used_at FROM login_codes").get() as {used_at:string}).used_at).toBeTruthy();
   });
+
+  // AUDITORIA / prova de que o bot-inbound esta LIGADO ao webhook — nao basta o
+  // modulo existir com testes proprios; o fio tem de chegar na ponta.
+  describe("ninguem nunca fala sozinho (integracao do webhook)", () => {
+    const bodies = () => (db.prepare("SELECT payload FROM whatsapp_outbox").all() as Array<{payload:string}>)
+      .map((r) => { try { return JSON.parse(r.payload)?.text?.body ?? ""; } catch { return ""; } });
+
+    it("'humano' recebe resposta e marca o transbordo (antes: silencio total)", async () => {
+      expect((await post(payload("m-humano","quero falar com humano"))).statusCode).toBe(200);
+      expect(bodies().some((b) => /chamando uma pessoa/i.test(b))).toBe(true);
+      expect((db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone='5571999999001'").get() as {stage:string}).stage)
+        .toBe("HUMAN_REQUESTED");
+    });
+
+    it("PARE registra o opt-out e confirma com respeito", async () => {
+      await post(payload("m-pare","PARE"));
+      expect(db.prepare("SELECT 1 FROM bot_opt_out WHERE phone='5571999999001'").get()).toBeTruthy();
+      expect(bodies().some((b) => /respeitamos sua escolha/i.test(b))).toBe(true);
+      await post(payload("m-voltar","quero voltar a receber"));
+      expect(db.prepare("SELECT 1 FROM bot_opt_out WHERE phone='5571999999001'").get()).toBeUndefined();
+    });
+
+    it("mensagem desconhecida nao termina em silencio", async () => {
+      await post(payload("m-xyz","xyzzy plugh"));
+      expect(bodies().some((b) => /não vou te deixar sem resposta/i.test(b))).toBe(true);
+    });
+
+    it("audio e respondido em vez de descartado", async () => {
+      const raw = JSON.stringify({object:"whatsapp_business_account",entry:[{id:"654321",changes:[{field:"messages",value:{metadata:{phone_number_id:"123456"},messages:[{id:"m-audio",from:"5571999999001",type:"audio",timestamp:String(Math.floor(Date.now()/1000))}]}}]}]});
+      expect((await post(undefined,raw)).statusCode).toBe(200);
+      expect(bodies().some((b) => /Recebi seu arquivo/i.test(b))).toBe(true);
+    });
+
+    it("texto longo demais e respondido em vez de descartado", async () => {
+      await post(payload("m-longo","a".repeat(600)));
+      expect(bodies().some((b) => /ficou um pouco longa/i.test(b))).toBe(true);
+    });
+
+    it("nome invalido explica o motivo em vez de calar", async () => {
+      await post(payload("m-part","Quero participar"));
+      await post(payload("m-nome","meu canal e https://youtube.com/x"));
+      expect(bodies().some((b) => /não consigo guardar links/i.test(b))).toBe(true);
+      // continua esperando o nome, para a pessoa tentar de novo
+      expect((db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone='5571999999001'").get() as {stage:string}).stage)
+        .toBe("WAITING_NAME");
+    });
+  });
+
 });

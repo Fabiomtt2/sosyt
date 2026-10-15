@@ -26,11 +26,19 @@ describe("HYBRID+ / silêncio noturno", () => {
     expect(inQuietHours(DEFAULT_DELIVERY_POLICY, atLocal("2026-10-15T06:00:00Z"))).toBe(true);  // 03h local
   });
 
-  it("trata a janela que cruza a meia-noite (21h→08h)", () => {
+  it("segue o dia ativo do projeto: 06:00 às 23:59", () => {
     const p = DEFAULT_DELIVERY_POLICY;
-    expect(inQuietHours(p, atLocal("2026-10-15T23:30:00Z"))).toBe(false); // 20:30 local -> ainda pode falar
-    expect(inQuietHours(p, atLocal("2026-10-16T00:30:00Z"))).toBe(true);  // 21:30 local -> silêncio
-    expect(inQuietHours(p, atLocal("2026-10-16T11:30:00Z"))).toBe(false); // 08:30 local -> liberado
+    expect(inQuietHours(p, atLocal("2026-10-16T08:59:00Z"))).toBe(true);  // 05:59 local -> ainda calado
+    expect(inQuietHours(p, atLocal("2026-10-16T09:00:00Z"))).toBe(false); // 06:00 local -> pode falar
+    expect(inQuietHours(p, atLocal("2026-10-16T02:30:00Z"))).toBe(false); // 23:30 local -> ainda pode
+    expect(inQuietHours(p, atLocal("2026-10-16T03:30:00Z"))).toBe(true);  // 00:30 local -> silêncio
+  });
+
+  it("a janela que cruza a meia-noite continua correta (política customizada)", () => {
+    const noturna: DeliveryPolicy = { ...DEFAULT_DELIVERY_POLICY, quietStartHour: 21, quietEndHour: 8 };
+    expect(inQuietHours(noturna, atLocal("2026-10-15T23:30:00Z"))).toBe(false); // 20:30 local
+    expect(inQuietHours(noturna, atLocal("2026-10-16T00:30:00Z"))).toBe(true);  // 21:30 local
+    expect(inQuietHours(noturna, atLocal("2026-10-16T11:30:00Z"))).toBe(false); // 08:30 local
   });
 
   it("silêncio desligado quando início == fim", () => {

@@ -1,4 +1,7 @@
 import { initializeBotPassword } from "./bot-password.js";
+import { ensureBotAutomations } from "./bot-automation-store.js";
+import { ensureBotOptOut } from "./bot-inbound.js";
+import { ensureBotDelivery } from "./bot-delivery-policy.js";
 import { initializeGamificationBot } from "./gamification-bot.js";
 import { initializeGamification } from "./gamification.js";
 import Database from "better-sqlite3";
@@ -556,6 +559,12 @@ export function createDatabase(filename: string): AppDatabase {
   initializeGamification(db);
   initializeGamificationBot(db);
   initializeBotPassword(db);
+  // AUDITORIA / HYBRID+: o schema do bot nasce com o banco, como o resto. Antes
+  // estas tabelas eram criadas so no registro das rotas, entao qualquer chamada
+  // direta (inclusive em teste) batia em "no such table".
+  ensureBotAutomations(db);
+  ensureBotOptOut(db);
+  ensureBotDelivery(db);
   return db;
 }
 

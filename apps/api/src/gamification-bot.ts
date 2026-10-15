@@ -127,7 +127,7 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
       if(!rule.whatsappEnabled){setState("WAITING","WHATSAPP_DISABLED");waiting++;continue;}
       if(wa.mode!=="OFFICIAL"&&wa.mode!=="HYBRID_PLUS"){setState("WAITING","MODE_UNAVAILABLE");waiting++;continue;}
       if(!wa.officialReady){setState("WAITING","META_NOT_READY");waiting++;continue;}
-      const result=queueBotNotification(db,config,event.phone,body,"gamification:"+event.id,rule.templateName?{name:rule.templateName,language:rule.templateLanguage}:undefined);
+      const result=queueBotNotification(db,config,event.phone,body,"gamification:"+event.id,rule.templateName?{name:rule.templateName,language:rule.templateLanguage}:undefined,{deliveryClass:"REWARD",event:event.event});
       if(!result.queued||!result.outboxId){setState("WAITING",result.reason??"CHANNEL_UNAVAILABLE");waiting++;continue;}
       const outbox=db.prepare("SELECT status FROM whatsapp_outbox WHERE id=?").get(result.outboxId) as {status:string}|undefined;
       if(!outbox){setState("WAITING","OUTBOX_NOT_FOUND");waiting++;continue;}

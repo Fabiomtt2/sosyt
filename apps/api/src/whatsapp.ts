@@ -8,6 +8,8 @@ import type { AppDatabase } from "./db.js";
 import { ownerAccounts } from "./owners.js";
 import { effectiveWhatsAppConfig } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
+import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
+import { canDeliver, ensureBotDelivery, recordDelivery, recordSuppressed, type DeliveryClass } from "./bot-delivery-policy.js";
 
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
 type Payload = Record<string, unknown>;
@@ -32,9 +34,20 @@ function template(config: Config, name: string, parameters: string[]): Payload {
   return { type: "template", template: { name, language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE }, components: [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] } };
 }
 /** Queues a real notification; dispatch/receipt status stays in the durable outbox. */
-export function queueBotNotification(db:AppDatabase,config:Config,phone:string,body:string,dedupeKey:string,approvedTemplate?:{name:string;language:string},options?:{encryptPayload?:boolean}) {
+export function queueBotNotification(db:AppDatabase,config:Config,phone:string,body:string,dedupeKey:string,approvedTemplate?:{name:string;language:string},options?:{encryptPayload?:boolean;deliveryClass?:DeliveryClass;event?:string}) {
   config=effectiveWhatsAppConfig(db,config);
   if(!phoneValid(phone)||!whatsappConfigured(config))return {queued:false,reason:"PROVIDER_NOT_READY"};
+  // AUDITORIA / politica de entrega: opt-out, silencio noturno e orcamento diario
+  // sao consultados AQUI, antes de ocupar a fila. Quem chama sem declarar a classe
+  // recebe o tratamento mais conservador (ENGAGEMENT) — o padrao seguro e o que
+  // respeita mais a pessoa, nao o que fala mais.
+  const deliveryClass:DeliveryClass=options?.deliveryClass??"ENGAGEMENT";
+  const event=options?.event??dedupeKey;
+  const verdict=canDeliver(db,phone,deliveryClass);
+  if(!verdict.allowed) {
+    recordSuppressed(db,phone,event,verdict.reason);
+    return {queued:false,reason:verdict.reason};
+  }
   const safePayload=(payload:Payload):Payload=>options?.encryptPayload?{encryptedNotification:encryptToken(JSON.stringify(payload),config)}:payload;
   const proof=db.prepare("SELECT MAX(whatsapp_verified_at) AS at FROM participation_requests WHERE phone=? AND source='WHATSAPP'").get(phone) as {at:string|null};
   const start=proof.at?Date.parse(proof.at):0;
@@ -47,6 +60,7 @@ export function queueBotNotification(db:AppDatabase,config:Config,phone:string,b
     queue(db,phone,safePayload(payload),dedupeKey);
   } else return {queued:false,reason:"TEMPLATE_OR_SERVICE_WINDOW_REQUIRED"};
   const row=db.prepare("SELECT id FROM whatsapp_outbox WHERE dedupe_key=?").get(dedupeKey) as {id:string}|undefined;
+  if(row)recordDelivery(db,phone,deliveryClass,event);
   return {queued:Boolean(row),outboxId:row?.id};
 }
 
@@ -336,18 +350,54 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
           }
           if (change.field !== "messages") continue;
           for (const msg of change.value.messages ?? []) {
-            if (!msg.id || msg.id.length>256 || !msg.from || !phoneValid(msg.from) || msg.type !== "text" || !msg.text?.body || msg.text.body.length>500) continue;
+            // AUDITORIA / "ninguem nunca fala sozinho". Antes, tudo que nao fosse
+            // texto curto caia num `continue` mudo: audio, foto, video e desabafo
+            // longo sumiam sem um pio, e a pessoa achava que foi ignorada.
+            if (!msg.id || msg.id.length>256 || !msg.from || !phoneValid(msg.from)) continue;
             const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_received (message_id,received_at) VALUES (?,?)").run(msg.id,now()); if (!fresh.changes) continue;
+            const stampGuard = Number(msg.timestamp)*1000;
+            const expiresGuard = new Date((Number.isFinite(stampGuard)?stampGuard:Date.now())+24*3600_000).toISOString();
+            if (msg.type !== "text" || !msg.text?.body) {
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:MEDIA_REPLY}},`${msg.id}:media`,expiresGuard);
+              continue;
+            }
+            if (msg.text.body.length>500) {
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:TOO_LONG_REPLY}},`${msg.id}:too-long`,expiresGuard);
+              continue;
+            }
             const stamp = Number(msg.timestamp)*1000;
             if (!Number.isFinite(stamp) || stamp > Date.now()+300_000) continue;
             const expires = new Date(stamp+24*3600_000).toISOString();
-            const text = msg.text.body.trim(), normalized = text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+            const text = msg.text.body.trim();
             const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(msg.from) as { stage: string } | undefined;
-            if (normalized.includes("quero participar")) {
+
+            // AUDITORIA / toda entrada e classificada; nenhuma fica sem resposta.
+            const intent = classifyInbound(text, { awaitingName: conversation?.stage === "WAITING_NAME" });
+
+            // Opt-out e opt-in sao atendidos na hora, antes de qualquer fluxo: quem
+            // pede para parar e continua recebendo bloqueia o numero, e bloqueio
+            // derruba a nota de qualidade que entrega o codigo de acesso de todos.
+            if (intent === "OPT_OUT" || intent === "OPT_IN") {
+              setOptOut(db, msg.from, intent === "OPT_OUT");
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor(intent)!}},`${msg.id}:${intent}`,expires);
+              continue;
+            }
+            // "humano": o proprio bot mandava escrever isso e nao havia handler.
+            if (intent === "HUMAN") {
+              db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'HUMAN_REQUESTED',?) ON CONFLICT(phone) DO UPDATE SET stage='HUMAN_REQUESTED',updated_at=excluded.updated_at").run(msg.from,now());
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor("HUMAN")!}},`${msg.id}:human`,expires);
+              continue;
+            }
+            // A recusa PROMETIA "responda por aqui" e nao havia quem respondesse.
+            if (conversation?.stage === "DECLINED") {
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:DECLINED_FOLLOWUP_REPLY}},`${msg.id}:declined-followup`,expires);
+              continue;
+            }
+            if (intent === "PARTICIPATE") {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`}},`${msg.id}:welcome`,expires);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires);
-            } else if (conversation?.stage === "WAITING_NAME" && text.length>=2 && text.length<=80 && !/[\r\n]/.test(text) && !/https?:\/\//i.test(text)) {
+            } else if (conversation?.stage === "WAITING_NAME" && looksLikeName(text)) {
               const hasActiveMembership = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
               let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
               if (!hasActiveMembership) {
@@ -380,6 +430,16 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome e o mesmo WhatsApp. O grupo é reconhecido automaticamente e não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires);
+            } else if (conversation?.stage === "WAITING_NAME") {
+              // Nome com link, vazio ou longo demais caia num else-if mudo: a pessoa
+              // nao sabia que errou nem como consertar. Agora explicamos com carinho
+              // e mantemos a conversa no mesmo estagio para ela tentar de novo.
+              const motivo = nameRejectionReason(text) ?? "Pode me mandar só o seu nome?";
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:`${motivo} 💛`}},`${msg.id}:name-retry`,expires);
+            } else {
+              // REDE FINAL: qualquer coisa que chegou ate aqui ganha resposta.
+              // Nenhuma mensagem de uma pessoa termina em silencio.
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor(intent) ?? replyFor("UNKNOWN")!}},`${msg.id}:fallback`,expires);
             }
           }
         }
@@ -387,6 +447,8 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     })();
     return { ok: true };
   });
+  ensureBotOptOut(db);
+  ensureBotDelivery(db);
   app.post("/admin/whatsapp/retry", { preHandler: ownerGuard }, async () => {
     db.prepare("UPDATE whatsapp_outbox SET status='PENDING',attempts=0,available_at=? WHERE status='FAILED' AND (expires_at IS NULL OR expires_at>?)").run(now(),now());
     return { ok: true };

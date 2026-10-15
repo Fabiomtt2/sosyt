@@ -42,9 +42,12 @@ export type DeliveryPolicy = {
   timeZone: string;
 };
 
+// O dia ativo do projeto ja esta definido pelo booster semanal: 06:00 as 23:59
+// (America/Bahia). O bot segue a MESMA convencao, em vez de inventar outra — nada
+// confunde mais o dono do que duas nocoes de "e cedo demais" no mesmo produto.
 export const DEFAULT_DELIVERY_POLICY: DeliveryPolicy = {
-  quietEndHour: 8,      // volta a falar às 08:00
-  quietStartHour: 21,   // silencia às 21:00
+  quietStartHour: 0,    // silencia a partir da meia-noite
+  quietEndHour: 6,      // volta a falar as 06:00
   dailyBudget: 3,
   timeZone: "America/Bahia",
 };
