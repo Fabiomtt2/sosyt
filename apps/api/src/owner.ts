@@ -25,6 +25,7 @@ import { groupVerificationState, materializeApprovedMembership } from "./group-v
 import { AUTOMATION_CATALOG, automationsByCategory } from "./bot-automations.js";
 import { importAvatarLibrary } from "./avatar-library-import.js";
 import { createPasswordReset, markResetDelivered, passwordResetHistory, passwordResetStatus, resetMessage } from "./password-reset.js";
+import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
 import { queueBotNotification } from "./whatsapp.js";
 import { AutomationValidationError, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
 
@@ -1067,8 +1068,9 @@ export async function registerOwnerRoutes(
         db.prepare("INSERT INTO users (id,name,phone,group_code,created_at,updated_at) VALUES (?,?,?,?,?,?)")
           .run(id,owner.name,owner.phone,"#",now,now);
         db.prepare("INSERT INTO wallets (user_id,updated_at) VALUES (?,?)").run(id,now);
-        db.prepare("INSERT INTO wallet_ledger (id,user_id,kind,amount_millis,reference_id,created_at,note,actor_owner_id,actor_owner_name) VALUES (?,?, 'WELCOME',10000,NULL,?,?,?,?)")
-          .run(randomUUID(),id,now,"Identidade de participação administrativa criada.",owner.id,owner.name);
+        if(!welcomeAlreadyGranted(db,owner.phone))
+          db.prepare("INSERT INTO wallet_ledger (id,user_id,kind,amount_millis,reference_id,created_at,note,actor_owner_id,actor_owner_name) VALUES (?,?, 'WELCOME',10000,?,?,?,?,?)")
+            .run(randomUUID(),id,welcomeReference(owner.phone),now,"Identidade de participação administrativa criada.",owner.id,owner.name);
       })();
       user={id,name:owner.name,phone:owner.phone,groupCode:"#"};
     } else if (user.deletedAt) {

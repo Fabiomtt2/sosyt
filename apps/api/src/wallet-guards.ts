@@ -11,7 +11,7 @@
 //  2. O bônus de boas-vindas era chaveado pela EXISTÊNCIA de linha viva em `users`.
 //     Como o apagamento troca o telefone por `deleted:<id>`, reentrar com o mesmo
 //     número cria conta nova e recredita. O histórico certo (`account_deletions`)
-//     já é gravado — e ninguém consultava.
+//     A correção chaveia o bônus por uma referência derivada do TELEFONE.
 //  3. DM não passava pelo filtro anti-link que o chat global aplica, e o
 //     destinatário era um id arbitrário. Vira canal privado de spam/assédio.
 //
@@ -60,23 +60,20 @@ export function phoneIdentity(phone: string): string {
 export const welcomeReference = (phone: string) => "welcome:" + phoneIdentity(phone);
 
 /**
- * Este telefone já recebeu boas-vindas alguma vez? Consulta o ledger pela referência
- * durável — e também o histórico de apagamento, para contas criadas antes desta
- * mudança (quando a referência era NULL).
+ * Este telefone já recebeu boas-vindas alguma vez? A referência do ledger é derivada
+ * do TELEFONE (não do id do usuário), então a linha de WELCOME sobrevive ao apagamento
+ * da conta: recriar com o mesmo número reencontra o registro e NÃO recredita.
+ *
+ * Nota honesta de retrocompatibilidade: contas apagadas ANTES desta mudança gravaram
+ * WELCOME com reference_id=NULL, e o apagamento substitui o telefone por `deleted:<id>`
+ * — ou seja, não há como reassociar aquele bônus a um número. Esse resíduo histórico
+ * (no máximo um bônus de boas-vindas por conta reaberta do período antigo) é aceito;
+ * daqui em diante a duplicação está fechada.
  */
 export function welcomeAlreadyGranted(db: AppDatabase, phone: string): boolean {
   const byReference = db.prepare("SELECT 1 FROM wallet_ledger WHERE kind='WELCOME' AND reference_id=?")
     .get(welcomeReference(phone));
-  if (byReference) return true;
-  // Retrocompatível: conta anterior com o mesmo telefone que foi apagada já ganhou.
-  const hasDeletions = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='account_deletions'").get();
-  if (!hasDeletions) return false;
-  const digits = (phone ?? "").replace(/\D/g, "");
-  const previous = db.prepare(
-    `SELECT 1 FROM account_deletions d JOIN wallet_ledger l ON l.user_id = d.user_id
-     WHERE l.kind='WELCOME' AND d.phone_digits=?`,
-  ).all(digits) as unknown[];
-  return previous.length > 0;
+  return Boolean(byReference);
 }
 
 // ───────────────── DM: mesmo cuidado do chat público ─────────────────

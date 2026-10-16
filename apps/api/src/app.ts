@@ -18,6 +18,7 @@ import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, creat
 import { ensureBuiltinAvatars } from "./avatar-builtin-seed.js";
 import { ensureBundledAvatarLibrary } from "./avatar-library-import.js";
 import { CampaignError, campaignSummary, endCampaign, ensureAvatarCampaign, isVisibleToParticipant, listCampaignCatalog, listVisibleCatalog, publishCampaign } from "./avatar-campaign.js";
+import { assertNoPaymentHold, assertNotSelf, assertRecipientActive, welcomeAlreadyGranted, welcomeReference, WalletGuardError } from "./wallet-guards.js";
 import { canUseAvatarTier, catalogTierOf, ensureAvatarCatalog, listCatalog, upsertCatalogAvatar, decodeWebpDataUrl, avatarImageEtag, AVATAR_TIERS, AVATAR_CATEGORIES, type AvatarTier, type AvatarCategory } from "./avatar-tiers.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -423,8 +424,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         db.prepare("INSERT INTO users (id, name, phone, group_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
           .run(user.id, name, phone, groupCode, now, now);
         db.prepare("INSERT INTO wallets (user_id, updated_at) VALUES (?, ?)").run(user.id, now);
-        db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WELCOME', 10000, NULL, ?)")
-          .run(randomUUID(), user.id, now);
+        // AUDITORIA / Teo B5: boas-vindas uma vez POR PESSOA (telefone), nao por linha — apagar e recriar nao recredita.
+        if(!welcomeAlreadyGranted(db,phone))
+          db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WELCOME', 10000, ?, ?)")
+            .run(randomUUID(), user.id, welcomeReference(phone), now);
       } else {
         db.prepare("UPDATE users SET name=?,group_code=?,updated_at=?,deleted_at=NULL WHERE id=?").run(name,groupCode,now,user.id);
       }
@@ -475,7 +478,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           const stamp=new Date().toISOString();user={id:randomUUID()};
           db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,?,?,?)").run(user.id,row.name,row.phone,row.groupCode,stamp,stamp);
           db.prepare("INSERT INTO wallets(user_id,updated_at) VALUES(?,?)").run(user.id,stamp);
-          db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at) VALUES(?,?,'WELCOME',10000,NULL,?)").run(randomUUID(),user.id,stamp);
+          if(!welcomeAlreadyGranted(db,row.phone))
+            db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at) VALUES(?,?,'WELCOME',10000,?,?)").run(randomUUID(),user.id,welcomeReference(row.phone),stamp);
         }
         prepareBotPassword(user.id);
       })();
@@ -491,14 +495,24 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       quantity:result.reward.quantity,superDays:result.reward.trialDays,alreadyClaimed:result.replayed,
       data:gamificationData(db,request.user.sub)};
   });
-  app.post("/gamification/redeem",{preHandler:authGuard},async(request)=>{
+  app.post("/gamification/redeem",{preHandler:authGuard},async(request,reply)=>{
     const b=z.object({itemCode:z.enum(["SKIP","PASS"]),referenceId:z.string().uuid()}).parse(request.body);
-    const result=redeemRewardItem(db,request.user.sub,b.itemCode,b.referenceId);notifyJourney();
-    return {...result,data:gamificationData(db,request.user.sub)};
+    try {
+      // AUDITORIA / Teo B2: carteira em revisao nao pode gastar (vale ate p/ resgate de moeda-recompensa).
+      if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
+      const result=redeemRewardItem(db,request.user.sub,b.itemCode,b.referenceId);notifyJourney();
+      return {...result,data:gamificationData(db,request.user.sub)};
+    } catch(error){ if(error instanceof WalletGuardError) return reply.code(error.statusCode).send({message:error.message,code:error.code}); throw error; }
   });
-  app.post("/gamification/gift-coins",{preHandler:authGuard},async(request)=>{
+  app.post("/gamification/gift-coins",{preHandler:authGuard},async(request,reply)=>{
     const b=z.object({toUserId:z.string().uuid(),coins:z.number().int().min(1).max(10000),referenceId:z.string().uuid()}).parse(request.body);
-    const result=giftRewardCoins(db,request.user.sub,b.toUserId,b.coins,b.referenceId);notifyJourney();return result;
+    try {
+      // AUDITORIA / Teo B2+B6: carteira em revisao nao presenteia; destinatario precisa existir e nao ser voce.
+      assertNotSelf(request.user.sub,b.toUserId);
+      assertRecipientActive(db,b.toUserId);
+      if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
+      const result=giftRewardCoins(db,request.user.sub,b.toUserId,b.coins,b.referenceId);notifyJourney();return result;
+    } catch(error){ if(error instanceof WalletGuardError) return reply.code(error.statusCode).send({message:error.message,code:error.code}); throw error; }
   });
   app.get("/admin/gamification",{preHandler:rootOwnerGuard},async()=>({
     config:gamificationConfig(db),ranks:gamificationRanks(db),
@@ -628,8 +642,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         db.prepare("INSERT INTO users (id, name, phone, group_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
           .run(user.id, row.name, row.phone, row.group_code, now, now);
         db.prepare("INSERT INTO wallets (user_id, updated_at) VALUES (?, ?)").run(user.id, now);
-        db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WELCOME', 10000, NULL, ?)")
-          .run(randomUUID(), user.id, now);
+        if(!welcomeAlreadyGranted(db,row.phone))
+          db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'WELCOME', 10000, ?, ?)")
+            .run(randomUUID(), user.id, welcomeReference(row.phone), now);
       } else {
         db.prepare("UPDATE users SET name=?,group_code=?,updated_at=?,deleted_at=NULL WHERE id=?").run(row.name,row.group_code,now,user.id);
       }
@@ -682,6 +697,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       const result = db.transaction(() => {
         const previous=referenceId ? db.prepare("SELECT result_json FROM queue_skip_requests WHERE user_id=? AND reference_id=?").get(request.user.sub,referenceId) as {result_json:string}|undefined : undefined;
         if(previous) return JSON.parse(previous.result_json) as {id:string;number:number;status:string;vacancies:number};
+        // AUDITORIA / Teo B2: carteira em revisao nao consome Pular.
+        if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
         if (request.user.adminRole!=="ROOT_OWNER" && itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
           throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
         }
@@ -703,8 +720,16 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/inventory/gift", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = z.object({ toUserId: z.string().min(8).max(64), itemCode: z.string().regex(/^[A-Z0-9_]{2,40}$/), quantity: z.number().int().min(1).max(100).default(1), referenceId:z.string().uuid().optional() }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Dados do presente inválidos." });
-    try { return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity,request.user.adminRole==="ROOT_OWNER",body.data.referenceId)); }
-    catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
+    try {
+      // AUDITORIA / Teo B2+B6: nao presenteia a si mesmo, destinatario precisa existir, carteira em revisao nao sai.
+      assertNotSelf(request.user.sub, body.data.toUserId);
+      assertRecipientActive(db, body.data.toUserId);
+      if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
+      return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity,request.user.adminRole==="ROOT_OWNER",body.data.referenceId));
+    }
+    catch (error) {
+      if(error instanceof WalletGuardError) return reply.code(error.statusCode).send({ message: error.message, code: error.code });
+      const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível presentear.", code: e.code }); }
   });
 

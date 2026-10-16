@@ -12,6 +12,7 @@ import { materializeApprovedMembership } from "./group-verification.js";
 import { effectiveWhatsAppConfig } from "./integrations.js";
 import { whatsappConfigured } from "./whatsapp.js";
 import { queueOwnerAlerts } from "./whatsapp.js";
+import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
 
 const hash=(text:string)=>createHash("sha256").update(text).digest("hex");
 const secret=()=>randomBytes(32).toString("hex");
@@ -142,7 +143,8 @@ export function registerGoogleLogin(app:FastifyInstance,db:AppDatabase,config:Co
         user={id:randomUUID()};
         db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,?,?,?)").run(user.id,claim.name,claim.phone,group,stamp,stamp);
         db.prepare("INSERT INTO wallets(user_id,updated_at) VALUES(?,?)").run(user.id,stamp);
-        db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,created_at) VALUES(?,?,'WELCOME',10000,?)").run(randomUUID(),user.id,stamp);
+        if(!welcomeAlreadyGranted(db,claim.phone))
+          db.prepare("INSERT INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at) VALUES(?,?,'WELCOME',10000,?,?)").run(randomUUID(),user.id,welcomeReference(claim.phone),stamp);
       }
       db.prepare("UPDATE users SET group_code=?,updated_at=? WHERE id=?").run(group,stamp,user.id);
       db.prepare("INSERT OR IGNORE INTO google_identities VALUES(?,?,?,?)").run(claim.google_sub,user.id,claim.email,stamp);
