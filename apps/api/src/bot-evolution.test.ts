@@ -138,11 +138,15 @@ describe("roteador de capacidade — 'grupo 2 cheio, entra no 3 ou no 1'", () =>
 
 describe("cliente do Evolution", () => {
   it("reporta sessão de pé e sessão caída", async () => {
-    const aberta = fakeFetch(() => ({ body: { instance: { state: "open" } } }));
+    const aberta = fakeFetch((url) => ({ body: url.includes("fetchInstances") ? [{ name: CONFIG.instance, ownerJid: CONFIG.number + "@s.whatsapp.net" }] : { instance: { state: "open" } } }));
     expect((await createEvolutionClient({ config: CONFIG, fetchImpl: aberta.impl }).health()).connected).toBe(true);
 
     const fechada = fakeFetch(() => ({ body: { instance: { state: "close" } } }));
     expect((await createEvolutionClient({ config: CONFIG, fetchImpl: fechada.impl }).health()).connected).toBe(false);
+
+    // AUDITORIA / identidade: sessão aberta de OUTRO número é tratada como não confiável.
+    const outro = fakeFetch((url) => ({ body: url.includes("fetchInstances") ? [{ name: CONFIG.instance, ownerJid: "5511999999999@s.whatsapp.net" }] : { instance: { state: "open" } } }));
+    expect(await createEvolutionClient({ config: CONFIG, fetchImpl: outro.impl }).health()).toMatchObject({ connected: false, state: "identity_unverified" });
   });
 
   it("falha de rede não explode: vira 'desconectado' para o breaker decidir", async () => {

@@ -184,10 +184,41 @@ export function createEvolutionClient(opts: {
           (data as { instance?: { state?: string }; state?: string }).instance?.state
           ?? (data as { state?: string }).state ?? "",
         );
+        // AUDITORIA / identidade: a sessão aberta tem que ser o MESMO número salvo —
+        // senão um pareamento trocado mandaria em nome de outra conta.
+        if (state === "open" && config.number) {
+          const listing = await call(`/instance/fetchInstances?instanceName=${encodeURIComponent(config.instance)}`);
+          const list = Array.isArray(listing) ? listing : [listing];
+          const entry = list.find((item: Record<string, unknown>) => String(item.name ?? (item.instance as { instanceName?: string } | undefined)?.instanceName ?? "") === config.instance);
+          const owner = String(entry?.ownerJid ?? (entry?.instance as { owner?: string; ownerJid?: string } | undefined)?.ownerJid ?? (entry?.instance as { owner?: string } | undefined)?.owner ?? "").replace(/@s\.whatsapp\.net$/, "");
+          if (owner !== config.number) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
+        }
         return { connected: state === "open", state: state || undefined };
       } catch (cause) {
         return { connected: false, detail: cause instanceof Error ? cause.message : "falha" };
       }
+    },
+
+    /** Gera o QR/pairing-code para parear o número à instância. */
+    async connect(phone: string) {
+      return call(`/instance/connect/${encodeURIComponent(config.instance)}?number=${encodeURIComponent(phone)}`);
+    },
+    /** Aponta o webhook da instância para o backend do SOS, com segredo e eventos mínimos. */
+    async configureWebhook(url: string, secret: string) {
+      return call(`/webhook/set/${encodeURIComponent(config.instance)}`, { method: "POST", body: { webhook: { enabled: true, url, webhookByEvents: false, webhookBase64: false, headers: { "x-sos-webhook-secret": secret }, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] } } });
+    },
+    /** Lista todos os grupos com participantes (para o sync de membership). */
+    async groups(): Promise<Array<{ id: string; subject: string; participants: Array<{ id?: string; admin?: string }>; size?: number }>> {
+      const data = await call(`/group/fetchAllGroups/${encodeURIComponent(config.instance)}?getParticipants=true`);
+      if (!Array.isArray(data)) throw new EvolutionSafetyError("INVALID_GROUP_LIST", "O motor não retornou uma lista completa de grupos.");
+      return data as Array<{ id: string; subject: string; participants: Array<{ id?: string; admin?: string }>; size?: number }>;
+    },
+    /** DM individual (boas-vindas, senha, suporte) com confirmação de recibo. */
+    async sendText(recipient: string, text: string) {
+      const data = await call(`/message/sendText/${encodeURIComponent(config.instance)}`, { method: "POST", body: { number: recipient, text } });
+      const id = (data.key as { id?: unknown } | undefined)?.id;
+      if (typeof id !== "string" || !id) throw new EvolutionSafetyError("INVALID_SEND_RECEIPT", "O motor não confirmou o envio.");
+      return id;
     },
 
     async sendGroupText(groupId: string, text: string) {
