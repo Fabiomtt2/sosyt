@@ -17,6 +17,7 @@ import { DAILY_SCHEDULE } from "./bot-variants.js";
 import { targetGroups } from "./bot-dispatch.js";
 import { automationSettings } from "./bot-automation-store.js";
 import { queueGroupAutomation } from "./whatsapp.js";
+import { announceToGroups } from "./bot-announce.js";
 
 /** Hora (0-23) e data (YYYY-MM-DD) no fuso America/Bahia, de forma robusta. */
 export function bahiaParts(now: Date): { hour: number; dayKey: string } {
@@ -64,6 +65,18 @@ export function runDailyAutomations(db: AppDatabase, config: Config, now: Date =
       if (queued.queued) count += 1;
     }
     if (count) result.queued.push({ event: window.event, groups: count });
+  }
+
+  // AUDITORIA / status de filas "de tempos em tempos": ao meio-dia (12h-13h Bahia),
+  // uma vez por dia, anuncia quantas filas estao livres e quantas posicoes ocupadas.
+  if (hour >= 12 && hour < 13 && automationSettings(db, "QUEUE_STATUS" as never).enabled) {
+    const abertas = (db.prepare("SELECT COUNT(*) AS n FROM rounds WHERE status='OPEN' AND closed_at IS NULL").get() as { n: number }).n;
+    const ocupadas = (db.prepare("SELECT COUNT(*) AS n FROM submissions s JOIN rounds r ON r.id=s.round_id WHERE r.status='OPEN' AND r.closed_at IS NULL").get() as { n: number }).n;
+    const vagas = Math.max(0, abertas * 10 - ocupadas);
+    const r = announceToGroups(db, config, "QUEUE_STATUS",
+      { abertas, ocupadas, vagas, link: config.WEB_APP_URL },
+      { dedupeKey: `status:${dayKey}` });
+    if (r.queued) result.queued.push({ event: "QUEUE_STATUS", groups: r.queued });
   }
   return result;
 }

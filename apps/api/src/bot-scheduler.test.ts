@@ -75,3 +75,20 @@ describe("disparo das diárias", () => {
     expect(runDailyAutomations(db, meta, MORNING).queued).toEqual([]);
   });
 });
+
+describe("status de filas ao meio-dia", () => {
+  it("às 12h anuncia filas livres e ocupadas", () => {
+    saveAutomationSettings(db, "QUEUE_STATUS", { enabled: true }, { id: "root", name: "Root" });
+    // usa a fila aberta que já existe (seed do banco) e coloca 3 uploads nela
+    const stamp = new Date().toISOString();
+    const round = (db.prepare("SELECT id FROM rounds WHERE status='OPEN' AND closed_at IS NULL LIMIT 1").get() as { id: string } | undefined)
+      ?? (() => { db.prepare("INSERT INTO rounds (id,sequence,status,created_at,display_number) VALUES ('r1',99,'OPEN',?,99)").run(stamp); return { id: "r1" }; })();
+    db.prepare("INSERT INTO users (id,name,phone,group_code,created_at,updated_at) VALUES ('u','U','5571000000000','1',?,?)").run(stamp, stamp);
+    for (let i = 0; i < 3; i++) db.prepare("INSERT INTO submissions (id,round_id,slot,user_id,youtube_url,video_id,created_at) VALUES (?, ?, ?, 'u', 'url', ?, ?)").run("s"+i, round.id, i+1, "v"+i, stamp);
+    const NOON = new Date("2026-10-16T15:30:00Z"); // 12:30 Bahia
+    const r = runDailyAutomations(db, config, NOON);
+    expect(r.queued.find((q: {event:string}) => q.event === "QUEUE_STATUS")?.groups).toBe(2);
+    const body = JSON.parse((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'QUEUE_STATUS%' LIMIT 1").get() as {payload:string}).payload).text.body as string;
+    expect(body).toMatch(/1/);   // 1 fila aberta
+  });
+});
