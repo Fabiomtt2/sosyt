@@ -531,6 +531,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
   app.addHook("onClose",async()=>{if(gamificationTimer)clearInterval(gamificationTimer);});
 
+  // AUDITORIA / decisão do Fábio: login é SÓ pela senha entregue pelo bot. O login
+  // pelo Google já fica inerte sem credenciais (googleRequired=false em /auth/options,
+  // nenhum botão funcional) — basta NÃO definir GOOGLE_CLIENT_ID/SECRET em produção.
+  // Mantemos o registro para não derrubar /auth/options e rotas vizinhas.
   registerGoogleLogin(app,db,config,rootOwnerGuard);
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
   ensureAvatarCatalog(db);

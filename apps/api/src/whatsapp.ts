@@ -13,6 +13,7 @@ import { createEvolutionClient, assertDistinctFromOfficial, DEFAULT_CADENCE, nex
 import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
 import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
+import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
 import { canDeliver, ensureBotDelivery, recordDelivery, recordSuppressed, type DeliveryClass } from "./bot-delivery-policy.js";
 
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
@@ -533,7 +534,18 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             if (intent === "HUMAN" && featureEnabled(db,"HUMAN_HANDOFF")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'HUMAN_REQUESTED',?) ON CONFLICT(phone) DO UPDATE SET stage='HUMAN_REQUESTED',updated_at=excluded.updated_at").run(msg.from,now());
               const response=supportReply(db,"SUPPORT_HANDOFF",msg.from,replyFor("HUMAN")!);
-              if(response)queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:human`,expires,runtimeConfig);
+              if(response){
+                queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:human`,expires,runtimeConfig);
+                // AUDITORIA / avisa a equipe no numero humano com link direto pra pessoa.
+                // Proativo (a equipe procura), sem popup pro usuario. Respeita o toggle
+                // SUPPORT_HANDOFF: se o Owner desliga o handoff, ninguem e avisado.
+                const supportNumber=humanSupportNumber(db,runtimeConfig);
+                if(supportNumber && supportNumber!==msg.from.replace(/\D/g,"")){
+                  const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
+                  const alert=humanHandoffAlert({name:who?.name,userPhone:msg.from,lastMessage:text});
+                  queue(db,supportNumber,{type:"text",text:{preview_url:true,body:alert}},`${msg.id}:human-alert`,expires,runtimeConfig);
+                }
+              }
               continue;
             }
             // A recusa PROMETIA "responda por aqui" e nao havia quem respondesse.

@@ -91,7 +91,12 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   saveAutomationSettings(db,"SUPPORT_HANDOFF",{enabled:false},{id:"root:test",name:"Root"});
   body.data.key.id="custom-2";
   await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body});
-  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:1});
+  // AUDITORIA / handoff humano: com SUPPORT_HANDOFF ligado, a 1a chamada enfileira 2
+  // (resposta ao usuario + aviso a equipe no numero humano); com o toggle desligado a
+  // 2a chamada nao enfileira nada. Total = 2.
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:2});
+  // o aviso a equipe traz o link direto pra conversa da pessoa
+  expect(String((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%human-alert'").get() as {payload:string}|undefined)?.payload??"")).toContain("wa.me/"+phone);
  });
  it("reconexão e chamadas repetidas não drenam grupos em rajada; cadência fica no banco",async()=>{
   vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));vi.spyOn(Math,"random").mockReturnValue(0);
