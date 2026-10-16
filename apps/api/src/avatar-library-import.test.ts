@@ -139,3 +139,21 @@ describe("rótulo legível", () => {
     expect(labelFromFileName("leao_real.webp")).toBe("Leao real");
   });
 });
+
+describe("biblioteca versionada no repositório (120 do Sol/ASTRA)", () => {
+  it("as 120 ilustrações estão no repositório e entram no catálogo", async () => {
+    const { bundledLibraryRoot, ensureBundledAvatarLibrary } = await import("./avatar-library-import.js");
+    const { scanLibrary } = await import("./avatar-library-import.js");
+    const { candidates, rejected } = scanLibrary(bundledLibraryRoot());
+    expect(candidates).toHaveLength(120);
+    expect(rejected).toEqual([]);
+    const fresh = new Database(":memory:") as AppDatabase;
+    const report = ensureBundledAvatarLibrary(fresh);
+    expect(report.imported).toBe(120);
+    expect(report.byTier).toEqual({ COMMON: 70, SUPER: 30, OWNER: 20 });
+    // as categorias sazonais/evento que o dono pediu existem
+    expect(Object.keys(report.byCategory).sort()).toContain("SEASONAL");
+    expect(Object.keys(report.byCategory).sort()).toContain("EVENT");
+    fresh.close();
+  });
+});

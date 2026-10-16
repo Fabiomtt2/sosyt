@@ -18,6 +18,7 @@
 // Importante: NÃO importar as prévias circulares PNG nem as miniaturas de 209px —
 // o lightbox amplia e ficaria pixelado. Só os masters WebP em tamanho nativo.
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import type { AppDatabase } from "./db.js";
@@ -134,4 +135,18 @@ export function importAvatarLibrary(db: AppDatabase, root: string): ImportReport
     });
   })();
   return report;
+}
+
+/**
+ * Raiz da biblioteca versionada no repositório (`apps/api/assets/avatar-library`).
+ * A arte das 120 ilustrações entregues pelo Sol/ASTRA mora aqui, já na estrutura
+ * <TIER>/<CATEGORIA>, então o catálogo nasce povoado em qualquer ambiente.
+ */
+export function bundledLibraryRoot(): string {
+  return fileURLToPath(new URL("../assets/avatar-library", import.meta.url));
+}
+
+/** Semeia a biblioteca que vem no repositório. Idempotente; nunca sobrescreve edição do Owner. */
+export function ensureBundledAvatarLibrary(db: AppDatabase): ImportReport {
+  return importAvatarLibrary(db, bundledLibraryRoot());
 }

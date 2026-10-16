@@ -16,6 +16,7 @@ import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRoun
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP, ROOT_ITEM_QUANTITY } from "./inventory.js";
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
 import { ensureBuiltinAvatars } from "./avatar-builtin-seed.js";
+import { ensureBundledAvatarLibrary } from "./avatar-library-import.js";
 import { canUseAvatarTier, catalogTierOf, ensureAvatarCatalog, listCatalog, upsertCatalogAvatar, decodeWebpDataUrl, avatarImageEtag, AVATAR_TIERS, AVATAR_CATEGORIES, type AvatarTier, type AvatarCategory } from "./avatar-tiers.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -519,6 +520,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
   ensureAvatarCatalog(db);
   ensureBuiltinAvatars(db);   // AUDITORIA: popula o catalogo com a colecao ilustrada (arte do Sol/ASTRA)
+  ensureBundledAvatarLibrary(db);   // AUDITORIA: 120 ilustracoes do Sol/ASTRA em <TIER>/<CATEGORIA>
   const stopWhatsApp = await registerWhatsAppRoutes(app,db,config,ownerGuard);
 
   app.setErrorHandler((error, _request, reply) => {
