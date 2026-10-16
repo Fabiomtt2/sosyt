@@ -30,6 +30,7 @@ import { z } from "zod";
 import { registerOwnerRoutes, syncConfiguredRootOwners, hasMembership, resolveGroupForPhone } from "./owner.js";
 import { registerCompanion } from "./companion.js";
 import { registerGoogleLogin } from "./google-login.js";
+import { runDailyAutomations } from "./bot-scheduler.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
@@ -528,7 +529,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/admin/gamification/settle",{preHandler:rootOwnerGuard},async()=>settleClosedMonths(db));
   const settle=()=>{try{settleClosedMonths(db);}catch(error){app.log.error(error,"Gamification month settlement failed");}};
   let gamificationTimer:ReturnType<typeof setInterval>|undefined;
-  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
+  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);}catch(error){app.log.error(error,"Daily automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
   app.addHook("onClose",async()=>{if(gamificationTimer)clearInterval(gamificationTimer);});
 
   // AUDITORIA / decisão do Fábio: login é SÓ pela senha entregue pelo bot. O login
