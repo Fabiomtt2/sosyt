@@ -23,6 +23,7 @@ import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyT
 import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 import { AUTOMATION_CATALOG, automationsByCategory } from "./bot-automations.js";
+import { importAvatarLibrary } from "./avatar-library-import.js";
 import { AutomationValidationError, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
@@ -532,6 +533,22 @@ export async function registerOwnerRoutes(
   app.get("/admin/bot/automations/audit", { preHandler: rootOwnerGuard }, async (request) => {
     const { event } = request.query as { event?: string };
     return { entries: automationAudit(db, event) };
+  });
+
+  // AUDITORIA / biblioteca de avatares: importa a arte entregue em
+  // <raiz>/<TIER>/<CATEGORIA>/*.webp. A PASTA define tier e categoria, então
+  // acrescentar arte nova é copiar arquivo + clicar aqui — sem tocar em codigo.
+  // Nao-destrutivo: preserva o que o Owner ja editou. ROOT-only.
+  app.post("/admin/avatars/import-library", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const { root } = (request.body ?? {}) as { root?: string };
+    if (!root || typeof root !== "string") {
+      return reply.code(400).send({ message: "Informe a pasta raiz da biblioteca de avatares." });
+    }
+    try { return { ok: true, report: importAvatarLibrary(db, root) }; }
+    catch (error) {
+      app.log.error(error);
+      return reply.code(400).send({ message: "Nao consegui ler essa pasta. Confira o caminho e as permissoes." });
+    }
   });
 
   // AUDITORIA / correio interno: aviso global do Owner e moderação.
