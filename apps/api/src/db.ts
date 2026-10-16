@@ -2,6 +2,7 @@ import { initializeBotPassword } from "./bot-password.js";
 import { ensureBotAutomations } from "./bot-automation-store.js";
 import { ensureBotOptOut } from "./bot-inbound.js";
 import { ensureBotDelivery } from "./bot-delivery-policy.js";
+import { ensureLedgerIntegrity } from "./ledger-integrity.js";
 import { initializeGamificationBot } from "./gamification-bot.js";
 import { initializeGamification } from "./gamification.js";
 import Database from "better-sqlite3";
@@ -565,6 +566,7 @@ export function createDatabase(filename: string): AppDatabase {
   ensureBotAutomations(db);
   ensureBotOptOut(db);
   ensureBotDelivery(db);
+  ensureLedgerIntegrity(db);   // AUDITORIA: trilhas financeiras/auditoria viram append-only (anti-adulteracao)
   return db;
 }
 
