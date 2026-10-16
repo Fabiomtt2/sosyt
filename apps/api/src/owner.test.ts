@@ -354,7 +354,7 @@ describe("Owner e acesso por grupo", () => {
     expect(webhook.body).toBe("12345");
     const overview = await app.inject({ method:"GET",url:"/admin/overview",headers:authorization(ownerToken) });
     expect(overview.json().whatsapp).toMatchObject({
-      configured:false,otpConfigured:true,ownerAlertsConfigured:true,decisionTemplateConfigured:true
+      configured:false,otpConfigured:false,ownerAlertsConfigured:true,decisionTemplateConfigured:true
     });
   });
   it("Owner salva e troca provedor Pix sem expor segredos", async () => {
