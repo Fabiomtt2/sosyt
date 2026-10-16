@@ -4,6 +4,7 @@ import { z } from "zod";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
+import { assertDistinctFromOfficial } from "./bot-evolution.js";
 
 export const whatsappModeSchema = z.enum(["OFFICIAL", "META_GROUPS", "HYBRID_PLUS", "EVOLUTION", "DISABLED"]);
 export type WhatsAppMode = z.infer<typeof whatsappModeSchema>;
@@ -19,7 +20,7 @@ export function persistedWhatsAppMode(db:AppDatabase):WhatsAppMode|undefined {
 }
 
 const metaSettingsSchema = z.object({
-  mode: whatsappModeSchema.default("OFFICIAL"),
+  mode: whatsappModeSchema.optional(),
   businessAccountId: z.string().trim().regex(/^\d{5,40}$/).optional(),
   phoneNumberId: z.string().trim().regex(/^\d{5,40}$/).optional(),
   businessPhone: z.string().trim().max(30).transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o número Business com DDI, DDD e telefone.")).optional(),
@@ -36,7 +37,9 @@ const metaSettingsSchema = z.object({
   wppToken: z.string().trim().min(8).max(4096).optional(),
   evolutionUrl: z.string().url().optional(),
   evolutionInstance: z.string().trim().regex(/^[A-Za-z0-9_-]{2,80}$/).optional(),
-  evolutionApiKey: z.string().trim().min(8).max(4096).optional()
+  evolutionApiKey: z.string().trim().min(8).max(4096).optional(),
+  evolutionPhone: z.string().trim().max(30).transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/)).optional(),
+  evolutionWebhookSecret: z.string().trim().min(24).max(256).optional()
 });
 export type MetaSettingsInput = z.infer<typeof metaSettingsSchema>;
 
@@ -61,7 +64,9 @@ const keyNames = {
   wppToken: "whatsapp.wpp.token",
   evolutionUrl: "whatsapp.evolution.url",
   evolutionInstance: "whatsapp.evolution.instance",
-  evolutionApiKey: "whatsapp.evolution.api_key"
+  evolutionApiKey: "whatsapp.evolution.api_key",
+  evolutionPhone: "whatsapp.evolution.phone",
+  evolutionWebhookSecret: "whatsapp.evolution.webhook_secret"
 } as const;
 
 function get(db: AppDatabase, key: string) {
@@ -100,7 +105,8 @@ export function initializeWhatsAppIntegration(db:AppDatabase,config:Config) {
 }
 
 export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
-  const mode = persistedWhatsAppMode(db) ?? "OFFICIAL";
+  // preserva instalações Meta legadas; modos explícitos mandam.
+  const mode = persistedWhatsAppMode(db) ?? config.WHATSAPP_MODE;
   const businessAccountId = get(db,keyNames.businessAccountId) ?? config.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const phoneNumberId = get(db,keyNames.phoneNumberId) ?? config.WHATSAPP_PHONE_NUMBER_ID;
   const businessPhone = get(db,keyNames.businessPhone) || config.WHATSAPP_BUSINESS_PHONE;
@@ -112,8 +118,11 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
   const templateLanguage = get(db,keyNames.templateLanguage) ?? config.WHATSAPP_TEMPLATE_LANGUAGE;
   const wppUrl = get(db,keyNames.wppUrl) ?? config.WPP_CONNECT_URL;
   const wppSession = get(db,keyNames.wppSession) ?? config.WPP_CONNECT_SESSION;
-  const evolutionUrl = get(db,keyNames.evolutionUrl) ?? "";
-  const evolutionInstance = get(db,keyNames.evolutionInstance) ?? "";
+  const evolutionUrl = get(db,keyNames.evolutionUrl) ?? config.EVOLUTION_URL ?? "";
+  const evolutionInstance = get(db,keyNames.evolutionInstance) ?? config.EVOLUTION_INSTANCE ?? "";
+  const evolutionPhone = get(db,keyNames.evolutionPhone) ?? config.EVOLUTION_PHONE ?? "";
+  const evolutionApiKeyConfigured = configuredSecret(db,config,keyNames.evolutionApiKey,config.EVOLUTION_API_KEY);
+  const evolutionWebhookSecretConfigured = configuredSecret(db,config,keyNames.evolutionWebhookSecret,config.EVOLUTION_WEBHOOK_SECRET);
   return {
     mode,
     businessAccountId: businessAccountId ?? "",
@@ -135,15 +144,21 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
     wppTokenConfigured: configuredSecret(db,config,keyNames.wppToken,config.WPP_CONNECT_TOKEN),
     evolutionUrl,
     evolutionInstance,
-    evolutionApiKeyConfigured: configuredSecret(db,config,keyNames.evolutionApiKey),
+    evolutionPhone,
+    evolutionApiKeyConfigured,
+    evolutionWebhookSecretConfigured,
+    evolutionConfigured: Boolean(evolutionUrl && evolutionInstance && evolutionPhone && evolutionApiKeyConfigured && evolutionWebhookSecretConfigured),
+    evolutionWebhookUrl: new URL("/webhooks/whatsapp/evolution",config.API_PUBLIC_URL).toString(),
     officialReady: !senderValidationRequired && Boolean(businessAccountId && phoneNumberId && configuredSecret(db,config,keyNames.accessToken,config.WHATSAPP_ACCESS_TOKEN) && configuredSecret(db,config,keyNames.appSecret,config.WHATSAPP_APP_SECRET) && configuredSecret(db,config,keyNames.verifyToken,config.WHATSAPP_VERIFY_TOKEN)),
     webhookUrl: new URL("/webhooks/whatsapp",config.API_PUBLIC_URL).toString()
   };
 }
 
 export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: unknown) {
-  const body=metaSettingsSchema.parse(raw);
+  const input=metaSettingsSchema.parse(raw);
   const previous=readWhatsAppIntegration(db,config);
+  const body={...input, mode: input.mode ?? previous.mode};
+  if(body.mode==="HYBRID_PLUS") assertDistinctFromOfficial(body.evolutionPhone ?? previous.evolutionPhone, body.businessPhone ?? previous.businessPhone);
   const identityChanged=(body.businessPhone!==undefined&&body.businessPhone!==previous.businessPhone)
     ||(body.phoneNumberId!==undefined&&body.phoneNumberId!==previous.phoneNumberId)
     ||(body.businessAccountId!==undefined&&body.businessAccountId!==previous.businessAccountId)
@@ -167,11 +182,13 @@ export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: un
   if (body.wppSession!==undefined) set(db,keyNames.wppSession,body.wppSession);
   if (body.evolutionUrl!==undefined) set(db,keyNames.evolutionUrl,body.evolutionUrl);
   if (body.evolutionInstance!==undefined) set(db,keyNames.evolutionInstance,body.evolutionInstance);
+  if (body.evolutionPhone!==undefined) set(db,keyNames.evolutionPhone,body.evolutionPhone);
   if (body.accessToken) set(db,keyNames.accessToken,seal(config,body.accessToken));
   if (body.appSecret) set(db,keyNames.appSecret,seal(config,body.appSecret));
   if (body.verifyToken) set(db,keyNames.verifyToken,seal(config,body.verifyToken));
   if (body.wppToken) set(db,keyNames.wppToken,seal(config,body.wppToken));
   if (body.evolutionApiKey) set(db,keyNames.evolutionApiKey,seal(config,body.evolutionApiKey));
+  if (body.evolutionWebhookSecret) set(db,keyNames.evolutionWebhookSecret,seal(config,body.evolutionWebhookSecret));
   })();
   return readWhatsAppIntegration(db,config);
 }
@@ -216,7 +233,13 @@ export function effectiveWhatsAppConfig(db: AppDatabase, config: Config): Config
   const state=readWhatsAppIntegration(db,config);
   return {
     ...config,
-    WHATSAPP_BUSINESS_PHONE:state.businessPhone,
+    WHATSAPP_MODE: state.mode,
+    EVOLUTION_URL: state.evolutionUrl || undefined,
+    EVOLUTION_INSTANCE: state.evolutionInstance || undefined,
+    EVOLUTION_PHONE: state.evolutionPhone || undefined,
+    EVOLUTION_API_KEY: effectiveSecret(db,config,keyNames.evolutionApiKey,config.EVOLUTION_API_KEY),
+    EVOLUTION_WEBHOOK_SECRET: effectiveSecret(db,config,keyNames.evolutionWebhookSecret,config.EVOLUTION_WEBHOOK_SECRET),
+    WHATSAPP_BUSINESS_PHONE: state.mode==="EVOLUTION" ? (state.evolutionPhone || state.businessPhone) : state.businessPhone,
     WHATSAPP_SENDER_VALIDATION_REQUIRED:state.senderValidationRequired,
     WHATSAPP_BUSINESS_ACCOUNT_ID: state.businessAccountId || config.WHATSAPP_BUSINESS_ACCOUNT_ID,
     WHATSAPP_PHONE_NUMBER_ID: state.phoneNumberId || config.WHATSAPP_PHONE_NUMBER_ID,
