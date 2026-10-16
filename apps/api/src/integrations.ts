@@ -105,8 +105,11 @@ export function initializeWhatsAppIntegration(db:AppDatabase,config:Config) {
 }
 
 export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
-  // preserva instalações Meta legadas; modos explícitos mandam.
-  const mode = persistedWhatsAppMode(db) ?? config.WHATSAPP_MODE;
+  // preserva instalações Meta legadas de verdade: se o modo nunca foi salvo MAS já
+  // existem credenciais Meta persistidas no DB (painel antigo), assume OFFICIAL em vez
+  // do default EVOLUTION — senão o token seria descartado e OTP/alertas parariam calados.
+  const legacyMeta = Boolean(get(db,keyNames.phoneNumberId) || get(db,keyNames.accessToken));
+  const mode = persistedWhatsAppMode(db) ?? (legacyMeta ? "OFFICIAL" : config.WHATSAPP_MODE);
   const businessAccountId = get(db,keyNames.businessAccountId) ?? config.WHATSAPP_BUSINESS_ACCOUNT_ID;
   const phoneNumberId = get(db,keyNames.phoneNumberId) ?? config.WHATSAPP_PHONE_NUMBER_ID;
   const businessPhone = get(db,keyNames.businessPhone) || config.WHATSAPP_BUSINESS_PHONE;

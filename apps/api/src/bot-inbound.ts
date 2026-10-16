@@ -73,9 +73,15 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
   if (!text) return "UNKNOWN";
   for (const { intent, phrases } of TRIGGERS) {
     for (const phrase of phrases) {
-      const hit = SHORT_EXACT.includes(intent) && phrase.length <= 4
-        ? text === phrase
-        : text.includes(phrase);
+      // OPT_OUT casa por PALAVRA INTEIRA: "pare/parar/sair" nunca pega "preparar",
+      // "comparar", "sairei". As demais curtas seguem exato (<=4) ou substring.
+      const wholeWord = (needle: string) =>
+        new RegExp(`(^|\\s)${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`).test(text);
+      const hit = intent === "OPT_OUT"
+        ? wholeWord(phrase)
+        : SHORT_EXACT.includes(intent) && phrase.length <= 4
+          ? text === phrase
+          : text.includes(phrase);
       if (hit) return intent;
     }
   }

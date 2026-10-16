@@ -102,14 +102,14 @@ export const AUTOMATION_CATALOG: readonly AutomationMeta[] = [
     event: "QUEUE_STATUS", category: "QUEUES",
     label: "Status das filas (periódico)", description: "Aviso recorrente de filas abertas e vagas.",
     defaultChannel: "EVOLUTION", defaultTarget: "ALL_GROUPS", periodic: true, defaultIntervalMinutes: 360, canPin: false,
-    placeholders: ["abertas", "vagas", "link"], defaultEnabled: false,
+    placeholders: ["abertas", "vagas", "link", "ocupadas"], defaultEnabled: false,
     defaultText: "📊 Status SOS YOUTUBER: {abertas} fila(s) aberta(s) e {vagas} vaga(s) disponível(is) agora. Quando quiser participar, é só {link}. 💛",
   },
   {
     event: "UPLOAD_NOTICE", category: "QUEUES",
     label: "Aviso de upload na fila", description: "Anuncia um envio com identificação mínima: nome, sala e posição na fila.",
     defaultChannel: "EVOLUTION", defaultTarget: "GROUP", periodic: false, canPin: false,
-    placeholders: ["nome", "sala", "posicao", "aba", "fila"], defaultEnabled: true,
+    placeholders: ["nome", "sala", "posicao", "aba", "fila", "url"], defaultEnabled: true,
     defaultText: "✅ {nome} — sala {sala}, posição {posicao} — enviou na aba {aba} da fila {fila}. Bora fechar esse ciclo juntos, ainda dá tempo! 💛",
   },
   {

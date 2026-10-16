@@ -67,3 +67,19 @@ describe("variantes dos anúncios", () => {
     expect(list.find((e) => e.event === "UPLOAD_NOTICE")?.count).toBeGreaterThanOrEqual(5);
   });
 });
+
+describe("placeholders das variantes não divergem do catálogo (guarda anti-drift)", () => {
+  it("todo placeholder usado por uma variante existe no catálogo daquele evento", async () => {
+    const { AUTOMATION_CATALOG } = await import("./bot-automations.js");
+    const metaByEvent = new Map((AUTOMATION_CATALOG as readonly {event:string;placeholders:readonly string[]}[]).map((m) => [m.event, new Set(m.placeholders)]));
+    for (const [event, pool] of Object.entries(EVENT_VARIANTS)) {
+      const allowed = metaByEvent.get(event);
+      expect(allowed, `evento ${event} no catálogo`).toBeTruthy();
+      for (const tmpl of pool) {
+        for (const ph of [...tmpl.matchAll(/\{(\w+)\}/g)].map((m) => m[1])) {
+          expect(allowed!.has(ph), `placeholder {${ph}} de ${event} deve existir no catálogo`).toBe(true);
+        }
+      }
+    }
+  });
+});

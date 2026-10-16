@@ -149,3 +149,16 @@ describe("gatilho 'Tenho dúvidas' (divulgado no grupo)", () => {
     expect(classifyInbound("como funciona")).toBe("HELP");
   });
 });
+
+describe("OPT_OUT não silencia por substring (achado do revisor)", () => {
+  it("'preparar', 'comparar', 'separar' NÃO são opt-out", () => {
+    expect(classifyInbound("vou preparar meu vídeo")).not.toBe("OPT_OUT");
+    expect(classifyInbound("quero comparar os canais")).not.toBe("OPT_OUT");
+    expect(classifyInbound("vou separar os links")).not.toBe("OPT_OUT");
+  });
+  it("'pare', 'parar', 'sair' (palavra inteira) continuam opt-out", () => {
+    expect(classifyInbound("pare")).toBe("OPT_OUT");
+    expect(classifyInbound("quero parar")).toBe("OPT_OUT");
+    expect(classifyInbound("quero sair")).toBe("OPT_OUT");
+  });
+});

@@ -190,8 +190,12 @@ export function createEvolutionClient(opts: {
           const listing = await call(`/instance/fetchInstances?instanceName=${encodeURIComponent(config.instance)}`);
           const list = Array.isArray(listing) ? listing : [listing];
           const entry = list.find((item: Record<string, unknown>) => String(item.name ?? (item.instance as { instanceName?: string } | undefined)?.instanceName ?? "") === config.instance);
-          const owner = String(entry?.ownerJid ?? (entry?.instance as { owner?: string; ownerJid?: string } | undefined)?.ownerJid ?? (entry?.instance as { owner?: string } | undefined)?.owner ?? "").replace(/@s\.whatsapp\.net$/, "");
-          if (owner !== config.number) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
+          const ownerRaw = String(entry?.ownerJid ?? (entry?.instance as { owner?: string; ownerJid?: string } | undefined)?.ownerJid ?? (entry?.instance as { owner?: string } | undefined)?.owner ?? "");
+          // JID real pode vir como numero:device@server ou formato LID; compara só os
+          // dígitos do número (antes de ':' e '@') para não congelar sessão legítima.
+          const owner = ownerRaw.split("@")[0].split(":")[0].replace(/\D/g, "");
+          const expected = String(config.number).replace(/\D/g, "");
+          if (owner && expected && owner !== expected) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
         }
         return { connected: state === "open", state: state || undefined };
       } catch (cause) {

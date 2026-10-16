@@ -185,3 +185,12 @@ describe("cliente do Evolution", () => {
       .rejects.toThrow(/502/);
   });
 });
+
+describe("identidade tolera sufixo de device no ownerJid (achado do revisor)", () => {
+  it("ownerJid com :device@server ainda é reconhecido como o número salvo", async () => {
+    const f = fakeFetch((url) => ({ body: url.includes("fetchInstances")
+      ? [{ name: CONFIG.instance, ownerJid: CONFIG.number + ":12@s.whatsapp.net" }]
+      : { instance: { state: "open" } } }));
+    expect((await createEvolutionClient({ config: CONFIG, fetchImpl: f.impl }).health()).connected).toBe(true);
+  });
+});
