@@ -32,6 +32,7 @@ import { registerCompanion } from "./companion.js";
 import { registerGoogleLogin } from "./google-login.js";
 import { runDailyAutomations } from "./bot-scheduler.js";
 import { announceToGroups } from "./bot-announce.js";
+import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
@@ -853,6 +854,36 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       user: getUser(db, account.id),
       mustChangePassword: false
     });
+  });
+
+  // AUDITORIA / achado do ASTRA (B): o PARTICIPANTE conclui a troca de senha aqui.
+  // O Owner (ou o proprio) inicia o reset -> o bot envia um codigo no WhatsApp da
+  // pessoa -> ela entra aqui (SEM auth: esta trancada fora, por isso o reset) com
+  // telefone + codigo + senha nova. O codigo e a prova; verifyPasswordReset limita
+  // tentativas e expira. Sem isso, o reset era iniciado e nunca concluido.
+  app.post("/auth/password/reset", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+    const body = z.object({
+      phone: z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país.")),
+      code: z.string().trim().regex(/^\d{6}$/, "O código tem 6 dígitos."),
+      newPassword: z.string().min(passwordSchemaMin, `A senha precisa de pelo menos ${passwordSchemaMin} caracteres.`).max(passwordSchemaMax),
+    }).parse(request.body);
+    try {
+      verifyPasswordReset(db, body.phone, body.code);   // valida/consome o código ou lança
+    } catch (error) {
+      if (error instanceof PasswordResetError) return reply.code(error.statusCode).send({ message: error.message, code: error.code });
+      throw error;
+    }
+    const account = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
+    if (!account) return reply.code(404).send({ message: "Não encontramos uma conta ativa com este WhatsApp.", code: "ACCOUNT_NOT_FOUND" });
+    const stamp = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
+        VALUES (?,?,0,0,NULL,?)
+        ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=0,attempts=0,locked_until=NULL,updated_at=excluded.updated_at`)
+        .run(account.id, hashPassword(body.newPassword), stamp);
+      invalidateBotPasswordDelivery(account.id, stamp);
+    })();
+    return reply.send({ ok: true, message: "Senha redefinida! Já pode entrar com a nova senha." });
   });
 
   app.post("/auth/password/login", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {

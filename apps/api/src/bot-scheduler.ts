@@ -14,9 +14,7 @@ import type { Config } from "./config.js";
 import { effectiveWhatsAppConfig } from "./integrations.js";
 import { dailyMessage } from "./bot-motivational.js";
 import { DAILY_SCHEDULE } from "./bot-variants.js";
-import { targetGroups } from "./bot-dispatch.js";
 import { automationSettings } from "./bot-automation-store.js";
-import { queueGroupAutomation } from "./whatsapp.js";
 import { announceToGroups } from "./bot-announce.js";
 
 /** Hora (0-23) e data (YYYY-MM-DD) no fuso America/Bahia, de forma robusta. */
@@ -48,26 +46,18 @@ export function runDailyAutomations(db: AppDatabase, config: Config, now: Date =
   if (runtime.WHATSAPP_MODE !== "EVOLUTION" && runtime.WHATSAPP_MODE !== "HYBRID_PLUS") return result;
 
   const { hour, dayKey } = bahiaParts(now);
-  const groups = targetGroups(db, "ALL_GROUPS", {});
-  if (!groups.length) return result;
 
   for (const window of WINDOWS) {
     if (hour < window.start || hour >= window.end) continue;
-    if (!automationSettings(db, window.event as never).enabled) continue;
-    const message = dailyMessage(db, window.kind);
-    // validade de 5h: um "Bom dia" que o backlog de warmup nao alcancar ate ~meio-dia
-    // (ou uma "Boa noite" ate ~2h) e descartado em vez de chegar obsoleto de madrugada.
-    const expiresAt = new Date(now.getTime() + 5 * 3600_000).toISOString();
-    let count = 0;
-    for (const group of groups) {
-      const queued = queueGroupAutomation(
-        db, config, group.groupId, message,
-        `${window.event}:${group.groupId}:${dayKey}`,
-        { event: window.event, deliveryClass: "ENGAGEMENT", expiresAt },
-      );
-      if (queued.queued) count += 1;
-    }
-    if (count) result.queued.push({ event: window.event, groups: count });
+    // AUDITORIA / achado do ASTRA (C): usa announceToGroups -> renderAutomation, que
+    // RESPEITA o texto e o publico que o Owner configurou no painel. O texto rotativo
+    // (dailyMessage) vai como var {mensagem}; se o Owner escreveu um texto proprio, o
+    // dele ganha. Validade de 5h (M1): "Bom dia" obsoleto do backlog e descartado.
+    const announced = announceToGroups(
+      db, config, window.event, { mensagem: dailyMessage(db, window.kind) },
+      { dedupeKey: dayKey, expiresMinutes: 300, now },
+    );
+    if (announced.queued) result.queued.push({ event: window.event, groups: announced.queued });
   }
 
   // AUDITORIA / status de filas "de tempos em tempos": ao meio-dia (12h-13h Bahia),
