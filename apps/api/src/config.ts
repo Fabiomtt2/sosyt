@@ -42,7 +42,7 @@ const schema = z.object({
   OWNER_BUSINESS_ID: z.string().trim().min(3).max(80).default("owner-business"),
   OWNER_BUSINESS_SECRET: z.string().min(1).optional(),
   OWNER_BUSINESS_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
-  WHATSAPP_MODE: z.enum(["OFFICIAL","META_GROUPS","HYBRID_PLUS","EVOLUTION","DISABLED"]).default("OFFICIAL"),
+  WHATSAPP_MODE: z.enum(["OFFICIAL","META_GROUPS","HYBRID_PLUS","EVOLUTION","DISABLED"]).default("EVOLUTION"),
   EVOLUTION_URL: z.string().url().optional(),
   EVOLUTION_INSTANCE: z.string().trim().regex(/^[A-Za-z0-9_-]{2,80}$/).optional(),
   EVOLUTION_API_KEY: z.string().min(8).optional(),

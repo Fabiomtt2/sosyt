@@ -40,7 +40,7 @@ describe("senha automática do bot após prova de identidade",()=>{
  });
  it("semprova, pausado ouMeta não pronta não criahash nemmensagem",()=>{
   expect(ensureBotPassword(db,config,userId,false).reason).toBe("PHONE_PROOF_REQUIRED");
-  expect(ensureBotPassword(db,config,userId,true).reason).toBe("META_NOT_READY");
+  expect(ensureBotPassword(db,config,userId,true).reason).toBe("MODE_UNAVAILABLE"); // default EVOLUTION sem config; envio por Evolution entra no porte do transporte
   ready();template();saveBotPasswordSettings(db,{enabled:false,templateName:"",templateLanguage:"pt_BR"},"root-fixture");
   expect(ensureBotPassword(db,config,userId,true).reason).toBe("PASSWORD_BOT_DISABLED");
   expect(count()).toEqual({n:0});expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:0});

@@ -36,7 +36,7 @@ describe("número Business único, persistente e editável",()=>{
   try{
    initializeWhatsAppIntegration(db,settings);
    expect(()=>saveWhatsAppIntegration(db,settings,{mode:"EVOLUTION",businessPhone:"abc"})).toThrow();
-   expect(readWhatsAppIntegration(db,settings)).toMatchObject({mode:"OFFICIAL",businessPhone:"5571993978956"});
+   expect(readWhatsAppIntegration(db,settings)).toMatchObject({mode:"EVOLUTION",businessPhone:"5571993978956"});
   }finally{db.close();}
  });
  it("não libera remetente Meta de outro número e exige nova validação após troca",async()=>{
