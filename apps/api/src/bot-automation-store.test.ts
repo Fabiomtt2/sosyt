@@ -54,7 +54,7 @@ describe("HYBRID+ / regra: identificação mínima em grupo", () => {
 
   it("aceita nome, sala e posição — a identificação que o dono autorizou", () => {
     const meta = automationMeta("UPLOAD_NOTICE");
-    expect(meta.placeholders).toEqual(["nome", "sala", "posicao", "aba", "fila"]);
+    expect(meta.placeholders).toEqual(["nome", "sala", "posicao", "aba", "fila", "url"]);
     expect(meta.placeholders).not.toContain("numero");
     expect(() => validateAutomationText(
       "UPLOAD_NOTICE", "{nome} — sala {sala}, posição {posicao} — aba {aba} da fila {fila}", "GROUP",
