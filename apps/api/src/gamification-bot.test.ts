@@ -33,7 +33,7 @@ describe("ponte real de avisos de gamificação",()=>{
   expect(dispatchGamificationEvents(db,config)).toMatchObject({internalDelivered:0,queued:0,waiting:1,sent:0});
   expect(db.prepare("SELECT sender_role AS role,body FROM mail_messages WHERE id=?").get("gamification:"+id)).toMatchObject({role:"SYSTEM",body:expect.stringContaining("Ana")});
   expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:0});
-  expect(readGamificationBot(db).deliveries[0]).toMatchObject({eventId:id,status:"WAITING",reason:"MODE_UNAVAILABLE"});
+  expect(readGamificationBot(db).deliveries[0]).toMatchObject({eventId:id,status:"WAITING",reason:"EVOLUTION_NOT_READY"});
   expect(fetch).not.toHaveBeenCalled();
  });
  it("Híbrido+ comjanela real24h criaoutbox uma vez;SENT vem apenas do recibo real",()=>{

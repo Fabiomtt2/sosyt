@@ -125,8 +125,12 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
         internalDelivered+=inserted.changes;
       }
       if(!rule.whatsappEnabled){setState("WAITING","WHATSAPP_DISABLED");waiting++;continue;}
-      if(wa.mode!=="OFFICIAL"&&wa.mode!=="HYBRID_PLUS"){setState("WAITING","MODE_UNAVAILABLE");waiting++;continue;}
-      if(!wa.officialReady){setState("WAITING","META_NOT_READY");waiting++;continue;}
+      // AUDITORIA / Evolution cobre tudo: avisos saem pelo motor nao-oficial em EVOLUTION.
+      if(wa.mode==="EVOLUTION"){
+        if(!wa.evolutionConfigured){setState("WAITING","EVOLUTION_NOT_READY");waiting++;continue;}
+      }else if(wa.mode==="OFFICIAL"||wa.mode==="HYBRID_PLUS"){
+        if(!wa.officialReady){setState("WAITING","META_NOT_READY");waiting++;continue;}
+      }else{setState("WAITING","MODE_UNAVAILABLE");waiting++;continue;}
       const result=queueBotNotification(db,config,event.phone,body,"gamification:"+event.id,rule.templateName?{name:rule.templateName,language:rule.templateLanguage}:undefined,{deliveryClass:"REWARD",event:event.event});
       if(!result.queued||!result.outboxId){setState("WAITING",result.reason??"CHANNEL_UNAVAILABLE");waiting++;continue;}
       const outbox=db.prepare("SELECT status FROM whatsapp_outbox WHERE id=?").get(result.outboxId) as {status:string}|undefined;

@@ -40,7 +40,7 @@ describe("senha automática do bot após prova de identidade",()=>{
  });
  it("semprova, pausado ouMeta não pronta não criahash nemmensagem",()=>{
   expect(ensureBotPassword(db,config,userId,false).reason).toBe("PHONE_PROOF_REQUIRED");
-  expect(ensureBotPassword(db,config,userId,true).reason).toBe("MODE_UNAVAILABLE"); // default EVOLUTION sem config; envio por Evolution entra no porte do transporte
+  expect(ensureBotPassword(db,config,userId,true).reason).toBe("EVOLUTION_NOT_READY"); // default EVOLUTION sem motor configurado
   ready();template();saveBotPasswordSettings(db,{enabled:false,templateName:"",templateLanguage:"pt_BR"},"root-fixture");
   expect(ensureBotPassword(db,config,userId,true).reason).toBe("PASSWORD_BOT_DISABLED");
   expect(count()).toEqual({n:0});expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:0});
@@ -71,4 +71,25 @@ describe("senha automática do bot após prova de identidade",()=>{
   expect(()=>ensureBotPassword(db,config,userId,true)).toThrow();
   expect(count()).toEqual({n:0});expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:0});
  });
+
+ it("EVOLUTION cobre tudo: senha sai pelo motor nao-oficial, cifrada, como TEXTO",()=>{
+  // motor Evolution configurado via env; modo default ja e EVOLUTION
+  config={...config,EVOLUTION_URL:"https://evo.example.test",EVOLUTION_INSTANCE:"sos-primary",EVOLUTION_API_KEY:"evolution-key-long-enough-1234",EVOLUTION_PHONE:"5571993951582",EVOLUTION_WEBHOOK_SECRET:"evolution-webhook-secret-min-24-chars"};
+  template();
+  const res=ensureBotPassword(db,config,userId,true);
+  expect(res).toEqual({created:true,queued:true});
+  // enfileirado como payload cifrado de TEXTO (Evolution nao usa template Meta)
+  const outbox=db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string};
+  const envelope=JSON.parse(outbox.payload) as {encryptedNotification?:string};
+  expect(typeof envelope.encryptedNotification).toBe("string");
+  const payload=JSON.parse(decryptToken(envelope.encryptedNotification!,config));
+  expect(payload.type).toBe("text");
+  expect(payload.text.body).toMatch(/senha para entrar/);
+  // a senha gravada confere e nao vaza no outbox
+  const row=db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string};
+  const gen=/é: ([A-Za-z0-9]{14})\./.exec(payload.text.body)?.[1];
+  expect(gen).toBeTruthy();expect(verifyPassword(gen!,row.hash)).toBe(true);
+  expect(outbox.payload).not.toContain(gen!);
+ });
+
 });

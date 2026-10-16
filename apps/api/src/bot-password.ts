@@ -44,8 +44,13 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
   const settings=readBotPasswordSettings(db);
   if(!settings.enabled)return {created:false,queued:false,reason:"PASSWORD_BOT_DISABLED"};
   const wa=readWhatsAppIntegration(db,config);
-  if(wa.mode!=="OFFICIAL"&&wa.mode!=="HYBRID_PLUS")return {created:false,queued:false,reason:"MODE_UNAVAILABLE"};
-  if(!wa.officialReady)return {created:false,queued:false,reason:"META_NOT_READY"};
+  // AUDITORIA / Evolution cobre tudo: a senha sai pelo motor nao-oficial quando o
+  // modo e EVOLUTION e o motor esta configurado. OFFICIAL/HYBRID exigem Meta pronta.
+  if(wa.mode==="EVOLUTION"){
+    if(!wa.evolutionConfigured)return {created:false,queued:false,reason:"EVOLUTION_NOT_READY"};
+  }else if(wa.mode==="OFFICIAL"||wa.mode==="HYBRID_PLUS"){
+    if(!wa.officialReady)return {created:false,queued:false,reason:"META_NOT_READY"};
+  }else return {created:false,queued:false,reason:"MODE_UNAVAILABLE"};
   return db.transaction(()=>{
     const user=db.prepare("SELECT phone,name FROM users WHERE id=? AND deleted_at IS NULL").get(userId) as {phone:string;name:string}|undefined;
     if(!user)return {created:false,queued:false,reason:"ACCOUNT_UNAVAILABLE"};
