@@ -58,15 +58,28 @@ export function renderAutomation(db: AppDatabase, event: string, vars: Record<st
   catch { return { skipped: "unknown-event" }; }
   if (!settings.enabled) return { skipped: "disabled" };
   const category = (automationSettingsCategory(event) ?? "BROADCAST");
+  // AUDITORIA / variantes: se o Owner NÃO customizou o texto (segue o padrão) e existe
+  // um poço de variantes para o evento, escolhe uma variante sem repetir — assim os
+  // anúncios recorrentes (fila, upload, XP, ranks) não ficam repetitivos. Texto
+  // customizado pelo Owner sempre tem prioridade.
+  let base = settings.text;
+  try {
+    const meta = automationMeta(event as never);
+    if (settings.text === meta.defaultText) {
+      const variant = pickEventVariant(db, event);
+      if (variant) base = variant;
+    }
+  } catch { /* evento sem meta: usa o texto como veio */ }
   return {
     event, enabled: true, channel: settings.channel, target: settings.target,
-    text: renderTemplate(settings.text, vars),
+    text: renderTemplate(base, vars),
     deliveryClass: DELIVERY_CLASS_BY_CATEGORY[category],
   };
 }
 
 // pequeno espelho do catálogo só para a categoria (evita acoplar o store ao catálogo aqui)
 import { automationMeta } from "./bot-automations.js";
+import { pickEventVariant } from "./bot-variants.js";
 function automationSettingsCategory(event: string): AutomationCategory | undefined {
   try { return automationMeta(event as never).category; } catch { return undefined; }
 }

@@ -31,6 +31,7 @@ import { registerOwnerRoutes, syncConfiguredRootOwners, hasMembership, resolveGr
 import { registerCompanion } from "./companion.js";
 import { registerGoogleLogin } from "./google-login.js";
 import { runDailyAutomations } from "./bot-scheduler.js";
+import { announceToGroups } from "./bot-announce.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
@@ -1422,6 +1423,17 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           .run(randomUUID(), request.user.sub, submissionId, now);
         joinRound(db, open.id, request.user.sub, "FREE");   // AUDITORIA: participacao explicita
 
+        // AUDITORIA / anuncio "fulano fez upload" no grupo da pessoa, com a URL do video.
+        // Dentro da transacao: so anuncia upload que de fato persistiu. Nunca derruba o
+        // upload se a automacao estiver desligada ou o grupo nao pareado.
+        try {
+          announceToGroups(db, config, "UPLOAD_NOTICE", {
+            nome: String(author.name), sala: String(author.groupCode),
+            posicao: next.slot, aba: open.sequence, fila: open.sequence,
+            url: verified.canonicalUrl,
+          }, { dedupeKey: submissionId, ctx: { groupCode: String(author.groupCode) } });
+        } catch (error) { app.log.error(error, "UPLOAD_NOTICE announce failed"); }
+
         if (next.slot === 10) {
           db.prepare("UPDATE rounds SET status = 'READY', completed_at = ? WHERE id = ?").run(now, open.id);
           const contributors = db.prepare("SELECT DISTINCT user_id AS userId FROM submissions WHERE round_id = ?").all(open.id) as Array<{ userId: string }>;
@@ -1431,7 +1443,15 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
             if(inserted.changes) db.prepare("UPDATE wallets SET reward_millis = reward_millis + 1000, updated_at = ? WHERE user_id = ?")
               .run(now, contributor.userId);
           }
-          ensureOpenQueue(db);   // AUDITORIA: proxima fila pelo menor numero livre
+          const openedNew = ensureOpenQueue(db);   // AUDITORIA: proxima fila pelo menor numero livre
+          // AUDITORIA / anuncio "nova fila aberta" em todos os grupos quando um ciclo
+          // fecha e outro abre. Dedupe pelo id da nova fila: uma vez por fila.
+          if (openedNew) {
+            const fresh = db.prepare("SELECT id,display_number AS n FROM rounds WHERE status='OPEN' AND closed_at IS NULL ORDER BY created_at DESC LIMIT 1").get() as { id: string; n: number } | undefined;
+            if (fresh) try {
+              announceToGroups(db, config, "QUEUE_OPEN", { fila: fresh.n, link: config.WEB_APP_URL }, { dedupeKey: fresh.id });
+            } catch (error) { app.log.error(error, "QUEUE_OPEN announce failed"); }
+          }
         }
         return { submissionId, slot: next.slot, roundCompleted: next.slot === 10 };
       })();
