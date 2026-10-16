@@ -80,6 +80,12 @@ export function syncConfiguredRootOwners(db:AppDatabase,config:Config) {
         db.prepare("UPDATE owner_access SET active=0,updated_at=? WHERE created_by_owner_id=? AND role='ROOT_OWNER' AND active=1").run(new Date().toISOString(),marker);
         continue;
       }
+      // AUDITORIA / red team C-03: a promocao de um vinculo ADMIN existente a ROOT
+      // (preservando o id) e LEGITIMA — e o caso de o proprio Fabio/Rafael ter sido
+      // cadastrado primeiro como ADMIN. O vetor de escalada nao e a promocao: e um
+      // impostor ADQUIRIR o telefone configurado do ROOT. Por isso a trava fica na
+      // porta de entrada (PATCH /admin/participants recusa telefone de Owner), e nao
+      // aqui — travar aqui quebraria a reconciliacao real do dono.
       const linked=db.prepare("SELECT id FROM owner_access WHERE user_id=? OR phone=? ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").get(user.id,owner.phone,user.id) as {id:string}|undefined;
       const id=linked?.id??marker,stamp=new Date().toISOString();
       db.prepare("UPDATE owner_access SET active=0,updated_at=? WHERE created_by_owner_id=? AND role='ROOT_OWNER' AND id<>? AND active=1").run(stamp,marker,id);
@@ -727,6 +733,20 @@ export async function registerOwnerRoutes(
       groupCode: groupSchema
     }).parse(request.body);
     if (!db.prepare("SELECT 1 FROM groups WHERE code=? AND enabled=1").get(body.groupCode)) return reply.code(400).send({ message:"Grupo inexistente ou desativado." });
+    // AUDITORIA / escalada de privilegio (red team C-02/C-03): o telefone E a
+    // identidade deste produto (login, grupo, WhatsApp e a amarracao do Owner).
+    // Sem esta guarda, um ADMIN trocava o proprio telefone pelo telefone
+    // configurado de um ROOT; na proxima reconciliacao, `syncConfiguredRootOwners`
+    // encontrava a linha dele por user_id e a PROMOVIA a ROOT_OWNER. Tambem dava
+    // para "decapitar" um ROOT trocando o telefone dele e deixando o sync desativar
+    // seu acesso. Nenhum campo de formulario pode mover identidade de dono.
+    const ownerPhones = new Set(effectiveOwnerAccounts(db,config).map((item)=>item.phone).filter(Boolean) as string[]);
+    if (ownerPhones.has(body.phone) && body.phone !== currentPhone) {
+      return reply.code(409).send({ message:"Este WhatsApp pertence a uma conta de Owner e nao pode ser atribuido aqui." });
+    }
+    if (ownerPhones.has(currentPhone) && resolveOwnerContext(request)?.role !== "ROOT_OWNER") {
+      return reply.code(403).send({ message:"Somente um ROOT_OWNER pode editar o cadastro de um Owner." });
+    }
     if (body.phone !== currentPhone) {
       const collision = db.prepare(`SELECT 1 FROM users WHERE phone=? UNION SELECT 1 FROM participation_requests WHERE phone=? UNION SELECT 1 FROM group_memberships WHERE phone=? LIMIT 1`)
         .get(body.phone,body.phone,body.phone);
@@ -875,7 +895,7 @@ export async function registerOwnerRoutes(
   // AUDITORIA C-01 / portão híbrido: Owner emite uma credencial de setup para um
   // número já aprovado. Entregue pelo próprio Owner (o link wa.me abre a mensagem
   // pronta; o Owner clica e envia). Não depende da API Meta nem de bot automático.
-  app.post("/admin/participants/:phone/setup-code", { preHandler: ownerGuard }, async (request, reply) => {
+  app.post("/admin/participants/:phone/setup-code", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const account = resolveOwnerContext(request)!;
     const phone = normalizePhone(String((request.params as { phone: string }).phone));
     if (!/^[1-9]\d{7,14}$/.test(phone)) return reply.code(400).send({ message: "Telefone inválido." });

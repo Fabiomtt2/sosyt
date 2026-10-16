@@ -792,6 +792,17 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     }
     establishUserSession(row.name ?? "Participante", body.phone, groupCode);
     const account = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string };
+    // AUDITORIA / tomada de conta (red team C-01): este resgate SOBRESCREVIA a senha
+    // de uma conta ativa. Com o codigo de ativacao em texto claro na resposta do
+    // painel, bastava emitir para o telefone da vitima e resgatar com uma senha nova
+    // para herdar carteira, SUPER, itens e correio. Ativacao e para conta SEM senha;
+    // troca de senha de conta ativa exige o fluxo do proprio titular.
+    if (db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(account.id)) {
+      return reply.code(409).send({
+        code: "ACCOUNT_ALREADY_ACTIVE",
+        message: "Esta conta ja tem senha. Por seguranca, a troca so pode ser feita pelo proprio titular."
+      });
+    }
     const stamp = now.toISOString();
     db.transaction(() => {
       db.prepare(`INSERT INTO user_passwords (user_id,password_hash,must_change,attempts,locked_until,updated_at)
@@ -942,7 +953,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       if (body.presetId.startsWith("cat-")) {
         const tier=catalogTierOf(db,body.presetId);
         if (!tier) return reply.code(404).send({message:"Este avatar não está mais disponível."});
-        if (!request.user.adminRole && !canUseAvatarTier(db,request.user.sub,tier))
+        // AUDITORIA (red team M-11): qualquer `adminRole` destravava o tier OWNER,
+        // entao um ADMIN delegado vestia o avatar exclusivo do dono. Tier OWNER e do ROOT.
+        if (request.user.adminRole !== "ROOT_OWNER" && !canUseAvatarTier(db,request.user.sub,tier))
           return reply.code(403).send({code:"AVATAR_TIER_LOCKED",message:tier==="OWNER"?"Este avatar é exclusivo dos Owners.":"Este avatar é exclusivo de assinantes SUPER ativos."});
       }
       db.prepare(`INSERT INTO user_profiles (user_id,avatar_kind,avatar_preset,avatar_image,avatar_mime,updated_at)

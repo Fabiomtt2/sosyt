@@ -37,9 +37,21 @@ export function ensureAvatarCatalog(db: AppDatabase) {
   );`);
 }
 
-/** O usuário é dono (ROOT ou ADMIN)? Avatar OWNER é exclusivo deles. */
+/** O usuário tem algum acesso administrativo ativo (ROOT ou ADMIN delegado)? */
 export function isOwnerUser(db: AppDatabase, userId: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1").get(userId));
+}
+
+/**
+ * O usuário é ROOT_OWNER (dono de verdade)?
+ *
+ * AUDITORIA (red team M-11): o tier OWNER estava liberado para QUALQUER acesso
+ * administrativo ativo, então um ADMIN delegado vestia o avatar exclusivo do dono —
+ * e, somado ao selo ADMIN no chat, passava por dono aos olhos da comunidade.
+ * Avatar OWNER é identidade do dono, não ferramenta de operação.
+ */
+export function isRootOwnerUser(db: AppDatabase, userId: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1 AND role='ROOT_OWNER'").get(userId));
 }
 
 /**
@@ -50,7 +62,7 @@ export function isOwnerUser(db: AppDatabase, userId: string): boolean {
  */
 export function canUseAvatarTier(db: AppDatabase, userId: string, tier: AvatarTier): boolean {
   if (tier === "COMMON") return true;
-  if (tier === "OWNER") return isOwnerUser(db, userId);
+  if (tier === "OWNER") return isRootOwnerUser(db, userId);   // só o dono, não o delegado
   return effectiveSuper(db, userId).active || isOwnerUser(db, userId);
 }
 
