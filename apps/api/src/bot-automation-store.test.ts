@@ -30,7 +30,7 @@ describe("HYBRID+ / padrão de fábrica", () => {
   });
 
   it("lista o catálogo inteiro", () => {
-    expect(listAutomationSettings(db)).toHaveLength(19);
+    expect(listAutomationSettings(db)).toHaveLength(22);
   });
 });
 

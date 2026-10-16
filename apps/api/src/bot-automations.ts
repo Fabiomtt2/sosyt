@@ -30,9 +30,9 @@ export type AutomationEvent =
   // Filas & atividade
   | "QUEUE_OPEN" | "QUEUE_STATUS" | "UPLOAD_NOTICE" | "QUEUE_FILLING" | "QUEUE_COMPLETE"
   // Recompensas & gamificação
-  | "COINS_EARNED" | "LEVEL_UP" | "WEEKLY_XP_RANK" | "MONTHLY_TOP" | "STREAK_MILESTONE"
+  | "COINS_EARNED" | "LEVEL_UP" | "WEEKLY_XP_RANK" | "MONTHLY_TOP" | "STREAK_MILESTONE" | "BOOSTER_FRIDAY"
   // Reengajamento & cuidado
-  | "SUPER_EXPIRING" | "INACTIVITY_NUDGE"
+  | "SUPER_EXPIRING" | "INACTIVITY_NUDGE" | "GOOD_MORNING" | "GOOD_NIGHT"
   // Suporte & humano
   | "SUPPORT_AUTO" | "SUPPORT_HANDOFF" | "SUPPORT_OFFHOURS"
   // Administração / global
@@ -156,6 +156,13 @@ export const AUTOMATION_CATALOG: readonly AutomationMeta[] = [
     defaultText: "🏅 Resultado de {mes}! Nossos destaques do mês:\n{ranking}\nObrigado a TODOS pela dedicação. Mês novo, oportunidade nova para cada um brilhar. 💛",
   },
   {
+    event: "BOOSTER_FRIDAY", category: "REWARDS",
+    label: "Sexta do Booster", description: "Anuncia o evento de sexta: das 6h às 23h59, cada participação pode soltar moedas, Pular, Passe ou SUPER 7 dias.",
+    defaultChannel: "EVOLUTION", defaultTarget: "ALL_GROUPS", periodic: true, defaultIntervalMinutes: 10080, canPin: true,
+    placeholders: ["link"], defaultEnabled: false, requires: ["GAMIFICATION"],
+    defaultText: "🎁 Hoje é SEXTA DO BOOSTER no SOS YOUTUBER! Das 6h às 23h59, cada participação pode soltar uma surpresa: moedas, Pular, Passe ou até SUPER por 7 dias. 🔥 Participe em {link} e boa sorte!",
+  },
+  {
     event: "STREAK_MILESTONE", category: "REWARDS",
     label: "Sequência de participação", description: "DM quando o participante bate uma sequência (streak).",
     defaultChannel: "OFFICIAL", defaultTarget: "MEMBER", periodic: false, canPin: false,
@@ -176,6 +183,20 @@ export const AUTOMATION_CATALOG: readonly AutomationMeta[] = [
     defaultChannel: "OFFICIAL", defaultTarget: "MEMBER", periodic: true, defaultIntervalMinutes: 1440, canPin: false,
     placeholders: ["nome", "link"], defaultEnabled: false,
     defaultText: "Oi, {nome}! A gente sentiu sua falta por aqui. 🥹 Quando quiser voltar a colaborar nas filas, é só acessar {link} — no seu tempo. Você é sempre bem-vindo(a)!",
+  },
+  {
+    event: "GOOD_MORNING", category: "RETENTION",
+    label: "Bom dia motivacional (diário)", description: "Todo dia de manhã, uma saudação + frase motivacional que NUNCA se repete (400+ combinações). Vale nos grupos.",
+    defaultChannel: "EVOLUTION", defaultTarget: "ALL_GROUPS", periodic: true, defaultIntervalMinutes: 1440, canPin: false,
+    placeholders: ["mensagem"], defaultEnabled: false, requires: [],
+    defaultText: "{mensagem}",
+  },
+  {
+    event: "GOOD_NIGHT", category: "RETENTION",
+    label: "Boa noite motivacional (diário)", description: "Toda noite, uma despedida + frase motivacional que nunca se repete. Fecha o dia com carinho.",
+    defaultChannel: "EVOLUTION", defaultTarget: "ALL_GROUPS", periodic: true, defaultIntervalMinutes: 1440, canPin: false,
+    placeholders: ["mensagem"], defaultEnabled: false, requires: [],
+    defaultText: "{mensagem}",
   },
   // ───────────────────────── Suporte & humano ─────────────────────────
   {
