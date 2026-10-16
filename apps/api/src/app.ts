@@ -17,6 +17,7 @@ import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKI
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
 import { ensureBuiltinAvatars } from "./avatar-builtin-seed.js";
 import { ensureBundledAvatarLibrary } from "./avatar-library-import.js";
+import { CampaignError, campaignSummary, endCampaign, ensureAvatarCampaign, isVisibleToParticipant, listCampaignCatalog, listVisibleCatalog, publishCampaign } from "./avatar-campaign.js";
 import { canUseAvatarTier, catalogTierOf, ensureAvatarCatalog, listCatalog, upsertCatalogAvatar, decodeWebpDataUrl, avatarImageEtag, AVATAR_TIERS, AVATAR_CATEGORIES, type AvatarTier, type AvatarCategory } from "./avatar-tiers.js";
 import { Readable } from "node:stream";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -520,6 +521,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
   ensureAvatarCatalog(db);
   ensureBuiltinAvatars(db);   // AUDITORIA: popula o catalogo com a colecao ilustrada (arte do Sol/ASTRA)
+  ensureAvatarCampaign(db);         // AUDITORIA: janela de visibilidade p/ SEASONAL e EVENT
   ensureBundledAvatarLibrary(db);   // AUDITORIA: 120 ilustracoes do Sol/ASTRA em <TIER>/<CATEGORIA>
   const stopWhatsApp = await registerWhatsAppRoutes(app,db,config,ownerGuard);
 
@@ -955,6 +957,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       if (body.presetId.startsWith("cat-")) {
         const tier=catalogTierOf(db,body.presetId);
         if (!tier) return reply.code(404).send({message:"Este avatar não está mais disponível."});
+        // AUDITORIA / campanha encerrada nao pode ser ESCOLHIDA (quem ja tem, mantem).
+        if (request.user.adminRole !== "ROOT_OWNER" && !isVisibleToParticipant(db,body.presetId))
+          return reply.code(403).send({code:"AVATAR_CAMPAIGN_CLOSED",message:"Esta campanha de avatar já encerrou."});
         // AUDITORIA (red team M-11): qualquer `adminRole` destravava o tier OWNER,
         // entao um ADMIN delegado vestia o avatar exclusivo do dono. Tier OWNER e do ROOT.
         if (request.user.adminRole !== "ROOT_OWNER" && !canUseAvatarTier(db,request.user.sub,tier))
@@ -1001,14 +1006,40 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return reply.header("etag",etag).type(row.mime).send(row.image);
   });
   // Lista para o seletor: tudo que está ativo, com flag de bloqueio por tier.
+  // AUDITORIA / campanhas: SEASONAL e EVENT so entram nesta lista enquanto a janela
+  // definida pelo ROOT estiver aberta. Fora dela, nem aparecem na escolha.
   app.get("/avatars", { preHandler: authGuard }, async (request) => ({
-    avatars: listCatalog(db,{activeOnly:true}).map((r)=>({
+    avatars: listVisibleCatalog(db).map((r)=>({
       slug:r.slug, tier:r.tier, category:r.category, label:r.label,
-      locked: !request.user.adminRole && !canUseAvatarTier(db,request.user.sub,r.tier)
+      campaign: r.campaignLabel ?? undefined, until: r.visibleUntil ?? undefined,
+      locked: request.user.adminRole !== "ROOT_OWNER" && !canUseAvatarTier(db,request.user.sub,r.tier)
     }))
   }));
   // Gestão (somente ROOT_OWNER): o Owner sobe a ilustração já normalizada no painel.
-  app.get("/admin/avatars", { preHandler: rootOwnerGuard }, async () => ({ avatars: listCatalog(db) }));
+  app.get("/admin/avatars", { preHandler: rootOwnerGuard }, async () => ({
+    avatars: listCampaignCatalog(db), campaign: campaignSummary(db)
+  }));
+  // AUDITORIA / curadoria de campanha (ROOT): publica ou encerra avatares sazonais
+  // e de evento por janela de tempo. A janela expira sozinha; encerrar remove da
+  // ESCOLHA, mas quem ja adotou continua com o avatar — e isso que o torna trofeu.
+  app.post("/admin/avatars/campaign", { preHandler: rootOwnerGuard }, async (request,reply) => {
+    const body = z.object({
+      slugs: z.array(z.string().regex(/^cat-[a-z0-9]{12}$/)).min(1).max(200),
+      action: z.enum(["PUBLISH","END"]),
+      from: z.string().datetime().optional(),
+      until: z.string().datetime().optional(),
+      label: z.string().trim().min(1).max(60).optional()
+    }).parse(request.body);
+    try {
+      const result = body.action === "END"
+        ? endCampaign(db, body.slugs)
+        : publishCampaign(db, body.slugs, { from: body.from, until: body.until, label: body.label });
+      return { ok: true, ...result, campaign: campaignSummary(db) };
+    } catch (error) {
+      if (error instanceof CampaignError) return reply.code(error.statusCode).send({ message: error.message, code: error.code });
+      throw error;
+    }
+  });
   app.post("/admin/avatars", { preHandler: rootOwnerGuard, config: { rateLimit: { max: 40, timeWindow: "10 minutes" } } }, async (request,reply) => {
     const parsed=z.object({
       slug:z.string().regex(/^cat-[a-z0-9]{12}$/).optional(),
