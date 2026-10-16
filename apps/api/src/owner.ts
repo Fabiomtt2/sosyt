@@ -24,6 +24,8 @@ import { ensureAsaasWebhook } from "./payments.js";
 import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
 import { AUTOMATION_CATALOG, automationsByCategory } from "./bot-automations.js";
 import { importAvatarLibrary } from "./avatar-library-import.js";
+import { createPasswordReset, markResetDelivered, passwordResetHistory, passwordResetStatus, resetMessage } from "./password-reset.js";
+import { queueBotNotification } from "./whatsapp.js";
 import { AutomationValidationError, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
@@ -539,6 +541,42 @@ export async function registerOwnerRoutes(
   app.get("/admin/bot/automations/audit", { preHandler: rootOwnerGuard }, async (request) => {
     const { event } = request.query as { event?: string };
     return { entries: automationAudit(db, event) };
+  });
+
+  // AUDITORIA / troca de senha com consentimento do titular.
+  //
+  // O dono pediu "ver as senhas e poder muda-las". VER e impossivel: o banco guarda
+  // so o hash irreversivel. O que entregamos e melhor e mais seguro — o Owner
+  // SOLICITA a troca, o codigo vai pelo bot DIRETO ao WhatsApp do titular (nunca
+  // volta na resposta ao Owner), e o titular escolhe a senha nova. Isso fecha o
+  // vetor de tomada de conta e mantem o controle no painel, como pedido.
+  // ROOT-only, e cada pedido fica em trilha append-only.
+  app.post("/admin/participants/:phone/password-reset", { preHandler: rootOwnerGuard }, async (request, reply) => {
+    const phone = phoneSchema.parse((request.params as { phone: string }).phone);
+    const user = db.prepare("SELECT id,name FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string;name:string}|undefined;
+    if (!user) return reply.code(404).send({ message: "Participante nao encontrado." });
+    const account = resolveOwnerContext(request)!;
+    const actor = { id: account.id, name: request.user.displayName?.trim() || account.name };
+
+    const req = createPasswordReset(db, phone, "OWNER", actor);
+    const delivery = queueBotNotification(
+      db, config, phone, resetMessage(req.code, true, config.WEB_APP_URL),
+      `password-reset:${req.id}`, undefined,
+      { encryptPayload: true, deliveryClass: "TRANSACTIONAL", event: "PASSWORD_RESET" },
+    );
+    markResetDelivered(db, req.id, delivery.queued, delivery.reason);
+    // O codigo NAO volta para o Owner — so o estado da entrega.
+    return {
+      ok: true,
+      delivered: delivery.queued,
+      reason: delivery.queued ? undefined : delivery.reason,
+      status: passwordResetStatus(db, phone),
+    };
+  });
+
+  app.get("/admin/participants/:phone/password-reset", { preHandler: rootOwnerGuard }, async (request) => {
+    const phone = phoneSchema.parse((request.params as { phone: string }).phone);
+    return { status: passwordResetStatus(db, phone), history: passwordResetHistory(db, phone) };
   });
 
   // AUDITORIA / biblioteca de avatares: importa a arte entregue em
