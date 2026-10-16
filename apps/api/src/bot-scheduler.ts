@@ -55,12 +55,15 @@ export function runDailyAutomations(db: AppDatabase, config: Config, now: Date =
     if (hour < window.start || hour >= window.end) continue;
     if (!automationSettings(db, window.event as never).enabled) continue;
     const message = dailyMessage(db, window.kind);
+    // validade de 5h: um "Bom dia" que o backlog de warmup nao alcancar ate ~meio-dia
+    // (ou uma "Boa noite" ate ~2h) e descartado em vez de chegar obsoleto de madrugada.
+    const expiresAt = new Date(now.getTime() + 5 * 3600_000).toISOString();
     let count = 0;
     for (const group of groups) {
       const queued = queueGroupAutomation(
         db, config, group.groupId, message,
         `${window.event}:${group.groupId}:${dayKey}`,
-        { event: window.event, deliveryClass: "ENGAGEMENT" },
+        { event: window.event, deliveryClass: "ENGAGEMENT", expiresAt },
       );
       if (queued.queued) count += 1;
     }

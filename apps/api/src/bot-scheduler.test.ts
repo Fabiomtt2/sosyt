@@ -92,3 +92,12 @@ describe("status de filas ao meio-dia", () => {
     expect(body).toMatch(/1/);   // 1 fila aberta
   });
 });
+
+describe("dailies têm validade (Téo M1)", () => {
+  it("a mensagem de grupo é enfileirada com expires_at", () => {
+    runDailyAutomations(db, config, MORNING);
+    const row = db.prepare("SELECT expires_at AS e FROM whatsapp_outbox LIMIT 1").get() as { e: string | null };
+    expect(row.e).toBeTruthy();
+    expect(new Date(row.e!).getTime()).toBeGreaterThan(MORNING.getTime());
+  });
+});

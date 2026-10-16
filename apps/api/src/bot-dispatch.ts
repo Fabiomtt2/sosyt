@@ -62,6 +62,13 @@ export function renderAutomation(db: AppDatabase, event: string, vars: Record<st
   // um poço de variantes para o evento, escolhe uma variante sem repetir — assim os
   // anúncios recorrentes (fila, upload, XP, ranks) não ficam repetitivos. Texto
   // customizado pelo Owner sempre tem prioridade.
+  // AUDITORIA / variantes: usa uma variante não-repetida quando o texto segue o PADRÃO
+  // (Owner não escreveu um texto próprio). Nota sobre o M2 do Téo: a flag `customized`
+  // NÃO serve aqui — ela vira true só de HABILITAR a automação (linha salva), mesmo sem
+  // mudar o texto; usá-la quebraria o caso comum (habilitado, texto padrão -> deveria
+  // rotacionar). Comparar com o defaultText é o sinal correto de "texto não editado".
+  // Custo: se o Owner salvar um texto IDÊNTICO ao padrão para fixá-lo, ainda rotaciona
+  // — caso raríssimo e aceito; o texto entregue continua sendo o padrão, só variado.
   let base = settings.text;
   try {
     const meta = automationMeta(event as never);

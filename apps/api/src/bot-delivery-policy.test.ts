@@ -5,7 +5,7 @@ import type { AppDatabase } from "./db.js";
 import { ensureBotOptOut, setOptOut } from "./bot-inbound.js";
 import {
   DEFAULT_DELIVERY_POLICY, canDeliver, collapseByPriority, ensureBotDelivery,
-  inQuietHours, localClock, recordDelivery, recordSuppressed, suppressionStats,
+  inQuietHours, localClock, nextQuietHoursEnd, recordDelivery, recordSuppressed, suppressionStats,
   type DeliveryPolicy,
 } from "./bot-delivery-policy.js";
 
@@ -120,5 +120,19 @@ describe("HYBRID+ / supressões são dado para o Owner", () => {
       { reason: "BUDGET_EXCEEDED", total: 2 },
       { reason: "QUIET_HOURS", total: 1 },
     ]);
+  });
+});
+
+describe("nextQuietHoursEnd (silêncio noturno dos grupos — Téo A1)", () => {
+  it("de madrugada, devolve um instante FORA do silêncio", () => {
+    const madrugada = new Date("2026-10-16T06:00:00Z"); // 03:00 Bahia (dentro do silêncio 00-06)
+    expect(inQuietHours(DEFAULT_DELIVERY_POLICY, madrugada)).toBe(true);
+    const fim = new Date(nextQuietHoursEnd(DEFAULT_DELIVERY_POLICY, madrugada));
+    expect(inQuietHours(DEFAULT_DELIVERY_POLICY, fim)).toBe(false);
+    expect(fim.getTime()).toBeGreaterThan(madrugada.getTime());
+  });
+  it("de dia, não adia (já está fora do silêncio)", () => {
+    const meioDia = new Date("2026-10-16T15:00:00Z"); // 12:00 Bahia
+    expect(nextQuietHoursEnd(DEFAULT_DELIVERY_POLICY, meioDia)).toBe(meioDia.toISOString());
   });
 });

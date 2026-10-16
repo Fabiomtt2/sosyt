@@ -92,6 +92,19 @@ export function inQuietHours(policy: DeliveryPolicy, at: Date = new Date()): boo
   return start > end ? hour >= start || hour < end : hour >= start && hour < end;
 }
 
+/**
+ * Próximo instante em que o silêncio TERMINA (sai de quiet hours). Avança em passos
+ * de 15 min — robusto a qualquer fuso/política, sem aritmética de UTC frágil. Usado
+ * para ADIAR (não descartar) envios de grupo que caíram na madrugada.
+ */
+export function nextQuietHoursEnd(policy: DeliveryPolicy, at: Date = new Date()): string {
+  const d = new Date(at.getTime());
+  for (let step = 0; step < 48 && inQuietHours(policy, d); step++) {
+    d.setTime(d.getTime() + 15 * 60 * 1000);
+  }
+  return d.toISOString();
+}
+
 export type DeliveryDecision =
   | { allowed: true }
   | { allowed: false; reason: "OPTED_OUT" | "QUIET_HOURS" | "BUDGET_EXCEEDED" };

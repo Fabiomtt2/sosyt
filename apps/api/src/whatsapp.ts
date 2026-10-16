@@ -14,7 +14,7 @@ import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
 import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
 import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
-import { canDeliver, ensureBotDelivery, recordDelivery, recordSuppressed, type DeliveryClass } from "./bot-delivery-policy.js";
+import { canDeliver, ensureBotDelivery, recordDelivery, recordSuppressed, inQuietHours, nextQuietHoursEnd, DEFAULT_DELIVERY_POLICY, type DeliveryClass } from "./bot-delivery-policy.js";
 
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
 type Payload = Record<string, unknown>;
@@ -65,7 +65,7 @@ function queue(db: AppDatabase, recipient: string, payload: Payload, dedupeKey: 
 function template(config: Config, name: string, parameters: string[]): Payload {
   return { type: "template", template: { name, language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE }, components: [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] } };
 }
-export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:string,body:string,dedupeKey:string,options?:{event:string;deliveryClass:"QUEUE"|"ENGAGEMENT";availableAt?:string}){
+export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:string,body:string,dedupeKey:string,options?:{event:string;deliveryClass:"QUEUE"|"ENGAGEMENT";availableAt?:string;expiresAt?:string}){
   const runtime=effectiveWhatsAppConfig(db,config);
   if(!["EVOLUTION","HYBRID_PLUS"].includes(runtime.WHATSAPP_MODE)||!evolutionConfigured(runtime))return {queued:false,reason:"PROVIDER_NOT_READY"};
   if(!/^\d+(?:-\d+)?@g\.us$/.test(groupJid)||!body.trim())return {queued:false,reason:"INVALID_RECIPIENT"};
@@ -75,7 +75,11 @@ export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:strin
   const payload={_transport:"EVOLUTION_GROUP",_instance:runtime.EVOLUTION_INSTANCE,_phone:runtime.EVOLUTION_PHONE,text:{body:body.slice(0,4096)}};
   const id=randomUUID(),stamp=now(),availableAt=options?.availableAt??stamp;
   if(!Number.isFinite(Date.parse(availableAt)))return {queued:false,reason:"INVALID_SCHEDULE"};
-  db.prepare("INSERT OR IGNORE INTO whatsapp_outbox(id,dedupe_key,recipient,payload,available_at,created_at) VALUES(?,?,?,?,?,?)").run(id,dedupeKey,groupJid,JSON.stringify(payload),availableAt,stamp);
+  // AUDITORIA / Teo M1: anuncio de grupo pode carregar validade. Se o backlog de warmup
+  // adiar alem disso (ou cair no silencio e so acordar depois), o varredor de expiracao
+  // descarta em vez de entregar "Bom dia" obsoleto de madrugada.
+  const expiresAt=options?.expiresAt&&Number.isFinite(Date.parse(options.expiresAt))?options.expiresAt:null;
+  db.prepare("INSERT OR IGNORE INTO whatsapp_outbox(id,dedupe_key,recipient,payload,available_at,expires_at,created_at) VALUES(?,?,?,?,?,?,?)").run(id,dedupeKey,groupJid,JSON.stringify(payload),availableAt,expiresAt,stamp);
   return {queued:true,outboxId:id};
 }
 /** Queues a real notification; dispatch/receipt status stays in the durable outbox. */
@@ -395,6 +399,12 @@ function tripEvolutionBreaker(db:AppDatabase,config:Config,until:string){
 }
 function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;recipient:string},group:boolean,at:Date){
   const identity=evolutionIdentity(config),stamp=at.toISOString();
+  // AUDITORIA / Teo A1: silencio noturno TAMBEM nos grupos. Envio em grupo de
+  // madrugada e a assinatura que mais vira ban no numero nao-oficial. Mensagem de
+  // grupo que cai no silencio (00h-06h Bahia) e ADIADA para 06:00, nunca descartada.
+  if(group && inQuietHours(DEFAULT_DELIVERY_POLICY, at)){
+    return {allowed:false as const, nextAt:nextQuietHoursEnd(DEFAULT_DELIVERY_POLICY, at), reason:"EVOLUTION_QUIET_HOURS"};
+  }
   db.prepare("INSERT OR IGNORE INTO evolution_attempt_state(identity,first_seen_at,next_attempt_at) VALUES(?,?,?)").run(identity,stamp,stamp);
   const state=db.prepare("SELECT first_seen_at AS firstSeenAt,next_attempt_at AS nextAttemptAt,breaker_until AS breakerUntil FROM evolution_attempt_state WHERE identity=?").get(identity) as {firstSeenAt:string;nextAttemptAt:string;breakerUntil:string|null};
   const waitUntil=[state.nextAttemptAt,state.breakerUntil??stamp].sort().at(-1)!;
