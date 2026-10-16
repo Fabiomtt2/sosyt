@@ -119,12 +119,12 @@ describe("HYBRID+ / opt-out", () => {
 
 describe("HYBRID+ / nada mais cai no silêncio", () => {
   it("áudio, foto e vídeo têm resposta", () => {
-    expect(MEDIA_REPLY).toMatch(/HUMANO/);
+    expect(MEDIA_REPLY).toMatch(/Tenho dúvidas/);
     expect(MEDIA_REPLY.length).toBeGreaterThan(40);
   });
 
   it("mensagem longa demais tem resposta", () => {
-    expect(TOO_LONG_REPLY).toMatch(/HUMANO/);
+    expect(TOO_LONG_REPLY).toMatch(/Tenho dúvidas/);
   });
 
   it("quem responde a uma recusa recebe a resposta que o texto prometia", () => {
@@ -135,5 +135,17 @@ describe("HYBRID+ / nada mais cai no silêncio", () => {
 describe("HYBRID+ / normalização", () => {
   it("tira acento e caixa", () => {
     expect(normalizeInbound("  ÓLÁ Querô  ")).toBe("ola quero");
+  });
+});
+
+describe("gatilho 'Tenho dúvidas' (divulgado no grupo)", () => {
+  it("chama uma pessoa com ou sem acento", () => {
+    expect(classifyInbound("Tenho dúvidas")).toBe("HUMAN");
+    expect(classifyInbound("tenho duvidas")).toBe("HUMAN");       // sem acento
+    expect(classifyInbound("Oi, tenho uma dúvida sobre a fila")).toBe("HUMAN");
+  });
+  it("não rouba a saudação nem a ajuda genérica", () => {
+    expect(classifyInbound("oi")).toBe("GREETING");
+    expect(classifyInbound("como funciona")).toBe("HELP");
   });
 });

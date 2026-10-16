@@ -45,6 +45,11 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
   ] },
   { intent: "OPT_IN", phrases: ["voltar a receber", "quero receber", "reativar avisos", "voltei"] },
   { intent: "HUMAN", phrases: [
+    // AUDITORIA / gatilho principal divulgado no grupo: 'Tenho dúvidas' (acento é
+    // removido por normalizeInbound, entao com ou sem acento cai aqui). "tenho duvida"
+    // no singular casa tambem o plural via includes. Vem antes de HELP na ordem, entao
+    // "tenho duvidas" chama uma pessoa em vez de cair na ajuda automatica.
+    "tenho duvida", "tenho uma duvida", "tenho duvidas", "estou com duvida",
     "humano", "atendente", "pessoa de verdade", "falar com alguem", "falar com uma pessoa", "suporte humano",
   ] },
   { intent: "RESEND_CODE", phrases: [
@@ -138,21 +143,21 @@ export const INBOUND_REPLIES: Record<Exclude<InboundIntent, "NAME_CANDIDATE" | "
   OPT_OUT: "Tudo bem, respeitamos sua escolha. 🤝 Não vou mais te mandar avisos e novidades. Você vai continuar recebendo só o essencial, como o código de acesso à sua conta. Se mudar de ideia, é só escrever VOLTAR.",
   OPT_IN: "Que bom te ver de volta! 🎉 Voltei a te avisar sobre filas e novidades. Se quiser parar de novo, é só escrever PARE.",
   STATUS: "Deixa eu conferir pra você! 🔎 Já já te respondo com a situação do seu cadastro por aqui mesmo.",
-  RESEND_CODE: "Sem problema! 📲 Vou providenciar o reenvio do seu código de acesso. Se não chegar em alguns minutos, me escreve HUMANO que uma pessoa te ajuda.",
-  GREETING: "Oi! 👋 Que bom falar com você. Posso te ajudar a ENTRAR no projeto, falar sobre as FILAS, ou te passar para uma pessoa — é só escrever HUMANO. O que você prefere?",
-  HELP: "Tô aqui pra ajudar! 💛 Me diz com uma palavra o que você precisa: ENTRAR (participar do projeto), FILA (como funciona), ou HUMANO (falar com uma pessoa da equipe).",
-  UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito, mas não vou te deixar sem resposta. Me diz com uma palavra: ENTRAR, FILA ou HUMANO — e se preferir falar com uma pessoa, é só escrever HUMANO.",
+  RESEND_CODE: "Sem problema! 📲 Vou providenciar o reenvio do seu código de acesso. Se não chegar em alguns minutos, me escreva 'Tenho dúvidas' que uma pessoa te ajuda.",
+  GREETING: "Oi! 👋 Que bom falar com você. Posso te ajudar a ENTRAR no projeto, falar sobre as FILAS, ou te passar para uma pessoa, é só escrever 'Tenho dúvidas'. O que você prefere?",
+  HELP: "Tô aqui pra ajudar! 💛 Me diz com uma palavra o que você precisa: ENTRAR (participar do projeto), FILA (como funciona), ou escrever 'Tenho dúvidas' (falar com uma pessoa da equipe).",
+  UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito, mas não vou te deixar sem resposta. Me diz o que você precisa: ENTRAR, FILA, e se preferir falar com uma pessoa, é só escrever 'Tenho dúvidas'.",
 };
 
 /** Mídia (áudio, foto, vídeo) nunca mais cai no silêncio. */
 export const MEDIA_REPLY =
   "Recebi seu arquivo! 🎧 Ainda não consigo ouvir áudio nem abrir imagem por aqui, mas já avisei a equipe. " +
-  "Se puder escrever em uma frase o que você precisa, eu te ajudo agora mesmo — ou escreve HUMANO que uma pessoa te responde.";
+  "Se puder escrever em uma frase o que você precisa, eu te ajudo agora mesmo, ou escreve 'Tenho dúvidas' que uma pessoa te responde.";
 
 /** Mensagem muito longa também era descartada em silêncio. */
 export const TOO_LONG_REPLY =
   "Recebi sua mensagem, mas ela ficou um pouco longa pro meu limite aqui. 💛 " +
-  "Pode me mandar o essencial em poucas linhas? Se preferir desabafar com uma pessoa, escreve HUMANO.";
+  "Pode me mandar o essencial em poucas linhas? Se preferir desabafar com uma pessoa, escreve 'Tenho dúvidas'.";
 
 /** Resposta para quem responde a uma recusa — a promessa que o texto fazia e ninguém cumpria. */
 export const DECLINED_FOLLOWUP_REPLY =
