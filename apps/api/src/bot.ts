@@ -79,7 +79,10 @@ export function botStatus(db: AppDatabase, config: Config) {
   if (mode === "DISABLED") missing.push("Escolha um modo do bot (OFFICIAL, EVOLUTION ou HYBRID).");
   if ((mode === "OFFICIAL" || mode === "HYBRID_PLUS" || mode === "META_GROUPS") && !wa.officialReady) missing.push("Configure a Meta Cloud API: Phone Number ID, WABA ID, Access Token, App Secret e Verify Token.");
   if ((mode === "EVOLUTION" || mode === "HYBRID_PLUS") && !grpOk) missing.push("Configure o motor Evolution: URL, instância e API key (gestão de grupos).");
-  if (mode !== "DISABLED") missing.push("As funções desta aba ainda não foram conectadas aos fluxos de envio. A configuração salva não ativa o bot.");
+  // AUDITORIA / painel mentiroso: este aviso era FIXO e dizia que nada estava ligado,
+  // mesmo com o bot conversando, cadastrando e anunciando em produção. As funções foram
+  // conectadas na convergência (inbound, senha, filas, suporte, handoff, diárias), então
+  // o aviso sai. O que falta de verdade já é reportado pelos avisos de credencial acima.
 
   const features = BOT_FEATURES.map((f) => {
     const enabled = featureEnabled(db, f.code);

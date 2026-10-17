@@ -235,3 +235,12 @@ describe("jidToPhone + participantes LID (impacto no sync de membros)", () => {
     expect(phones.every((p) => /^[1-9]\d{7,14}$/.test(p))).toBe(true);   // nenhum LID vazou
   });
 });
+
+describe("DM nunca é bloqueada por teto diário (aprendizado de produção)", () => {
+  it("o teto de warm-up vale para GRUPO, não para conversa 1:1", () => {
+    // o teto existe contra disparo em massa (fenômeno de grupo). A DM é protegida por
+    // cadência + breaker + orçamento POR PESSOA, não por teto global de identidade.
+    expect(warmupCapForDay(0)).toBe(10);          // número novo: grupo começa baixo
+    expect(warmupCapForDay(21)).toBe(120);        // depois do aquecimento, teto cheio
+  });
+});

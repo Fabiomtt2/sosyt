@@ -399,12 +399,6 @@ function tripEvolutionBreaker(db:AppDatabase,config:Config,until:string){
   db.prepare("INSERT OR IGNORE INTO evolution_attempt_state(identity,first_seen_at,next_attempt_at) VALUES(?,?,?)").run(identity,stamp,stamp);
   db.prepare("UPDATE evolution_attempt_state SET breaker_until=MAX(COALESCE(breaker_until,''),?) WHERE identity=?").run(until,identity);
 }
-/**
- * Piso diario de DM (conversa 1:1). Mesmo com o numero novinho, responder quem
- * escreveu nunca pode parar: e o comportamento mais seguro que existe no WhatsApp.
- */
-const DM_DAILY_FLOOR = 60;
-
 function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;recipient:string},group:boolean,at:Date){
   const identity=evolutionIdentity(config),stamp=at.toISOString();
   // AUDITORIA / Teo A1: silencio noturno TAMBEM nos grupos. Envio em grupo de
@@ -426,10 +420,17 @@ function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;rec
   // um bot que para de responder no meio do papo e pior para a comunidade e nao reduz
   // risco de ban. A cadencia (minGap) e o breaker continuam valendo para os dois.
   const groupCap=warmupCapForDay(days);
-  const dmCap=Math.max(DM_DAILY_FLOOR, groupCap * 3);
-  const dmSent=counts.total-counts.groupSent;
-  if(group ? (counts.groupSent>=groupCap || counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup) : dmSent>=dmCap)
-    return {allowed:false,nextAt:nextEvolutionBusinessDay(at),reason:group&&counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup?"EVOLUTION_GROUP_DAILY_CAP":"EVOLUTION_WARMUP_DAILY_CAP"};
+  // AUDITORIA / DM NAO TEM TETO DIARIO DE IDENTIDADE. Aprendizado caro em producao:
+  // o teto global derrubava a CONVERSA (o bot parava de responder no meio do papo), e
+  // ainda era consumido por RETENTATIVA de envio que falhou — bastou um punhado de
+  // mensagens de teste para um numero inexistente para calar o bot o dia inteiro.
+  // O teto existe contra DISPARO EM MASSA, que e fenomeno de GRUPO/broadcast; para DM
+  // o que protege e (a) a cadencia minGap entre envios, (b) o breaker de sessao e
+  // (c) o orcamento POR PESSOA da politica de entrega (canDeliver), que ja limita
+  // engajamento a poucas mensagens/dia por destinatario. Responder quem escreveu e o
+  // comportamento mais seguro que existe no WhatsApp — nunca pode ser bloqueado.
+  if(group && (counts.groupSent>=groupCap || counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup))
+    return {allowed:false,nextAt:nextEvolutionBusinessDay(at),reason:counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup?"EVOLUTION_GROUP_DAILY_CAP":"EVOLUTION_WARMUP_DAILY_CAP"};
   db.prepare("INSERT INTO evolution_delivery_attempts(id,identity,outbox_id,recipient,is_group,attempted_at,business_day) VALUES(?,?,?,?,?,?,?)").run(randomUUID(),identity,job.id,job.recipient,group?1:0,stamp,day);
   db.prepare("UPDATE evolution_attempt_state SET next_attempt_at=?,breaker_until=NULL WHERE identity=?").run(new Date(at.getTime()+nextSendDelayMs()).toISOString(),identity);
   return {allowed:true,nextAt:stamp,reason:null};
