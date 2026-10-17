@@ -40,6 +40,20 @@ export class EvolutionSafetyError extends Error {
 }
 
 /**
+ * Dois números são o MESMO WhatsApp? Trata o "nono dígito" brasileiro: o WhatsApp
+ * frequentemente representa o ownerJid SEM o 9 (ex.: 557193951582), enquanto o número
+ * salvo vem COM o 9 (5571993951582). São o mesmo número. Sem isso, a verificação de
+ * identidade reprova a sessão legítima e o worker nunca envia (bot fica mudo).
+ */
+export function sameWhatsAppNumber(a: string, b: string): boolean {
+  const da = String(a).replace(/\D/g, ""), db = String(b).replace(/\D/g, "");
+  if (da === db) return true;
+  // Brasil: 55 + DDD(2) + [9] + 8 dígitos. Remove o 9 logo após o DDI+DDD (índice 4).
+  const strip9 = (n: string) => (n.length === 13 && n.startsWith("55") && n[4] === "9" ? n.slice(0, 4) + n.slice(5) : n);
+  return strip9(da) === strip9(db);
+}
+
+/**
  * O número dos grupos não pode ser o número do OTP. Se a sessão não-oficial tomar
  * ban e for o mesmo número da Cloud API, ninguém mais recebe código de acesso.
  */
@@ -195,7 +209,7 @@ export function createEvolutionClient(opts: {
           // dígitos do número (antes de ':' e '@') para não congelar sessão legítima.
           const owner = ownerRaw.split("@")[0].split(":")[0].replace(/\D/g, "");
           const expected = String(config.number).replace(/\D/g, "");
-          if (owner && expected && owner !== expected) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
+          if (owner && expected && !sameWhatsAppNumber(owner, expected)) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
         }
         return { connected: state === "open", state: state || undefined };
       } catch (cause) {

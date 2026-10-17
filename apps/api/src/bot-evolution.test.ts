@@ -194,3 +194,24 @@ describe("identidade tolera sufixo de device no ownerJid (achado do revisor)", (
     expect((await createEvolutionClient({ config: CONFIG, fetchImpl: f.impl }).health()).connected).toBe(true);
   });
 });
+
+describe("sameWhatsAppNumber — tolera o 9º dígito brasileiro (bug do bot mudo)", () => {
+  it("559 com 9 == JID sem 9 (557193951582 == 5571993951582)", async () => {
+    const { sameWhatsAppNumber } = await import("./bot-evolution.js");
+    expect(sameWhatsAppNumber("557193951582", "5571993951582")).toBe(true);
+    expect(sameWhatsAppNumber("5571993951582", "557193951582")).toBe(true);
+    expect(sameWhatsAppNumber("5571993951582", "5571993951582")).toBe(true);
+  });
+  it("números DIFERENTES não casam", async () => {
+    const { sameWhatsAppNumber } = await import("./bot-evolution.js");
+    expect(sameWhatsAppNumber("5571993951582", "5571993978956")).toBe(false);  // bot vs Rafael
+    expect(sameWhatsAppNumber("557193951582", "557193978956")).toBe(false);
+  });
+  it("health aceita a sessão quando o ownerJid vem sem o 9", async () => {
+    const CFG = { url: "https://evo.example.com/", instance: "sosyt", apiKey: "k".repeat(16), number: "5571993951582" };
+    const f = fakeFetch((url) => ({ body: url.includes("fetchInstances")
+      ? [{ name: CFG.instance, ownerJid: "557193951582@s.whatsapp.net" }]   // SEM o 9
+      : { instance: { state: "open" } } }));
+    expect((await createEvolutionClient({ config: CFG, fetchImpl: f.impl }).health()).connected).toBe(true);
+  });
+});
