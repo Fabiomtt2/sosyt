@@ -84,11 +84,17 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
       // "comparar", "sairei". As demais curtas seguem exato (<=4) ou substring.
       const wholeWord = (needle: string) =>
         new RegExp(`(^|\\s)${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`).test(text);
-      const hit = intent === "OPT_OUT"
-        ? wholeWord(phrase)
-        : SHORT_EXACT.includes(intent) && phrase.length <= 4
-          ? text === phrase
-          : text.includes(phrase);
+      // AUDITORIA / NUMERO DO MENU SO CONTA SE FOR A MENSAGEM INTEIRA. Antes o gatilho
+      // usava `includes`, entao QUALQUER texto com o digito ("tenho 1 duvida", um
+      // telefone, "dia 15") disparava a opcao — foi o que cadastrava gente sem ela ter
+      // escolhido nada. Digito isolado agora exige igualdade exata.
+      const hit = /^\d$/.test(phrase)
+        ? text === phrase
+        : intent === "OPT_OUT"
+          ? wholeWord(phrase)
+          : SHORT_EXACT.includes(intent) && phrase.length <= 4
+            ? text === phrase
+            : text.includes(phrase);
       if (hit) return intent;
     }
   }

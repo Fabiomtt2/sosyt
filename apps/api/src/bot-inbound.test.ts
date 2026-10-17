@@ -182,3 +182,19 @@ describe("saudação e menu NUNCA viram nome (bug: cadastro criado no primeiro '
     expect(replyFor("QUEUE_INFO")).toMatch(/10 links/);
   });
 });
+
+describe("número do menu só vale como mensagem inteira (bug: cadastro sem escolher)", () => {
+  it("texto que CONTÉM um dígito não dispara a opção do menu", () => {
+    expect(classifyInbound("tenho 1 dúvida")).not.toBe("PARTICIPATE");
+    expect(classifyInbound("meu telefone é 71999991234")).not.toBe("PARTICIPATE");
+    expect(classifyInbound("mandei 3 vídeos")).not.toBe("RESEND_CODE");
+    expect(classifyInbound("já são 5 dias")).not.toBe("HELP");
+  });
+  it("o dígito sozinho continua sendo a opção do menu", () => {
+    expect(classifyInbound("1")).toBe("PARTICIPATE");
+    expect(classifyInbound("2")).toBe("QUEUE_INFO");
+    expect(classifyInbound("3")).toBe("RESEND_CODE");
+    expect(classifyInbound("4")).toBe("STATUS");
+    expect(classifyInbound("5")).toBe("HELP");
+  });
+});

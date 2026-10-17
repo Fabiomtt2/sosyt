@@ -29,8 +29,8 @@ export function bahiaParts(now: Date): { hour: number; dayKey: string } {
 
 /** Janelas de disparo: do horário alvo até 3h depois (tolera reinício do servidor). */
 const WINDOWS = [
-  { kind: "MORNING" as const, event: "GOOD_MORNING", start: DAILY_SCHEDULE.MORNING.hour, end: DAILY_SCHEDULE.MORNING.hour + 3 },
-  { kind: "NIGHT" as const, event: "GOOD_NIGHT", start: DAILY_SCHEDULE.NIGHT.hour, end: Math.min(24, DAILY_SCHEDULE.NIGHT.hour + 3) },
+  { kind: "MORNING" as const, event: "GOOD_MORNING", start: DAILY_SCHEDULE.MORNING.hour, end: DAILY_SCHEDULE.MORNING.until },
+  { kind: "NIGHT" as const, event: "GOOD_NIGHT", start: DAILY_SCHEDULE.NIGHT.hour, end: DAILY_SCHEDULE.NIGHT.until },
 ];
 
 export type DailyRunResult = { queued: Array<{ event: string; groups: number }> };
@@ -55,7 +55,7 @@ export function runDailyAutomations(db: AppDatabase, config: Config, now: Date =
     // dele ganha. Validade de 5h (M1): "Bom dia" obsoleto do backlog e descartado.
     const announced = announceToGroups(
       db, config, window.event, { mensagem: dailyMessage(db, window.kind) },
-      { dedupeKey: dayKey, expiresMinutes: 300, now },
+      { dedupeKey: dayKey, expiresMinutes: 360, now },
     );
     if (announced.queued) result.queued.push({ event: window.event, groups: announced.queued });
   }

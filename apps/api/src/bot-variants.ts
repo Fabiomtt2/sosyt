@@ -15,8 +15,11 @@ import { varyFrom } from "./bot-motivational.js";
 
 /** Horário das diárias (America/Bahia), como o dono definiu. */
 export const DAILY_SCHEDULE = {
-  MORNING: { hour: 7, minute: 0 },   // 07:00 Bom dia
-  NIGHT: { hour: 21, minute: 0 },    // 21:00 Boa noite
+  // Janelas definidas pelo dono: o bot manda UMA mensagem variada por dia em cada
+  // janela, em qualquer dia da semana. Se o servidor reiniciar ou a cota adiar, ele
+  // ainda consegue mandar dentro da janela — por isso ela é larga, não um instante.
+  MORNING: { hour: 6, minute: 0, until: 12 },   // bom dia entre 06:00 e 11:59
+  NIGHT: { hour: 18, minute: 0, until: 23 },    // boa noite entre 18:00 e 22:59
   timeZone: "America/Bahia",
 } as const;
 
