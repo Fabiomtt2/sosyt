@@ -244,3 +244,27 @@ describe("DM nunca é bloqueada por teto diário (aprendizado de produção)", (
     expect(warmupCapForDay(21)).toBe(120);        // depois do aquecimento, teto cheio
   });
 });
+
+describe("roteador de grupo: menor número com vaga (regra do dono, N de 1 a 99)", () => {
+  const slot = (code: string, members: number, capacity = 1024) => ({ code, memberCount: members, capacity });
+  it("enche o 1 primeiro, mesmo com o 2 mais cheio", () => {
+    expect(pickGroupWithRoom([slot("2", 900), slot("1", 100), slot("3", 5)])?.code).toBe("1");
+  });
+  it("1 cheio vai para o 2 (não pula para o 3)", () => {
+    expect(pickGroupWithRoom([slot("1", 1024), slot("2", 10), slot("3", 0)])?.code).toBe("2");
+  });
+  it("se o 1 LIBERA vaga, o próximo volta para o 1", () => {
+    expect(pickGroupWithRoom([slot("1", 1023), slot("2", 500), slot("3", 20)])?.code).toBe("1");
+  });
+  it("ordena por número, não alfabeticamente (10 depois de 9)", () => {
+    expect(pickGroupWithRoom([slot("10", 0), slot("9", 1024), slot("11", 0)])?.code).toBe("10");
+  });
+  it("funciona até o 99 e devolve undefined se todos estão cheios", () => {
+    const cheios = Array.from({ length: 99 }, (_, i) => slot(String(i + 1), 1024));
+    expect(pickGroupWithRoom(cheios)).toBeUndefined();
+    expect(pickGroupWithRoom([...cheios.slice(0, 98), slot("99", 10)])?.code).toBe("99");
+  });
+  it("grupo desabilitado é ignorado mesmo tendo vaga", () => {
+    expect(pickGroupWithRoom([{ ...slot("1", 0), enabled: false }, slot("2", 0)])?.code).toBe("2");
+  });
+});

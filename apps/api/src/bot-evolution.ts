@@ -152,21 +152,33 @@ export function pickVariant(variants: readonly string[], seed: number): string {
 export type GroupSlot = { code: string; memberCount: number; capacity: number; enabled?: boolean };
 
 /**
- * "Se o grupo 2 está cheio, entra no 3 ou no 1" — a regra que o dono pediu.
+ * SEMPRE o MENOR grupo que ainda tem vaga — regra definida pelo dono:
  *
- * Preferimos o grupo MAIS CHEIO que ainda tem vaga: assim os ciclos fecham antes,
- * em vez de espalhar pouca gente por muitos grupos pela metade. `preferred` tenta
- * primeiro o grupo desejado; se não couber, transborda para o melhor seguinte.
+ *   "SOS YOUTUBER N", N de 1 a 99. Enche o 1; cheio, vai pro 2; cheio, pro 3...
+ *   E se o 1 VOLTAR a ter vaga, o próximo entra no 1 de novo — não continua no 3.
+ *
+ * Por que assim (e não "o mais cheio com vaga", como estava): ordenar por lotação faz
+ * a escolha depender de quantas pessoas saíram de cada grupo, o que espalha gente por
+ * dezenas de grupos pela metade e, com 99 grupos, vira imprevisível. Ordenar pelo
+ * NÚMERO do grupo é determinístico: a comunidade cresce compactada do 1 para cima e
+ * qualquer vaga liberada embaixo é reaproveitada antes de abrir frente nova.
+ *
+ * `preferred` ainda tem prioridade quando o chamador quer um grupo específico e ele
+ * tem vaga (ex.: manter alguém junto do grupo de origem).
  */
 export function pickGroupWithRoom(groups: readonly GroupSlot[], preferred?: string): GroupSlot | undefined {
   const withRoom = groups.filter((g) => g.enabled !== false && g.memberCount < g.capacity);
   if (!withRoom.length) return undefined;
   const wanted = preferred && withRoom.find((g) => g.code === preferred);
   if (wanted) return wanted;
-  return [...withRoom].sort((a, b) => {
-    const free = (a.capacity - a.memberCount) - (b.capacity - b.memberCount);
-    return free !== 0 ? free : a.code.localeCompare(b.code, "pt-BR", { numeric: true });
-  })[0];
+  return [...withRoom].sort((a, b) => groupOrder(a.code) - groupOrder(b.code)
+    || a.code.localeCompare(b.code, "pt-BR", { numeric: true }))[0];
+}
+
+/** Número do grupo para ordenação (o "N" de SOS YOUTUBER N). Sem número vai pro fim. */
+function groupOrder(code: string): number {
+  const n = /(\d+)/.exec(String(code))?.[1];
+  return n ? Number(n) : Number.MAX_SAFE_INTEGER;
 }
 
 // ───────────────────────────── Cliente ─────────────────────────────
