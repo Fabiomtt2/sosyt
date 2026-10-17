@@ -683,10 +683,18 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     const body=z.object({event:z.string(),instance:z.string(),data:z.unknown().optional()}).parse(request.body);
     if(body.instance!==runtime.EVOLUTION_INSTANCE)return reply.code(403).send({message:"Instância não autorizada."});
     if(body.event.toLowerCase().replace(/_/g,".")!=="messages.upsert")return {ok:true,ignored:true};
-    const data=z.object({key:z.object({id:z.string().min(1).max(220),remoteJid:z.string(),fromMe:z.boolean().optional()}),messageTimestamp:z.union([z.string(),z.number()]),message:z.object({conversation:z.string().optional(),extendedTextMessage:z.object({text:z.string().optional()}).optional()}).passthrough()}).parse(body.data);
-    if(data.key.fromMe||!/^\d{8,15}@s\.whatsapp\.net$/.test(data.key.remoteJid))return {ok:true,ignored:true};
+    const data=z.object({key:z.object({id:z.string().min(1).max(220),remoteJid:z.string(),remoteJidAlt:z.string().optional(),fromMe:z.boolean().optional()}),messageTimestamp:z.union([z.string(),z.number()]),message:z.object({conversation:z.string().optional(),extendedTextMessage:z.object({text:z.string().optional()}).optional()}).passthrough()}).parse(body.data);
+    // AUDITORIA / BUG DO BOT MUDO (raiz): o WhatsApp migrou para o endereçamento LID
+    // (`<id>@lid`), um identificador privado que NÃO é telefone. Só aceitar
+    // `@s.whatsapp.net` fazia o bot DESCARTAR silenciosamente toda conversa de quem já
+    // está no formato novo. O telefone real vem em `remoteJidAlt` — usamos ele; se não
+    // vier, a conversa é ignorada (sem telefone não há como ligar à conta/grupo).
+    const senderJid = /^\d{8,15}@s\.whatsapp\.net$/.test(data.key.remoteJid)
+      ? data.key.remoteJid
+      : (data.key.remoteJidAlt && /^\d{8,15}@s\.whatsapp\.net$/.test(data.key.remoteJidAlt) ? data.key.remoteJidAlt : "");
+    if(data.key.fromMe||!senderJid)return {ok:true,ignored:true};
     const text=data.message.conversation??data.message.extendedTextMessage?.text;
-    db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:data.key.remoteJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}]))();
+    db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:senderJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}]))();
     return {ok:true};
   });
   ensureBotAutomations(db);

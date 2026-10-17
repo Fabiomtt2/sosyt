@@ -183,4 +183,20 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   expect(result).toMatchObject({linked:1,memberships:1,skipped:[{code:"1",reason:"PARTIAL_PARTICIPANTS"}]});
   expect(db.prepare("SELECT COUNT(*) AS n FROM group_memberships").get()).toEqual({n:0});
  });
+
+ // AUDITORIA / enderecamento LID (bug do bot mudo)
+ it("mensagem com remoteJid @lid é processada usando o telefone de remoteJidAlt",async()=>{
+  const body={event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id:"lid-1",remoteJid:"249524832448692@lid",remoteJidAlt:phone+"@s.whatsapp.net",fromMe:false,addressingMode:"lid"},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:"oi"}}};
+  expect((await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body})).statusCode).toBe(200);
+  // o bot respondeu para o TELEFONE real, não para o LID
+  const row=db.prepare("SELECT recipient FROM whatsapp_outbox ORDER BY created_at DESC LIMIT 1").get() as {recipient:string}|undefined;
+  expect(row?.recipient).toBe(phone);
+ });
+ it("LID sem remoteJidAlt é ignorado (sem telefone não dá para ligar à conta)",async()=>{
+  const before=(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get() as {n:number}).n;
+  const body={event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id:"lid-2",remoteJid:"999888777666@lid",fromMe:false},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:"oi"}}};
+  const res=await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body});
+  expect(res.json()).toMatchObject({ignored:true});
+  expect((db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get() as {n:number}).n).toBe(before);
+ });
 });
