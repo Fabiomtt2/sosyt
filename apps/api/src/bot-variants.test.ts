@@ -11,10 +11,12 @@ let db: AppDatabase;
 beforeEach(() => { db = new Database(":memory:") as AppDatabase; ensureMessageRotation(db); });
 
 describe("agenda das diárias", () => {
-  it("bom dia 07:00 e boa noite 21:00 em America/Bahia", () => {
-    expect(DAILY_SCHEDULE.MORNING).toEqual({ hour: 7, minute: 0 });
-    expect(DAILY_SCHEDULE.NIGHT).toEqual({ hour: 21, minute: 0 });
+  it("janelas do dono: bom dia 06h-12h e boa noite 18h-23h (America/Bahia)", () => {
+    expect(DAILY_SCHEDULE.MORNING).toEqual({ hour: 6, minute: 0, until: 12 });
+    expect(DAILY_SCHEDULE.NIGHT).toEqual({ hour: 18, minute: 0, until: 23 });
     expect(DAILY_SCHEDULE.timeZone).toBe("America/Bahia");
+    // janela larga de propósito: tolera reinício do servidor e adiamento por cota
+    expect(DAILY_SCHEDULE.MORNING.until - DAILY_SCHEDULE.MORNING.hour).toBeGreaterThan(1);
   });
 });
 
