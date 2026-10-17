@@ -182,13 +182,17 @@ export async function registerOwnerRoutes(
   app.get("/public/groups", async () => {
     const rows = db.prepare("SELECT code,join_url AS joinUrl FROM groups WHERE enabled = 1 ORDER BY length(code), code").all() as Array<{ code: string; joinUrl?: string }>;
     const integration=readWhatsAppIntegration(db,config);
-    const publicPhone=publicWhatsAppNumber(config,integration.businessPhone);
+    // AUDITORIA / contato publico: em EVOLUTION o "Conversar com o SOS" tem que abrir o
+    // NUMERO DO BOT (que auto-atende), nao o numero business (que por padrao e o do
+    // Rafael, atendimento humano). Senao o botao manda a pessoa direto pro humano.
+    const publicContact = integration.mode === "EVOLUTION" ? (integration.evolutionPhone || integration.businessPhone) : integration.businessPhone;
+    const publicPhone=publicWhatsAppNumber(config,publicContact);
     return {
       groups: rows.map(({ code }) => code),
       groupLinks: Object.fromEntries(rows.filter((row)=>row.joinUrl).map((row)=>[row.code,row.joinUrl!])),
       ownerContactAvailable: Boolean(publicPhone),
       membershipRequired: config.REQUIRE_GROUP_MEMBERSHIP,
-      whatsappJoinUrl: whatsappJoinUrl(config,integration.businessPhone)
+      whatsappJoinUrl: whatsappJoinUrl(config,publicContact)
     };
   });
   app.post("/participation/request", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
