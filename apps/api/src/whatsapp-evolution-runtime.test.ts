@@ -199,4 +199,21 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   expect(res.json()).toMatchObject({ignored:true});
   expect((db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get() as {n:number}).n).toBe(before);
  });
+
+ // AUDITORIA / texto do Owner x menu
+ it("'oi' abre o MENU mesmo com SUPPORT_AUTO customizado",async()=>{
+  saveAutomationSettings(db,"SUPPORT_AUTO",{text:"Texto generico do Owner."},{id:"root:test",name:"Root"});
+  const body={event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id:"menu-1",remoteJid:phone+"@s.whatsapp.net",fromMe:false},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:"oi"}}};
+  expect((await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body})).statusCode).toBe(200);
+  const corpo=String((db.prepare("SELECT payload FROM whatsapp_outbox ORDER BY created_at DESC LIMIT 1").get() as {payload:string}).payload);
+  expect(corpo).toMatch(/ENTRAR/);          // o menu saiu
+  expect(corpo).not.toContain("Texto generico do Owner.");
+ });
+ it("o texto do Owner vale para o que o bot NAO entende",async()=>{
+  saveAutomationSettings(db,"SUPPORT_AUTO",{text:"Texto generico do Owner."},{id:"root:test",name:"Root"});
+  const body={event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id:"menu-2",remoteJid:phone+"@s.whatsapp.net",fromMe:false},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:"xyzw qwerty"}}};
+  await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body});
+  const corpo=String((db.prepare("SELECT payload FROM whatsapp_outbox ORDER BY created_at DESC LIMIT 1").get() as {payload:string}).payload);
+  expect(corpo).toContain("Texto generico do Owner.");
+ });
 });

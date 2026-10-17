@@ -741,7 +741,15 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               // sempre sai. Para o bot ficar realmente quieto existe o interruptor
               // proprio (feature SUPPORT_CHAT), que e uma escolha explicita do Owner.
               const padrao=replyFor(intent) ?? replyFor("UNKNOWN")!;
-              const response=supportReply(db,"SUPPORT_AUTO",msg.from,padrao) ?? padrao;
+              // AUDITORIA / O TEXTO DO OWNER NAO PODE ENGOLIR O MENU. supportReply devolve
+              // o texto customizado de SUPPORT_AUTO quando existe — e isso sobrepunha
+              // TODAS as respostas: "oi" deixava de abrir o menu, "2" nao explicava mais
+              // as filas, "4" nao dava status. Virava papagaio de uma frase so (foi o que
+              // o dono viu). SUPPORT_AUTO e a PRIMEIRA RESPOSTA para o que o bot NAO sabe
+              // responder; quando ha resposta especifica, ela sempre ganha.
+              const response=intent==="UNKNOWN"
+                ? (supportReply(db,"SUPPORT_AUTO",msg.from,padrao) ?? padrao)
+                : padrao;
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:fallback`,expires,runtimeConfig);
             }
           }
