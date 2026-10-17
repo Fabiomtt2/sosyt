@@ -4,7 +4,7 @@ import { createDatabase,type AppDatabase } from "./db.js";
 import { loadConfig,type Config } from "./config.js";
 import { hashPassword,verifyPassword } from "./password.js";
 import { decryptToken } from "./youtube.js";
-import { initializeBotPassword,readBotPasswordSettings,saveBotPasswordSettings,ensureBotPassword } from "./bot-password.js";
+import { initializeBotPassword,readBotPasswordSettings,saveBotPasswordSettings,ensureBotPassword,reissueBotPassword } from "./bot-password.js";
 
 describe("senha automática do bot após prova de identidade",()=>{
  let db:AppDatabase;let config:Config;const userId="password-person",phone="5571999990033";
@@ -90,6 +90,57 @@ describe("senha automática do bot após prova de identidade",()=>{
   const gen=/é: ([A-Za-z0-9]{14})\./.exec(payload.text.body)?.[1];
   expect(gen).toBeTruthy();expect(verifyPassword(gen!,row.hash)).toBe(true);
   expect(outbox.payload).not.toContain(gen!);
+ });
+
+ // AUDITORIA / "esqueci a senha" nao pode virar beco sem saida. ensureBotPassword e
+ // idempotente de proposito; sem uma via de REEMISSAO, quem perdia a senha ouvia
+ // "voce ja tem senha cadastrada" para sempre e nunca mais entrava no site.
+ it("reemissao gera senha NOVA, invalida a antiga e nao deixa duas valendo",()=>{
+  ready();template();
+  expect(ensureBotPassword(db,config,userId,true).created).toBe(true);
+  const primeiraHash=(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string}).hash;
+  const corpoDe=(payload:string)=>JSON.parse(decryptToken((JSON.parse(payload) as {encryptedNotification:string}).encryptedNotification,config)).template.components[0].parameters[0].text as string;
+  const senhaDe=(payload:string)=>/é: ([A-Za-z0-9]{14})\./.exec(corpoDe(payload))?.[1];
+  const primeiraSenha=senhaDe((db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string}).payload);
+
+  // o caminho antigo recusava para sempre; a reemissao resolve
+  expect(ensureBotPassword(db,config,userId,true).reason).toBe("PASSWORD_ALREADY_SET");
+  expect(reissueBotPassword(db,config,userId,true)).toEqual({created:true,queued:true});
+
+  const segundaHash=(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string}).hash;
+  expect(segundaHash).not.toBe(primeiraHash);
+  expect(db.prepare("SELECT COUNT(*) AS n FROM user_passwords WHERE user_id=?").get(userId)).toEqual({n:1});
+  const segundaSenha=senhaDe((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId) as {payload:string}).payload);
+  expect(segundaSenha).toBeTruthy();expect(segundaSenha).not.toBe(primeiraSenha);
+  // a nova vale, a antiga morreu no mesmo instante
+  expect(verifyPassword(segundaSenha!,segundaHash)).toBe(true);
+  expect(verifyPassword(primeiraSenha!,segundaHash)).toBe(false);
+ });
+
+ it("reemissao exige prova do numero e nunca toca em conta administrativa",()=>{
+  ready();template();
+  expect(reissueBotPassword(db,config,userId,false).reason).toBe("PHONE_PROOF_REQUIRED");
+  expect(ensureBotPassword(db,config,userId,true).created).toBe(true);
+  const hashAntes=(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string}).hash;
+  const agora=new Date().toISOString();
+  db.prepare(`INSERT INTO owner_access (id,user_id,phone,normalized_name,role,active,created_at,updated_at)
+    VALUES (?,?,?,?,'ADMIN_OWNER',1,?,?)`).run(randomUUID(),userId,phone,"ana",agora,agora);
+  expect(reissueBotPassword(db,config,userId,true).reason).toBe("ADMIN_ACCOUNT");
+  // o guard precisa barrar ANTES de apagar qualquer coisa
+  expect(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId)).toEqual({hash:hashAntes});
+ });
+
+ it("falha ao reemitir preserva a senha e a entrega anterior sem segredo perdido",()=>{
+  ready();template();
+  expect(ensureBotPassword(db,config,userId,true).created).toBe(true);
+  const beforePassword=db.prepare("SELECT * FROM user_passwords WHERE user_id=?").get(userId);
+  const beforeDelivery=db.prepare("SELECT * FROM bot_password_deliveries WHERE user_id=?").get(userId);
+  const beforeOutbox=db.prepare("SELECT * FROM whatsapp_outbox ORDER BY id").all();
+  saveBotPasswordSettings(db,{enabled:false,templateName:"sos_password",templateLanguage:"pt_BR"},"test-owner");
+  expect(reissueBotPassword(db,config,userId,true)).toMatchObject({created:false,reason:"PASSWORD_BOT_DISABLED"});
+  expect(db.prepare("SELECT * FROM user_passwords WHERE user_id=?").get(userId)).toEqual(beforePassword);
+  expect(db.prepare("SELECT * FROM bot_password_deliveries WHERE user_id=?").get(userId)).toEqual(beforeDelivery);
+  expect(db.prepare("SELECT * FROM whatsapp_outbox ORDER BY id").all()).toEqual(beforeOutbox);
  });
 
 });

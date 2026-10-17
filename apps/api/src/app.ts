@@ -892,10 +892,21 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const body = passwordLoginSchema.parse(request.body);
     const resolved = resolveGroupForPhone(db, body.phone);
     const groupCode = body.groupCode ?? resolved.groupCode ?? undefined;
-    if (!groupCode || (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, groupCode))) {
+    const user = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
+    // AUDITORIA / DEADLOCK DO CADASTRO AUTOMATICO (causa de "a senha nao funciona"):
+    // o bot cria a conta, envia a senha e promete "entre no site que eu te coloco num
+    // grupo" — mas esta guarda exigia JA estar num grupo para logar. Quem veio pelo bot
+    // ficava trancado para sempre, e o enfileiramento da entrada em grupo (logo abaixo)
+    // era inalcancavel justamente para quem ele foi escrito.
+    // A senha do bot E a prova de posse do numero: quem a recebeu pode entrar. A
+    // participacao em filas continua exigindo grupo nas rotas proprias; aqui so
+    // liberamos a porta de entrada e enfileiramos a adesao ao grupo.
+    const temSenhaDoBot = Boolean(user && db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(user.id));
+    const vinculoRevogado = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(body.phone));
+    if (vinculoRevogado) return reply.code(403).send({code:"GROUP_NOT_CONFIRMED",message:"Seu acesso ao grupo está revogado. Fale com a equipe do SOS YOUTUBER."});
+    if ((!groupCode || (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, groupCode))) && !temSenhaDoBot) {
       return reply.code(403).send({ code: "GROUP_NOT_CONFIRMED", message: "Seu WhatsApp ainda não está autorizado em um grupo SOS YOUTUBER." });
     }
-    const user = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
     const cred = user ? db.prepare("SELECT password_hash AS hash, must_change AS mustChange, attempts, locked_until AS lockedUntil FROM user_passwords WHERE user_id=?").get(user.id) as { hash: string; mustChange: number; attempts: number; lockedUntil?: string } | undefined : undefined;
     // Resposta uniforme: nao revela se o numero tem conta/senha (evita enumeracao).
     if (!user || !cred) return reply.code(401).send({ message: "Telefone ou senha inválidos." });

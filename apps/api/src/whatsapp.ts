@@ -9,7 +9,7 @@ import { ownerAccounts } from "./owners.js";
 import { automationSettings, ensureBotAutomations } from "./bot-automation-store.js";
 import { renderTemplate, type AutomationEvent } from "./bot-automations.js";
 import { featureEnabled } from "./bot.js";
-import { ensureBotPassword } from "./bot-password.js";
+import { ensureBotPassword, reissueBotPassword } from "./bot-password.js";
 import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
 import { enqueueGroupJoin, ensureGroupJoinQueue, processGroupJoin } from "./bot-group-join.js";
 import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
@@ -532,9 +532,10 @@ export function ensureSelfServiceAccount(db:AppDatabase,config:Config,phone:stri
     const id=randomUUID();
     db.prepare("INSERT INTO users (id,name,phone,group_code,created_at,updated_at) VALUES (?,?,?,?,?,?)")
       .run(id,name.slice(0,80),phone,"",stamp,stamp);
-    db.prepare("INSERT OR IGNORE INTO wallets (user_id,updated_at) VALUES (?,?)").run(id,stamp);
+    const firstWelcome=!welcomeAlreadyGranted(db,phone);
+    db.prepare("INSERT OR IGNORE INTO wallets (user_id,promo_millis,updated_at) VALUES (?,?,?)").run(id,firstWelcome?10000:0,stamp);
     // boas-vindas uma vez por PESSOA (telefone), nunca por linha recriada
-    if(!welcomeAlreadyGranted(db,phone))
+    if(firstWelcome)
       db.prepare("INSERT INTO wallet_ledger (id,user_id,kind,amount_millis,reference_id,created_at) VALUES (?,?,'WELCOME',10000,?,?)")
         .run(randomUUID(),id,welcomeReference(phone),stamp);
     user={id};created=true;
@@ -543,6 +544,20 @@ export function ensureSelfServiceAccount(db:AppDatabase,config:Config,phone:stri
   }
   const senha=ensureBotPassword(db,config,user.id,true);
   return {userId:user.id,created,passwordSent:Boolean(senha.queued)};
+}
+
+/**
+ * Timestamp de entrada em ms. Aceita segundos (padrao) e milissegundos (algumas
+ * versoes da Evolution), e devolve "agora" quando vier ausente/absurdo — nunca
+ * descarta a mensagem por causa do relogio do remetente.
+ */
+function normalizeInboundTimestamp(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  const ms = n > 1e11 ? n : n * 1000;              // > 1e11 ja esta em milissegundos
+  const agora = Date.now();
+  if (ms > agora + 300_000 || ms < agora - 30 * 86400_000) return agora;  // relogio fora
+  return ms;
 }
 
 function supportReply(db:AppDatabase,event:AutomationEvent,phone:string,fallback:string){
@@ -560,7 +575,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             // longo sumiam sem um pio, e a pessoa achava que foi ignorada.
             if (!msg.id || msg.id.length>256 || !msg.from || !phoneValid(msg.from)) continue;
             const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_received (message_id,received_at) VALUES (?,?)").run(msg.id,now()); if (!fresh.changes) continue;
-            const stampGuard = Number(msg.timestamp)*1000;
+            const stampGuard = normalizeInboundTimestamp(msg.timestamp);
             const expiresGuard = new Date((Number.isFinite(stampGuard)?stampGuard:Date.now())+24*3600_000).toISOString();
             if (msg.type !== "text" || !msg.text?.body) {
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:MEDIA_REPLY}},`${msg.id}:media`,expiresGuard,runtimeConfig);
@@ -570,8 +585,14 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:TOO_LONG_REPLY}},`${msg.id}:too-long`,expiresGuard,runtimeConfig);
               continue;
             }
-            const stamp = Number(msg.timestamp)*1000;
-            if (!Number.isFinite(stamp) || stamp > Date.now()+300_000) continue;
+            // AUDITORIA / NENHUMA MENSAGEM SOME POR CAUSA DE RELOGIO. Antes, timestamp
+            // ausente (a Meta o declara opcional) ou em milissegundos (algumas versoes
+            // da Evolution) fazia `continue` MUDO — e como a mensagem ja fora marcada
+            // como recebida, o reenvio do webhook era deduplicado: silencio definitivo.
+            // Agora normalizamos: segundos ou milissegundos, e cai em "agora" se vier
+            // invalido. O horario serve para a janela de servico, nunca para descartar
+            // a pessoa.
+            const stamp = normalizeInboundTimestamp(msg.timestamp);
             const expires = new Date(stamp+24*3600_000).toISOString();
             const text = msg.text.body.trim();
             const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(msg.from) as { stage: string } | undefined;
@@ -622,22 +643,33 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             // falta. Tratado ANTES do fluxo de nome para que um numero do menu nunca seja
             // confundido com o nome da pessoa (era o que travava a conversa em "1".."5").
             if (intent === "RESEND_CODE") {
+              // AUDITORIA / A OPCAO SENHA SEMPRE RESOLVE. Antes ela (a) exigia vinculo de
+              // grupo que o fluxo novo nem usa mais, (b) prometia "sua conta esta sendo
+              // preparada" sem preparar nada, e (c) mandava responder "TROCAR SENHA" —
+              // string que nenhum gatilho reconhecia, criando um laco infinito para quem
+              // esqueceu a senha. Agora: sem conta, cria; com conta e sem senha, emite;
+              // com senha, EMITE UMA NOVA de fato (a pessoa pediu porque nao consegue
+              // entrar). Nenhuma promessa sem execucao.
               const alvo=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {id:string}|undefined;
-              const temVinculo=Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
               let corpo:string;
-              if (!temVinculo) {
-                corpo="Pra criar sua senha eu preciso te encontrar em um dos grupos SOS YOUTUBER. 💛 Se você já está em um, me confirma que eu verifico; se ainda não, responda *1* que eu começo seu cadastro agora.";
-              } else if (!alvo) {
-                corpo="Já localizei seu número no grupo! 🙌 Sua conta está sendo preparada — assim que ficar pronta eu te mando a senha aqui mesmo, em instantes.";
+              if (!alvo) {
+                corpo="Ainda não tenho uma conta no seu nome. 💛 Responda *1* que eu faço seu cadastro agora e já te mando a senha — leva menos de um minuto.";
               } else {
-                const r=ensureBotPassword(db,runtimeConfig,alvo.id,true);
+                const r=reissueBotPassword(db,runtimeConfig,alvo.id,true);
                 corpo=r.created
-                  ? "Prontinho! 🔐 Acabei de gerar sua senha e ela está chegando aqui nesta conversa. Entre no site com o seu WhatsApp e essa senha — e troque por uma de sua preferência depois."
-                  : r.reason==="PASSWORD_ALREADY_SET"
-                    ? `Você já tem senha cadastrada. 🙂 Se esqueceu, posso trocar por uma nova: responda *TROCAR SENHA* que eu cuido disso. Entrar: ${runtimeConfig.WEB_APP_URL}`
-                    : r.reason==="ADMIN_ACCOUNT"
-                      ? "Esta conta é administrativa e usa a credencial do painel, não a senha do bot. 💛"
-                      : "Sua senha está a caminho. Se não chegar em alguns minutos, escreve *Tenho dúvidas* que uma pessoa te ajuda. 💛";
+                  ? `Prontinho! 🔐 Gerei uma senha nova e ela está sendo enviada aqui nesta conversa. Entre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha — depois você pode trocar por uma de sua preferência.`
+                  : r.reason==="ADMIN_ACCOUNT"
+                    ? "Esta conta é administrativa e entra com a credencial do painel, não com a senha do bot. 💛"
+                    : "Tentei gerar sua senha e não consegui agora. 💛 Já avisei uma pessoa da equipe — se preferir falar direto, escreva *Tenho dúvidas*.";
+                // Falhar em silencio foi o que deixou gente presa. Se nao deu, a equipe
+                // fica sabendo na hora, com o motivo tecnico, sem o usuario ter que insistir.
+                if (!r.created && r.reason!=="ADMIN_ACCOUNT") {
+                  const suporte=humanSupportNumber(db,runtimeConfig);
+                  if (suporte && suporte!==msg.from.replace(/\D/g,"")) {
+                    const aviso=humanHandoffAlert({userPhone:msg.from,lastMessage:`Pediu nova senha e o envio falhou (${r.reason ?? "motivo desconhecido"}).`});
+                    queue(db,suporte,{type:"text",text:{preview_url:true,body:aviso}},`${msg.id}:senha-falha`,expires,runtimeConfig);
+                  }
+                }
               }
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:corpo}},`${msg.id}:senha`,expires,runtimeConfig);
               continue;
@@ -838,7 +870,7 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     const body=z.object({event:z.string(),instance:z.string(),data:z.unknown().optional()}).parse(request.body);
     if(body.instance!==runtime.EVOLUTION_INSTANCE)return reply.code(403).send({message:"Instância não autorizada."});
     if(body.event.toLowerCase().replace(/_/g,".")!=="messages.upsert")return {ok:true,ignored:true};
-    const data=z.object({key:z.object({id:z.string().min(1).max(220),remoteJid:z.string(),remoteJidAlt:z.string().optional(),fromMe:z.boolean().optional()}),messageTimestamp:z.union([z.string(),z.number()]),message:z.object({conversation:z.string().optional(),extendedTextMessage:z.object({text:z.string().optional()}).optional()}).passthrough()}).parse(body.data);
+    const data=z.object({key:z.object({id:z.string().min(1).max(220),remoteJid:z.string(),remoteJidAlt:z.string().optional(),fromMe:z.boolean().optional()}),messageTimestamp:z.union([z.string(),z.number()]).optional(),message:z.object({conversation:z.string().optional(),extendedTextMessage:z.object({text:z.string().optional()}).optional()}).passthrough()}).parse(body.data);
     // AUDITORIA / BUG DO BOT MUDO (raiz): o WhatsApp migrou para o endereçamento LID
     // (`<id>@lid`), um identificador privado que NÃO é telefone. Só aceitar
     // `@s.whatsapp.net` fazia o bot DESCARTAR silenciosamente toda conversa de quem já

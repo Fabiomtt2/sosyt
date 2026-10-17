@@ -56,7 +56,7 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
   // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
   { intent: "PARTICIPATE", phrases: ["1"] },
   { intent: "QUEUE_INFO", phrases: ["2", "fila", "filas", "como funciona a fila", "como funcionam as filas"] },
-  { intent: "RESEND_CODE", phrases: ["3", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
+  { intent: "RESEND_CODE", phrases: ["3", "trocar senha", "nova senha", "mudar senha", "resetar senha", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
   { intent: "STATUS", phrases: ["4"] },
   { intent: "HELP", phrases: ["5", "moedas", "pontos", "niveis", "recompensa"] },
   { intent: "RESEND_CODE", phrases: [

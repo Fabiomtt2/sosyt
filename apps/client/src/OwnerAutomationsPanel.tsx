@@ -105,7 +105,7 @@ function AutomationCard({ meta, settings, onSaved }: {
       </header>
 
       <p className="automation-route">
-        {TARGET_LABEL[meta.target] ?? meta.target}
+        {TARGET_LABEL[settings.target] ?? settings.target}
         {meta.periodic && <> · a cada <input type="number" min={15} step={15} value={interval} disabled={busy}
           onChange={(e) => setIntervalMinutes(Number(e.target.value))} className="automation-interval" /> min</>}
       </p>

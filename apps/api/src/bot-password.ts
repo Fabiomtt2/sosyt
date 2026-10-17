@@ -58,7 +58,7 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
     if(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(userId))return {created:false,queued:false,reason:"PASSWORD_ALREADY_SET"};
     if(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId))return {created:false,queued:false,reason:"DELIVERY_STATE_CONFLICT"};
     const password=generateBotPassword();
-    const body="Oi, "+user.name+"! Seu acesso ao SOS YouTuber está pronto. Sua senha para entrar com este WhatsApp é: "+password+". Guarde-a em um lugar seguro e troque-a após entrar. Não compartilhe sua senha com outras pessoas. Você também pode continuar usando a chave temporária de 5 minutos.";
+    const body="Oi, "+user.name+"! Seu acesso ao SOS YouTuber está pronto. Sua senha para entrar com este WhatsApp é: "+password+". Guarde-a em um lugar seguro e troque-a após entrar. Não compartilhe sua senha com outras pessoas. Para recuperar o acesso, fale comigo neste mesmo WhatsApp.";
     const result=queueBotNotification(db,config,user.phone,body,"bot-password:"+userId,
       settings.templateName?{name:settings.templateName,language:settings.templateLanguage}:undefined,{encryptPayload:true,deliveryClass:"TRANSACTIONAL",event:"BOT_PASSWORD"});
     if(!result.queued||!result.outboxId)return {created:false,queued:false,reason:result.reason??"DELIVERY_UNAVAILABLE"};
@@ -71,4 +71,47 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
     db.prepare("INSERT INTO bot_password_deliveries(user_id,outbox_id,created_at) VALUES(?,?,?)").run(userId,result.outboxId,stamp);
     return {created:true,queued:true};
   })();
+}
+
+/**
+ * AUDITORIA / "esqueci a senha" tem que RESOLVER.
+ *
+ * `ensureBotPassword` é deliberadamente idempotente: se já existe senha ou já existe
+ * uma entrega na outbox, ele recusa (PASSWORD_ALREADY_SET / DELIVERY_STATE_CONFLICT).
+ * Isso é correto para o cadastro — evita duas senhas na mesma conta — mas transformava
+ * a opção "trocar senha" do bot num beco sem saída: quem perdeu a senha ouvia "você já
+ * tem senha cadastrada" para sempre e nunca conseguia entrar.
+ *
+ * Reemitir é um pedido legítimo e diferente de criar: aqui a entrega anterior é
+ * invalidada e uma senha nova é gerada. Só o próprio dono do número chega neste ponto
+ * (a prova é a mensagem vir do WhatsApp dele), que é a mesma prova usada no cadastro.
+ * A senha antiga deixa de valer no mesmo instante — ninguém fica com duas válidas.
+ */
+export function reissueBotPassword(db:AppDatabase,config:Config,userId:string,proofVerified:boolean):{created:boolean;queued:boolean;reason?:string} {
+  if(!proofVerified)return {created:false,queued:false,reason:"PHONE_PROOF_REQUIRED"};
+  // Contas administrativas entram pela credencial do painel: nada a reemitir.
+  if(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1").get(userId))return {created:false,queued:false,reason:"ADMIN_ACCOUNT"};
+  type Result = ReturnType<typeof ensureBotPassword>;
+  class ReissueRejected extends Error {
+    constructor(readonly result:Result){super("Password reissue unavailable");}
+  }
+  try {
+    return db.transaction(()=>{
+      const previous=db.prepare("SELECT outbox_id AS id FROM bot_password_deliveries WHERE user_id=?").get(userId) as {id:string}|undefined;
+      // Preserve the old delivery receipt. Pending old secrets must never be sent
+      // after a replacement, and a failed replacement must restore this exact state.
+      if(previous) db.prepare(`UPDATE whatsapp_outbox SET
+        dedupe_key=?,status=CASE WHEN status IN ('PENDING','SENDING') THEN 'FAILED' ELSE status END,
+        last_error=CASE WHEN status IN ('PENDING','SENDING') THEN 'PASSWORD_SUPERSEDED' ELSE last_error END,
+        lease_until=NULL WHERE id=?`).run("bot-password:"+userId+":superseded:"+randomUUID(),previous.id);
+      db.prepare("DELETE FROM bot_password_deliveries WHERE user_id=?").run(userId);
+      db.prepare("DELETE FROM user_passwords WHERE user_id=?").run(userId);
+      const result=ensureBotPassword(db,config,userId,true);
+      if(!result.created || !result.queued) throw new ReissueRejected(result);
+      return result;
+    })();
+  } catch(error) {
+    if(error instanceof ReissueRejected)return error.result;
+    throw error;
+  }
 }

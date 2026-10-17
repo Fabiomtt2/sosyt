@@ -92,7 +92,10 @@ describe("dispatchAutomation", () => {
   it("grupo devolve o PLANO de fan-out (execução é temporizada depois)", () => {
     const r = dispatchAutomation(db, config, "QUEUE_OPEN", { fila: 7, link: "x" }, {}, {}, { rand: () => 0.3 });
     expect(r.groupPlan).toHaveLength(3);               // grupos 1,2,3
-    expect(r.groupPlan!.every((s) => s.text.includes("fila 7"))).toBe(true);
+    // As variantes rotacionam e algumas comecam a frase ("Fila 7 liberada"), outras
+    // nao ("Abriu a fila 7"). O que o teste prova e que o placeholder {fila} virou 7
+    // em TODOS os slots do plano — a caixa da letra e irrelevante para isso.
+    expect(r.groupPlan!.every((s) => s.text.toLowerCase().includes("fila 7"))).toBe(true);
   });
 
   it("grupo sem nenhum grupo configurado é pulado", () => {

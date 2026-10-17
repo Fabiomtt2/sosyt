@@ -125,4 +125,57 @@ describe("login por senha persistente", () => {
     expect((await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:newPassword}})).statusCode).toBe(200);
   });
 
+  // AUDITORIA / O DEADLOCK QUE MATAVA O CADASTRO PELO BOT.
+  //
+  // O fluxo desenhado pelo dono: a pessoa fala com o bot -> escolhe se cadastrar ->
+  // o bot cria a conta, manda a senha e promete "entre no site que eu te coloco num
+  // grupo". So que a guarda do login exigia JA estar num grupo. Resultado: quem veio
+  // pelo bot tomava 403 para sempre, e o enfileiramento da entrada em grupo (escrito
+  // exatamente para essas pessoas) ficava inalcancavel — codigo morto.
+  //
+  // A senha do bot so chega por WhatsApp, entao ela E a prova de posse do numero.
+  it("quem recebeu senha do bot ENTRA sem grupo e e enfileirado para um grupo", async () => {
+    const normalized = normalizePhone(phone), stamp = new Date().toISOString();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'',?,?)").run("via-bot", "Pessoa do Bot", normalized, stamp, stamp);
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,locked_until,updated_at) VALUES(?,?,1,0,NULL,?)").run("via-bot", hashPassword("SenhaDoBot1234"), stamp);
+    // sem nenhum group_memberships: e exatamente este o estado de quem veio pelo bot
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone=?").get(normalized)).toBeUndefined();
+
+    const login = await app.inject({ method: "POST", url: "/auth/password/login", payload: { phone, password: "SenhaDoBot1234" } });
+    expect(login.statusCode).toBe(200);                       // era 403 GROUP_NOT_CONFIRMED
+    expect(login.json().token).toBeTruthy();
+
+    // e o ciclo fecha: o login enfileira a entrada em grupo, que antes nunca rodava
+    const fila = db.prepare("SELECT phone,status FROM group_join_requests WHERE phone=?").get(normalized);
+    expect(fila).toMatchObject({ phone: normalized, status: "PENDING" });
+  });
+
+  it("sem senha do bot e sem grupo continua barrado — a porta nao foi escancarada", async () => {
+    const normalized = normalizePhone(phone), stamp = new Date().toISOString();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'',?,?)").run("sem-nada", "Alguem", normalized, stamp, stamp);
+    const login = await app.inject({ method: "POST", url: "/auth/password/login", payload: { phone, password: "QualquerCoisa1" } });
+    expect(login.statusCode).toBe(403);
+    expect(login.json().code).toBe("GROUP_NOT_CONFIRMED");
+  });
+
+  it("senha errada de quem veio pelo bot nao entra (a guarda caiu, a senha nao)", async () => {
+    const normalized = normalizePhone(phone), stamp = new Date().toISOString();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'',?,?)").run("via-bot", "Pessoa do Bot", normalized, stamp, stamp);
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,locked_until,updated_at) VALUES(?,?,1,0,NULL,?)").run("via-bot", hashPassword("SenhaDoBot1234"), stamp);
+    const login = await app.inject({ method: "POST", url: "/auth/password/login", payload: { phone, password: "SenhaErrada999" } });
+    expect(login.statusCode).toBe(401);
+    expect(db.prepare("SELECT 1 FROM group_join_requests WHERE phone=?").get(normalized)).toBeUndefined();
+  });
+
+  it("senha existente não reativa um vínculo explicitamente revogado",async()=>{
+    const normalized=normalizePhone(phone),stamp=new Date().toISOString();
+    db.prepare("INSERT OR IGNORE INTO groups(code,enabled,membership_mode) VALUES('7',1,'OWNER')").run();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES('revoked-user','Pessoa',?,'7',?,?)").run(normalized,stamp,stamp);
+    db.prepare("INSERT INTO group_memberships(phone,group_code,approved_at,source,revoked_at) VALUES(?,'7',?,'OWNER',?)").run(normalized,stamp,stamp);
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,updated_at) VALUES('revoked-user',?,1,0,?)").run(hashPassword("SenhaDoBot1234"),stamp);
+    const response=await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:"SenhaDoBot1234"}});
+    expect(response.statusCode).toBe(403);
+    expect(db.prepare("SELECT 1 FROM group_join_requests WHERE phone=?").get(normalized)).toBeUndefined();
+  });
+
 });
