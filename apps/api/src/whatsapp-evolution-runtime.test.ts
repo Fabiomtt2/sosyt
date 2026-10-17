@@ -91,10 +91,11 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   saveAutomationSettings(db,"SUPPORT_HANDOFF",{enabled:false},{id:"root:test",name:"Root"});
   body.data.key.id="custom-2";
   await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body});
-  // AUDITORIA / handoff humano: com SUPPORT_HANDOFF ligado, a 1a chamada enfileira 2
-  // (resposta ao usuario + aviso a equipe no numero humano); com o toggle desligado a
-  // 2a chamada nao enfileira nada. Total = 2.
-  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:2});
+  // AUDITORIA / PEDIR AJUDA HUMANA NUNCA CAI NO VAZIO: desligar a automacao desliga
+  // apenas o TEXTO customizado — a pessoa continua recebendo resposta e a equipe
+  // continua sendo avisada (o interruptor do handoff e a feature HUMAN_HANDOFF).
+  // 2 chamadas x (resposta + aviso) = 4.
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:4});
   // o aviso a equipe traz o link direto pra conversa da pessoa
   expect(String((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%human-alert'").get() as {payload:string}|undefined)?.payload??"")).toContain("wa.me/"+phone);
  });

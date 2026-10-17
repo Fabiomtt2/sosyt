@@ -590,18 +590,21 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             // "humano": o proprio bot mandava escrever isso e nao havia handler.
             if (intent === "HUMAN" && featureEnabled(db,"HUMAN_HANDOFF")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'HUMAN_REQUESTED',?) ON CONFLICT(phone) DO UPDATE SET stage='HUMAN_REQUESTED',updated_at=excluded.updated_at").run(msg.from,now());
-              const response=supportReply(db,"SUPPORT_HANDOFF",msg.from,replyFor("HUMAN")!);
-              if(response){
-                queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:human`,expires,runtimeConfig);
-                // AUDITORIA / avisa a equipe no numero humano com link direto pra pessoa.
-                // Proativo (a equipe procura), sem popup pro usuario. Respeita o toggle
-                // SUPPORT_HANDOFF: se o Owner desliga o handoff, ninguem e avisado.
-                const supportNumber=humanSupportNumber(db,runtimeConfig);
-                if(supportNumber && supportNumber!==msg.from.replace(/\D/g,"")){
-                  const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
-                  const alert=humanHandoffAlert({name:who?.name,userPhone:msg.from,lastMessage:text});
-                  queue(db,supportNumber,{type:"text",text:{preview_url:true,body:alert}},`${msg.id}:human-alert`,expires,runtimeConfig);
-                }
+              // AUDITORIA / PEDIR AJUDA HUMANA NUNCA PODE CAIR NO VAZIO. Antes isto era
+              // `if(response)` e supportReply devolve undefined quando a automacao
+              // SUPPORT_HANDOFF esta sem texto habilitado — resultado: a pessoa pedia
+              // uma pessoa de verdade e NADA acontecia (nem resposta a ela, nem aviso ao
+              // atendimento). O interruptor do handoff e a feature HUMAN_HANDOFF, ja
+              // checada acima; a automacao decide apenas o TEXTO.
+              const response=supportReply(db,"SUPPORT_HANDOFF",msg.from,replyFor("HUMAN")!) ?? replyFor("HUMAN")!;
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:human`,expires,runtimeConfig);
+              // Avisa a equipe no numero humano com link direto pra conversa da pessoa:
+              // atendimento proativo (a equipe procura), sem popup para o usuario.
+              const supportNumber=humanSupportNumber(db,runtimeConfig);
+              if(supportNumber && supportNumber!==msg.from.replace(/\D/g,"")){
+                const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
+                const alert=humanHandoffAlert({name:who?.name,userPhone:msg.from,lastMessage:text});
+                queue(db,supportNumber,{type:"text",text:{preview_url:true,body:alert}},`${msg.id}:human-alert`,expires,runtimeConfig);
               }
               continue;
             }
