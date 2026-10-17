@@ -64,10 +64,14 @@ describe("cérebro do bot (config no painel, tempo real)", () => {
     saveBotSettings(db, { mode: "OFFICIAL" });
     const st = botStatus(db, cfg);
     expect(st.engines.messaging.ready).toBe(true);
-    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.active).toBe(false);
-    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.blockedReason).toMatch(/não está conectada/);
-    expect(st.fullyActive).toBe(false);
+    // AUDITORIA / pos-convergencia: as funcoes de mensageria FORAM ligadas ao runtime
+    // (inbound, senha, filas, suporte, handoff, diarias), entao com o motor pronto elas
+    // sao ATIVAS de verdade. O painel mentia ao marcar tudo como "bloqueada".
+    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.active).toBe(true);
+    expect(st.features.find((f) => f.code === "LOGIN_CODE")!.blockedReason).toBeNull();
     expect(st.features.find((f) => f.code === "GROUP_SYNC")!.active).toBe(false); // OFFICIAL não gere grupo
+    // GROUP_SYNC vem desligada por padrão, então não há motivo de bloqueio a reportar.
+    expect(st.features.find((f) => f.code === "GROUP_SYNC")!.enabled).toBe(false);
   });
 
   it("não-ROOT não altera o bot", async () => {

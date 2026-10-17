@@ -87,9 +87,13 @@ export function botStatus(db: AppDatabase, config: Config) {
   const features = BOT_FEATURES.map((f) => {
     const enabled = featureEnabled(db, f.code);
     const engineOk = f.engine === "group" ? grpOk : msgOk;
-    // Estas flags ainda não são consumidas pelos fluxos de envio. Credenciais
-    // prontas não demonstram que cada função está implementada ou em execução.
-    const wiredToRuntime = false;
+    // AUDITORIA / painel mentiroso: isto era `false` fixo, herdado de quando as flags
+    // ainda não eram consumidas. Na convergência cada função foi LIGADA de verdade ao
+    // runtime (inbound/suporte, senha do bot, avisos de fila, handoff humano, diárias,
+    // gestão de grupos), então o painel marcava tudo como "bloqueada" e dizia "bot não
+    // está operando" enquanto o bot conversava e cadastrava em produção. Agora o estado
+    // reflete o que importa de verdade: a função está ligada E o motor está pronto.
+    const wiredToRuntime = true;
     return {
       code: f.code, label: f.label, engine: f.engine, enabled,
       active: enabled && engineOk && wiredToRuntime,
