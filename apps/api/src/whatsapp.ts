@@ -626,8 +626,16 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             } else {
               // REDE FINAL: qualquer coisa que chegou ate aqui ganha resposta.
               // Nenhuma mensagem de uma pessoa termina em silencio.
-              const response=supportReply(db,"SUPPORT_AUTO",msg.from,replyFor(intent) ?? replyFor("UNKNOWN")!);
-              if(response)queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:fallback`,expires,runtimeConfig);
+              // AUDITORIA / BOT MUDO: antes era `if(response)`, e supportReply devolve
+              // undefined quando a automacao SUPPORT_AUTO esta DESLIGADA no painel.
+              // Resultado: desligar um texto desligava a CONVERSA INTEIRA, em silencio —
+              // a promessa do comentario acima era falsa. Agora o toggle SUPPORT_AUTO
+              // decide apenas se vale o texto CUSTOMIZADO do Owner; a resposta padrao
+              // sempre sai. Para o bot ficar realmente quieto existe o interruptor
+              // proprio (feature SUPPORT_CHAT), que e uma escolha explicita do Owner.
+              const padrao=replyFor(intent) ?? replyFor("UNKNOWN")!;
+              const response=supportReply(db,"SUPPORT_AUTO",msg.from,padrao) ?? padrao;
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:fallback`,expires,runtimeConfig);
             }
           }
 }

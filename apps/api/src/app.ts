@@ -32,6 +32,7 @@ import { registerCompanion } from "./companion.js";
 import { registerGoogleLogin } from "./google-login.js";
 import { runDailyAutomations } from "./bot-scheduler.js";
 import { announceToGroups } from "./bot-announce.js";
+import { emblemCatalog, emblemImage } from "./level-emblems.js";
 import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
@@ -1055,6 +1056,18 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   });
 
   // AUDITORIA / catálogo de avatares (gamificação). Imagem servida com ETag.
+  // AUDITORIA / emblemas de nivel (arte do Sol/ASTRA). Publicos como os avatares:
+  // o cliente embute por URL, com cache longo (a arte e imutavel por slug).
+  app.get("/level-emblems", async () => ({ emblems: emblemCatalog() }));
+  app.get("/level-emblems/:slug", async (request,reply) => {
+    const slug=String((request.params as {slug:string}).slug);
+    const image=emblemImage(slug);
+    if(!image) return reply.code(404).send();
+    reply.header("cross-origin-resource-policy","cross-origin");
+    reply.header("cache-control","public, max-age=604800, immutable");
+    return reply.type("image/webp").send(image);
+  });
+
   app.get("/avatars/:slug", async (request,reply) => {
     const slug=String((request.params as {slug:string}).slug);
     if(!/^cat-[a-z0-9]{12}$/.test(slug)) return reply.code(404).send();
