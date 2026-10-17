@@ -52,6 +52,11 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
     "tenho duvida", "tenho uma duvida", "tenho duvidas", "estou com duvida",
     "humano", "atendente", "pessoa de verdade", "falar com alguem", "falar com uma pessoa", "suporte humano",
   ] },
+  // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
+  { intent: "PARTICIPATE", phrases: ["1"] },
+  { intent: "RESEND_CODE", phrases: ["3", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
+  { intent: "STATUS", phrases: ["4"] },
+  { intent: "HELP", phrases: ["5", "moedas", "pontos", "niveis", "recompensa"] },
   { intent: "RESEND_CODE", phrases: [
     "nao chegou", "nao recebi", "reenviar codigo", "reenvia o codigo", "codigo nao", "sem codigo",
   ] },
@@ -150,9 +155,9 @@ export const INBOUND_REPLIES: Record<Exclude<InboundIntent, "NAME_CANDIDATE" | "
   OPT_IN: "Que bom te ver de volta! 🎉 Voltei a te avisar sobre filas e novidades. Se quiser parar de novo, é só escrever PARE.",
   STATUS: "Deixa eu conferir pra você! 🔎 Já já te respondo com a situação do seu cadastro por aqui mesmo.",
   RESEND_CODE: "Sem problema! 📲 Vou providenciar o reenvio do seu código de acesso. Se não chegar em alguns minutos, me escreva 'Tenho dúvidas' que uma pessoa te ajuda.",
-  GREETING: "Oi! 👋 Que bom falar com você. Posso te ajudar a ENTRAR no projeto, falar sobre as FILAS, ou te passar para uma pessoa, é só escrever 'Tenho dúvidas'. O que você prefere?",
-  HELP: "Tô aqui pra ajudar! 💛 Me diz com uma palavra o que você precisa: ENTRAR (participar do projeto), FILA (como funciona), ou escrever 'Tenho dúvidas' (falar com uma pessoa da equipe).",
-  UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito, mas não vou te deixar sem resposta. Me diz o que você precisa: ENTRAR, FILA, e se preferir falar com uma pessoa, é só escrever 'Tenho dúvidas'.",
+  GREETING: "Oi! 👋 Que bom te ver por aqui! Eu sou o bot do SOS YOUTUBER e tô aqui pra te ajudar no que precisar. 💛\n\nMe diz o que você quer (pode escrever com suas palavras ou mandar o número):\n\n1️⃣ ENTRAR — quero participar do projeto\n2️⃣ FILA — como funcionam as filas de 10 links\n3️⃣ SENHA — não consigo entrar na minha conta\n4️⃣ STATUS — quero saber como está meu cadastro\n5️⃣ MOEDAS — pontos, níveis e recompensas\n\nE se preferir falar com uma pessoa de verdade, é só escrever *Tenho dúvidas* que eu chamo alguém da equipe. 🙋",
+  HELP: "Claro, tô aqui pra isso! 💛 Me diz o que você precisa (palavra ou número):\n\n1️⃣ ENTRAR — participar do projeto\n2️⃣ FILA — como funcionam as filas\n3️⃣ SENHA — problema para acessar a conta\n4️⃣ STATUS — situação do seu cadastro\n5️⃣ MOEDAS — pontos, níveis e recompensas\n\nSe nada disso resolver, escreve *Tenho dúvidas* que uma pessoa da equipe te atende. 🙋",
+  UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito dessa vez, mas não vou te deixar sem resposta.\n\nPode tentar de um jeito mais simples? Escolha uma opção (palavra ou número):\n\n1️⃣ ENTRAR  2️⃣ FILA  3️⃣ SENHA  4️⃣ STATUS  5️⃣ MOEDAS\n\nOu escreve *Tenho dúvidas* que eu chamo uma pessoa da equipe pra te ajudar com calma. 🙋",
 };
 
 /** Mídia (áudio, foto, vídeo) nunca mais cai no silêncio. */

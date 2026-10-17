@@ -397,6 +397,12 @@ function tripEvolutionBreaker(db:AppDatabase,config:Config,until:string){
   db.prepare("INSERT OR IGNORE INTO evolution_attempt_state(identity,first_seen_at,next_attempt_at) VALUES(?,?,?)").run(identity,stamp,stamp);
   db.prepare("UPDATE evolution_attempt_state SET breaker_until=MAX(COALESCE(breaker_until,''),?) WHERE identity=?").run(until,identity);
 }
+/**
+ * Piso diario de DM (conversa 1:1). Mesmo com o numero novinho, responder quem
+ * escreveu nunca pode parar: e o comportamento mais seguro que existe no WhatsApp.
+ */
+const DM_DAILY_FLOOR = 60;
+
 function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;recipient:string},group:boolean,at:Date){
   const identity=evolutionIdentity(config),stamp=at.toISOString();
   // AUDITORIA / Teo A1: silencio noturno TAMBEM nos grupos. Envio em grupo de
@@ -410,9 +416,17 @@ function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;rec
   const waitUntil=[state.nextAttemptAt,state.breakerUntil??stamp].sort().at(-1)!;
   if(waitUntil>stamp)return {allowed:false,nextAt:waitUntil,reason:"EVOLUTION_CADENCE_OR_BREAKER"};
   const day=evolutionBusinessDay(at);
-  const counts=db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN recipient=? AND is_group=1 THEN 1 ELSE 0 END),0) AS groupTotal FROM evolution_delivery_attempts WHERE identity=? AND business_day=?").get(job.recipient,identity,day) as {total:number;groupTotal:number};
+  const counts=db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN is_group=1 THEN 1 ELSE 0 END),0) AS groupSent,COALESCE(SUM(CASE WHEN recipient=? AND is_group=1 THEN 1 ELSE 0 END),0) AS groupTotal FROM evolution_delivery_attempts WHERE identity=? AND business_day=?").get(job.recipient,identity,day) as {total:number;groupSent:number;groupTotal:number};
   const days=Math.max(0,Math.floor((at.getTime()-Date.parse(state.firstSeenAt))/86400000));
-  if(counts.total>=warmupCapForDay(days)||(group&&counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup))
+  // AUDITORIA / cota: o ban do WhatsApp vem de DISPARO EM MASSA NAO SOLICITADO, nao de
+  // RESPONDER quem escreveu. Entao o teto de warm-up (baixo, numero novo) limita o que o
+  // bot INICIA em GRUPO; a conversa 1:1 (DM) tem folga propria para nunca ficar muda —
+  // um bot que para de responder no meio do papo e pior para a comunidade e nao reduz
+  // risco de ban. A cadencia (minGap) e o breaker continuam valendo para os dois.
+  const groupCap=warmupCapForDay(days);
+  const dmCap=Math.max(DM_DAILY_FLOOR, groupCap * 3);
+  const dmSent=counts.total-counts.groupSent;
+  if(group ? (counts.groupSent>=groupCap || counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup) : dmSent>=dmCap)
     return {allowed:false,nextAt:nextEvolutionBusinessDay(at),reason:group&&counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup?"EVOLUTION_GROUP_DAILY_CAP":"EVOLUTION_WARMUP_DAILY_CAP"};
   db.prepare("INSERT INTO evolution_delivery_attempts(id,identity,outbox_id,recipient,is_group,attempted_at,business_day) VALUES(?,?,?,?,?,?,?)").run(randomUUID(),identity,job.id,job.recipient,group?1:0,stamp,day);
   db.prepare("UPDATE evolution_attempt_state SET next_attempt_at=?,breaker_until=NULL WHERE identity=?").run(new Date(at.getTime()+nextSendDelayMs()).toISOString(),identity);
