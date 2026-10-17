@@ -269,6 +269,14 @@ export function createEvolutionClient(opts: {
       return list.map((p) => jidToPhone(p.phoneNumber) || jidToPhone(p.id)).filter(Boolean);
     },
 
+    /** Link de convite do grupo — plano B quando a pessoa bloqueia ser adicionada. */
+    async groupInviteUrl(groupId: string): Promise<string | undefined> {
+      const data = await call(`/group/inviteCode/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`);
+      const code = (data as { inviteCode?: unknown; inviteUrl?: unknown }).inviteCode ?? (data as { inviteUrl?: unknown }).inviteUrl;
+      if (typeof code !== "string" || !code) return undefined;
+      return code.startsWith("http") ? code : `https://chat.whatsapp.com/${code}`;
+    },
+
     async addParticipant(groupId: string, phone: string) {
       return call(`/group/updateParticipant/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`, {
         method: "POST",

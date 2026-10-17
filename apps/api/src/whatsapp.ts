@@ -9,6 +9,9 @@ import { ownerAccounts } from "./owners.js";
 import { automationSettings, ensureBotAutomations } from "./bot-automation-store.js";
 import { renderTemplate, type AutomationEvent } from "./bot-automations.js";
 import { featureEnabled } from "./bot.js";
+import { ensureBotPassword } from "./bot-password.js";
+import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
+import { enqueueGroupJoin, ensureGroupJoinQueue, processGroupJoin } from "./bot-group-join.js";
 import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
 import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
@@ -515,6 +518,33 @@ export function whatsappStatus(db: AppDatabase, config: Config) {
     membershipMode: groupsLinked > 0 ? "META_GROUPS_API" : "OWNER_VERIFIED"
   };
 }
+/**
+ * AUDITORIA / cadastro self-service: cria a conta da pessoa (se ainda nao existe) e
+ * dispara a senha do bot. E o primeiro passo do fluxo que o dono desenhou — a pessoa
+ * loga com essa senha (validacao real de posse do numero) e so DEPOIS entra no grupo.
+ * Nao exige vinculo de grupo previo nem aprovacao manual.
+ */
+export function ensureSelfServiceAccount(db:AppDatabase,config:Config,phone:string,name:string):{userId:string;created:boolean;passwordSent:boolean}{
+  const stamp=now();
+  let user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
+  let created=false;
+  if(!user){
+    const id=randomUUID();
+    db.prepare("INSERT INTO users (id,name,phone,group_code,created_at,updated_at) VALUES (?,?,?,?,?,?)")
+      .run(id,name.slice(0,80),phone,"",stamp,stamp);
+    db.prepare("INSERT OR IGNORE INTO wallets (user_id,updated_at) VALUES (?,?)").run(id,stamp);
+    // boas-vindas uma vez por PESSOA (telefone), nunca por linha recriada
+    if(!welcomeAlreadyGranted(db,phone))
+      db.prepare("INSERT INTO wallet_ledger (id,user_id,kind,amount_millis,reference_id,created_at) VALUES (?,?,'WELCOME',10000,?,?)")
+        .run(randomUUID(),id,welcomeReference(phone),stamp);
+    user={id};created=true;
+  }else{
+    db.prepare("UPDATE users SET name=?,updated_at=? WHERE id=?").run(name.slice(0,80),stamp,user.id);
+  }
+  const senha=ensureBotPassword(db,config,user.id,true);
+  return {userId:user.id,created,passwordSent:Boolean(senha.queued)};
+}
+
 function supportReply(db:AppDatabase,event:AutomationEvent,phone:string,fallback:string){
   const settings=automationSettings(db,event);
   if(!settings.enabled)return undefined;
@@ -581,12 +611,61 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               continue;
             }
             if(!featureEnabled(db,"SUPPORT_CHAT"))continue;
+
+            // AUDITORIA / O BOT PRECISA AGIR, NAO SO FALAR. Antes, "3 / senha" mandava
+            // "vou providenciar o reenvio" e NAO FAZIA NADA — o dono notou com razao que
+            // nao havia integracao real. Agora a opcao de senha EXECUTA: se a pessoa tem
+            // vinculo de grupo ativo, o bot gera a senha e entrega; senao explica o que
+            // falta. Tratado ANTES do fluxo de nome para que um numero do menu nunca seja
+            // confundido com o nome da pessoa (era o que travava a conversa em "1".."5").
+            if (intent === "RESEND_CODE") {
+              const alvo=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {id:string}|undefined;
+              const temVinculo=Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
+              let corpo:string;
+              if (!temVinculo) {
+                corpo="Pra criar sua senha eu preciso te encontrar em um dos grupos SOS YOUTUBER. 💛 Se você já está em um, me confirma que eu verifico; se ainda não, responda *1* que eu começo seu cadastro agora.";
+              } else if (!alvo) {
+                corpo="Já localizei seu número no grupo! 🙌 Sua conta está sendo preparada — assim que ficar pronta eu te mando a senha aqui mesmo, em instantes.";
+              } else {
+                const r=ensureBotPassword(db,runtimeConfig,alvo.id,true);
+                corpo=r.created
+                  ? "Prontinho! 🔐 Acabei de gerar sua senha e ela está chegando aqui nesta conversa. Entre no site com o seu WhatsApp e essa senha — e troque por uma de sua preferência depois."
+                  : r.reason==="PASSWORD_ALREADY_SET"
+                    ? `Você já tem senha cadastrada. 🙂 Se esqueceu, posso trocar por uma nova: responda *TROCAR SENHA* que eu cuido disso. Entrar: ${runtimeConfig.WEB_APP_URL}`
+                    : r.reason==="ADMIN_ACCOUNT"
+                      ? "Esta conta é administrativa e usa a credencial do painel, não a senha do bot. 💛"
+                      : "Sua senha está a caminho. Se não chegar em alguns minutos, escreve *Tenho dúvidas* que uma pessoa te ajuda. 💛";
+              }
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:corpo}},`${msg.id}:senha`,expires,runtimeConfig);
+              continue;
+            }
+
             if (intent === "PARTICIPATE") {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`}},`${msg.id}:welcome`,expires,runtimeConfig);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires,runtimeConfig);
-            } else if (conversation?.stage === "WAITING_NAME" && looksLikeName(text)) {
+            // AUDITORIA / "oi" NAO E NOME. Antes este ramo usava looksLikeName(text), que
+            // so olha tamanho/link — entao um "oi", "bom dia" ou um numero do menu virava
+            // o NOME da pessoa e abria cadastro pendente sem ela ter pedido nada (o dono
+            // viu exatamente isso: pendencia criada na primeira mensagem). Agora usamos o
+            // intent: o classificador ja resolve saudacao/comando ANTES, e so devolve
+            // NAME_CANDIDATE quando o texto nao e nenhuma outra coisa conhecida.
+            } else if (conversation?.stage === "WAITING_NAME" && intent === "NAME_CANDIDATE") {
               const hasActiveMembership = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
+              // AUDITORIA / QUEM JA TEM CONTA NAO RECEBE OFERTA DE CADASTRO (bug relatado
+              // pelo dono). Antes o bot dizia "criei sua conta" para quem ja era
+              // cadastrado, confundindo a pessoa e sujando o painel. Agora reconhecemos a
+              // conta existente e seguimos direto para o que ela realmente precisa.
+              const jaTemConta = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as { id: string } | undefined;
+              if (jaTemConta) {
+                const temSenha = Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(jaTemConta.id));
+                db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
+                queue(db,msg.from,{type:"text",text:{preview_url:true,body: temSenha
+                  ? `Oi de novo, ${text}! 😊 Você já tem conta aqui — é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e sua senha. Esqueceu a senha? Responda *3* que eu providencio uma nova. 💛`
+                  : `Oi, ${text}! Sua conta já existe e estou preparando sua senha — ela chega aqui em instantes. Depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`}},`${msg.id}:ja-cadastrado`,expires,runtimeConfig);
+                if (!temSenha) ensureBotPassword(db,runtimeConfig,jaTemConta.id,true);
+                continue;
+              }
               let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
               if (!hasActiveMembership) {
                 const existing = db.prepare("SELECT id,status,retry_block_until AS retryBlockUntil FROM participation_requests WHERE phone=?").get(msg.from) as
@@ -602,18 +681,45 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                     .run(stamp,stamp,existing.id);
                   responseBody = `Olá, ${text}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
                 } else {
-                  const blockedUntil = new Date(Date.now()+120*60_000).toISOString();
+                  // AUDITORIA / CADASTRO AUTOMATICO — o fluxo que o dono desenhou:
+                  //   bot cria a conta -> manda a SENHA -> a pessoa ENTRA NO SITE com
+                  //   ela (isso E a validacao, melhor que aprovacao manual) -> so entao
+                  //   o bot a adiciona num grupo com vaga (SOS Youtuber 1, 2, 3...).
+                  // Entrar no grupo exige ter provado posse do numero logando, entao
+                  // ninguem e jogado em grupo por engano. O Owner deixa de ser etapa
+                  // obrigatoria: e acionado so quando a automacao falha de verdade.
                   const id = existing?.id ?? randomUUID();
-                  db.prepare(`INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,retry_block_until,duplicate_attempts,created_at,updated_at)
-                    VALUES (?,?,?,'PENDING','WHATSAPP',?,?,0,?,?)
-                    ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='PENDING',source='WHATSAPP',
-                      whatsapp_verified_at=excluded.whatsapp_verified_at,retry_block_until=excluded.retry_block_until,
+                  db.prepare(`INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,approved_at,duplicate_attempts,created_at,updated_at)
+                    VALUES (?,?,?,'APPROVED','WHATSAPP',?,?,0,?,?)
+                    ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='APPROVED',source='WHATSAPP',
+                      whatsapp_verified_at=excluded.whatsapp_verified_at,
+                      approved_at=COALESCE(participation_requests.approved_at,excluded.approved_at),
                       duplicate_attempts=0,updated_at=excluded.updated_at`)
-                    .run(id,msg.from,text,stamp,blockedUntil,stamp,stamp);
+                    .run(id,msg.from,text,stamp,stamp,stamp,stamp);
+                  const conta=ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
+                  responseBody = conta.passwordSent
+                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui mesmo, na próxima mensagem.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Assim que você entrar, eu já te coloco num grupo do SOS YOUTUBER com vaga. 💛`
+                    : `Pronto, ${text}! 🎉 Criei sua conta. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
+                  // Owner INFORMADO, nunca bloqueando: ele acompanha e pode intervir.
                   queueOwnerAlerts(db,runtimeConfig,id,msg.from,text,msg.id);
                 }
               } else {
-                responseBody = `Olá, ${text}! Este número já está registrado em um grupo SOS YOUTUBER. Use o acesso normal do aplicativo com o grupo autorizado.`;
+                // AUDITORIA / AUTO-APROVACAO (pedido do dono: "reduzir acao humana ao
+                // maximo"). Se o telefone JA esta num grupo SOS verificado, nao ha nada
+                // para um humano decidir — a prova de pertencimento e o proprio grupo.
+                // Entao o bot APROVA sozinho: registra como APPROVED e o reconciliador
+                // (que roda no tick) cria a conta e entrega a senha por aqui. Antes isto
+                // so mandava "use o acesso normal" e deixava a pessoa sem conta e sem
+                // senha, obrigando aprovacao manual do Owner para quem ja era membro.
+                const stamp=now();
+                const vinculo=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL ORDER BY approved_at DESC LIMIT 1").get(msg.from) as {code:string}|undefined;
+                db.prepare(`INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,approved_at,preferred_group,duplicate_attempts,created_at,updated_at)
+                  VALUES (?,?,?,'APPROVED','WHATSAPP',?,?,?,0,?,?)
+                  ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='APPROVED',source='WHATSAPP',
+                    whatsapp_verified_at=excluded.whatsapp_verified_at,approved_at=COALESCE(participation_requests.approved_at,excluded.approved_at),
+                    preferred_group=COALESCE(excluded.preferred_group,participation_requests.preferred_group),updated_at=excluded.updated_at`)
+                  .run(randomUUID(),msg.from,text,stamp,stamp,vinculo?.code ?? null,stamp,stamp);
+                responseBody = `Prontinho, ${text}! ✅ Confirmei seu número no grupo SOS YOUTUBER${vinculo?.code?` ${vinculo.code}`:""} e já liberei seu acesso. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires,runtimeConfig);
@@ -640,6 +746,33 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             }
           }
 }
+/**
+ * AUDITORIA / worker da entrada automatica em grupo. Pega UM pedido da fila, tenta
+ * adicionar a pessoa no grupo com vaga e avisa o desfecho por DM. Se o WhatsApp dela
+ * bloqueia "ser adicionada", manda o LINK DE CONVITE. So aciona o Owner quando nem o
+ * add nem o convite resolvem — exatamente o "reduzir acao humana ao maximo" pedido.
+ */
+export async function drainGroupJoin(db: AppDatabase, config: Config, log?: { error: (...args: unknown[]) => void }) {
+  const runtime = effectiveWhatsAppConfig(db, config);
+  if (runtime.WHATSAPP_MODE !== "EVOLUTION" && runtime.WHATSAPP_MODE !== "HYBRID_PLUS") return;
+  if (!evolutionConfigured(runtime)) return;
+  try {
+    const client = evolutionClient(runtime);
+    if (!(await client.health()).connected) return;   // sessao caida: a fila espera
+    await processGroupJoin(db, config, client, {
+      sendInvite: (phone, groupCode, inviteUrl) => {
+        queueBotNotification(db, config, phone,
+          `Quase lá! 💛 Seu WhatsApp não permite que eu te adicione direto a grupos, então aqui está o convite do SOS YOUTUBER ${groupCode}: ${inviteUrl}\nÉ só tocar para entrar — e assim que você entrar eu te mando sua senha de acesso.`,
+          `group-invite:${phone}:${groupCode}`, undefined, { deliveryClass: "TRANSACTIONAL", event: "GROUP_INVITE" });
+      },
+      escalate: (phone, name) => {
+        const id = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(phone) as { id: string } | undefined;
+        if (id) queueOwnerAlerts(db, runtime, id.id, phone, name ?? "Participante", `group-join:${phone}`);
+      },
+    });
+  } catch (cause) { log?.error(cause, "Group join worker failed"); }
+}
+
 export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDatabase, config: Config, ownerGuard: (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>) {
   app.get("/webhooks/whatsapp", async (request,reply) => {
     const runtimeConfig = effectiveWhatsAppConfig(db,config);
@@ -709,6 +842,7 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     return {ok:true};
   });
   ensureBotAutomations(db);
+  ensureGroupJoinQueue(db);
   ensureBotOptOut(db);
   ensureBotDelivery(db);
   app.post("/admin/whatsapp/retry", { preHandler: ownerGuard }, async () => {
@@ -731,7 +865,13 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     timer = setInterval(() => {
       if (busy) return;
       busy=true;
-      running = flushWhatsAppOutbox(db,config).catch(() => app.log.error("WhatsApp outbox worker failed")).finally(() => { busy=false; });
+      // AUDITORIA / entrada automatica em grupo: logo apos drenar a fila de envio,
+      // processa UM pedido de entrada em grupo. Fica no MESMO tick e sob o mesmo guard
+      // `busy` para nunca concorrer com o envio nem furar a cadencia anti-ban.
+      running = flushWhatsAppOutbox(db,config)
+        .then(() => drainGroupJoin(db,config,app.log))
+        .catch(() => app.log.error("WhatsApp outbox worker failed"))
+        .finally(() => { busy=false; });
     },5_000);
     timer.unref();
 

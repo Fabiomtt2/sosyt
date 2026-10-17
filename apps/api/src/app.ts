@@ -33,6 +33,7 @@ import { registerGoogleLogin } from "./google-login.js";
 import { runDailyAutomations } from "./bot-scheduler.js";
 import { announceToGroups } from "./bot-announce.js";
 import { emblemCatalog, emblemImage } from "./level-emblems.js";
+import { enqueueGroupJoin } from "./bot-group-join.js";
 import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState } from "./group-verification.js";
@@ -911,6 +912,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
     db.prepare("UPDATE user_passwords SET attempts=0, locked_until=NULL WHERE user_id=?").run(user.id);
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), user.id);
+    // AUDITORIA / ENTRADA NO GRUPO DEPOIS DO LOGIN (fluxo desenhado pelo dono): entrar
+    // com a senha que o bot enviou PROVA a posse do número — e é essa prova, e não uma
+    // aprovação manual, que libera a entrada no grupo. Enfileira aqui; o worker coloca
+    // no SOS Youtuber com vaga (1, 2, 3...). Idempotente: logar de novo não duplica.
+    try {
+      const semGrupo = !db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(body.phone);
+      if (semGrupo) enqueueGroupJoin(db, body.phone, String(getUser(db, user.id)?.name ?? ""));
+    } catch (error) { app.log.error(error, "Group join enqueue after login failed"); }
     return reply.send({
       token: app.jwt.sign({ sub: user.id, purpose: "session", aud: "conexao-session", authMethod: "password", authPhone: body.phone }),
       user: getUser(db, user.id),

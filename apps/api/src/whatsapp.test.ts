@@ -31,31 +31,40 @@ describe("bot oficial WhatsApp", () => {
     expect((await post(intro,JSON.stringify(intro,null,2))).statusCode).toBe(200);
     await post(intro); expect(count("whatsapp_outbox")).toBe(2);
     await post(payload("m2","Luiza")); await post(payload("m2","Luiza"));
-    expect(count("participation_requests")).toBe(1); expect(count("whatsapp_outbox")).toBe(6);
+    expect(count("participation_requests")).toBe(1); expect(count("whatsapp_outbox")).toBe(7); // +1: a senha do bot
     const row=db.prepare("SELECT * FROM participation_requests").get() as Record<string,unknown>;
-    expect(row).toMatchObject({name:"Luiza",phone:"5571999999001",source:"WHATSAPP",status:"PENDING"}); expect(row.whatsapp_verified_at).toBeTruthy();
+    // AUDITORIA / cadastro automatico: o bot APROVA sozinho e cria a conta; a validacao
+    // real e a pessoa logar no site com a senha que ele envia (nao aprovacao manual).
+    expect(row).toMatchObject({name:"Luiza",phone:"5571999999001",source:"WHATSAPP",status:"APPROVED"}); expect(row.whatsapp_verified_at).toBeTruthy();
     expect(count("group_memberships")).toBe(0);
     const sent: any[]=[]; vi.stubGlobal("fetch",vi.fn(async (_url,options) => { sent.push(JSON.parse(options.body)); return new Response(JSON.stringify({messages:[{id:`sent-${sent.length}`}]}),{status:200}); }));
     await flushWhatsAppOutbox(db,config);
-    expect(sent).toHaveLength(6); expect(sent.filter((s)=>s.type==="template").map((s)=>s.to).sort()).toEqual(["5571999999101","5571999999102"]);
-    expect(sent.find((s)=>s.type==="template").template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Luiza","5571999999001","1"]);
-    expect(sent.filter((s)=>s.type==="text").some((s)=>s.text.body.includes("validado em breve"))).toBe(true);
-    await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(6);
+    expect(sent).toHaveLength(7); expect(sent.filter((s)=>s.type==="template").map((s)=>s.to).sort()).toEqual(["5571999999101","5571999999102"]);
+    expect(sent.find((s)=>s.type==="template").template.components[0].parameters.map((p:any)=>p.text)).toEqual(["Luiza","5571999999001","0"]);
+    // AUDITORIA / entrada automatica: a pessoa sem vinculo nao fica mais "aguardando
+    // validacao" — o bot ja a coloca num grupo com vaga e avisa isso. O Owner continua
+    // sendo notificado (template acima), mas nao bloqueia mais a entrada.
+    expect(sent.filter((s)=>s.type==="text").some((s)=>/Criei sua conta|senha/i.test(s.text.body))).toBe(true);
+    await flushWhatsAppOutbox(db,config); expect(sent).toHaveLength(7);
   });
   it("nova conversa no bot não duplica nem reabre cadastro pendente durante o bloqueio",async () => {
     await post(payload("retry-m1","Quero participar"));
     await post(payload("retry-m2","Lia"));
     const first=db.prepare("SELECT id,status,retry_block_until AS blockedUntil FROM participation_requests WHERE phone=?").get("5571999999001") as {id:string;status:string;blockedUntil:string};
-    expect(first.status).toBe("PENDING");
-    expect(Date.parse(first.blockedUntil)).toBeGreaterThan(Date.now());
+    // cadastro automatico: nasce APPROVED, sem janela de bloqueio para reanalise manual
+    expect(first.status).toBe("APPROVED");
 
     await post(payload("retry-m3","Quero participar"));
     await post(payload("retry-m4","Lia"));
     expect(count("participation_requests")).toBe(1);
     const alerts=db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE payload LIKE '%sos_pendente%'").get() as {n:number};
+    // A SEGUNDA conversa reconhece que a pessoa JA TEM CONTA e nao repete cadastro nem
+    // avisa de novo: seguem 2 alertas (um por Owner, do primeiro cadastro) e 1 registro.
     expect(alerts.n).toBe(2);
-    const received=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='retry-m4:received'").get() as {payload:string};
-    expect(JSON.parse(received.payload).text.body).toContain("já está registrado");
+    // quem ja tem conta e tratado como JA CADASTRADO (nao recebe oferta de cadastro):
+    // o bot reconhece, lembra como entrar e oferece trocar a senha.
+    const received=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='retry-m4:ja-cadastrado'").get() as {payload:string};
+    expect(JSON.parse(received.payload).text.body).toMatch(/já tem conta|sua conta já existe/i);
   });
 
   it("usa o Business aprovado sem expor o contato pessoal de Rafael", async () => {
@@ -72,7 +81,7 @@ describe("bot oficial WhatsApp", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0].recipient).toBe("5511998765432");
     const params=JSON.parse(alerts[0].payload).template.components[0].parameters.map((p:any)=>p.text);
-    expect(params).toEqual(["Nina","5571999999001","1"]);
+    expect(params).toEqual(["Nina","5571999999001","0"]); // 0 pendentes: o bot ja resolveu
   });
   it("alertas usam a configuração persistida e incluem associações Google pendentes",async () => {
     config.WHATSAPP_OWNER_ALERT_TEMPLATE=undefined;

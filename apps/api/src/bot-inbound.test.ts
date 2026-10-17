@@ -162,3 +162,23 @@ describe("OPT_OUT não silencia por substring (achado do revisor)", () => {
     expect(classifyInbound("quero sair")).toBe("OPT_OUT");
   });
 });
+
+describe("saudação e menu NUNCA viram nome (bug: cadastro criado no primeiro 'oi')", () => {
+  it("durante a pergunta do nome, 'oi' continua sendo saudação", () => {
+    expect(classifyInbound("oi", { awaitingName: true })).toBe("GREETING");
+    expect(classifyInbound("bom dia", { awaitingName: true })).toBe("GREETING");
+  });
+  it("durante a pergunta do nome, um número do menu continua sendo o menu", () => {
+    expect(classifyInbound("1", { awaitingName: true })).toBe("PARTICIPATE");
+    expect(classifyInbound("2", { awaitingName: true })).toBe("QUEUE_INFO");
+    expect(classifyInbound("3", { awaitingName: true })).toBe("RESEND_CODE");
+  });
+  it("um nome de verdade é aceito como nome", () => {
+    expect(classifyInbound("Fábio Motta", { awaitingName: true })).toBe("NAME_CANDIDATE");
+    expect(classifyInbound("Maria", { awaitingName: true })).toBe("NAME_CANDIDATE");
+  });
+  it("a opção 2 explica as filas", () => {
+    expect(classifyInbound("fila")).toBe("QUEUE_INFO");
+    expect(replyFor("QUEUE_INFO")).toMatch(/10 links/);
+  });
+});

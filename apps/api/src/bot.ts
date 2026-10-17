@@ -25,7 +25,7 @@ export const BOT_FEATURES = [
   { code: "SUPPORT_CHAT",   label: "Conversa interativa de suporte automático",         engine: "messaging", defaultOn: true },
   { code: "HUMAN_HANDOFF",  label: "Transbordo para atendimento humano (Business)",     engine: "messaging", defaultOn: true },
   { code: "BROADCAST",      label: "Disparos/avisos em massa autorizados pelo Owner",   engine: "messaging", defaultOn: false },
-  { code: "GROUP_SYNC",     label: "Gerir grupos: ler membros, adicionar, remover",     engine: "group",     defaultOn: false }
+  { code: "GROUP_SYNC",     label: "Gerir grupos: ler membros, adicionar, remover",     engine: "group",     defaultOn: true }
 ] as const;
 export type BotFeatureCode = (typeof BOT_FEATURES)[number]["code"];
 

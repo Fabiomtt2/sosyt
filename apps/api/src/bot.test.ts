@@ -70,8 +70,10 @@ describe("cérebro do bot (config no painel, tempo real)", () => {
     expect(st.features.find((f) => f.code === "LOGIN_CODE")!.active).toBe(true);
     expect(st.features.find((f) => f.code === "LOGIN_CODE")!.blockedReason).toBeNull();
     expect(st.features.find((f) => f.code === "GROUP_SYNC")!.active).toBe(false); // OFFICIAL não gere grupo
-    // GROUP_SYNC vem desligada por padrão, então não há motivo de bloqueio a reportar.
-    expect(st.features.find((f) => f.code === "GROUP_SYNC")!.enabled).toBe(false);
+    // GROUP_SYNC vem LIGADA (o dono pediu tudo ligado), mas em modo OFFICIAL o motor de
+    // grupo não existe — então ela fica inativa COM motivo explicado, não em silêncio.
+    expect(st.features.find((f) => f.code === "GROUP_SYNC")!.enabled).toBe(true);
+    expect(st.features.find((f) => f.code === "GROUP_SYNC")!.blockedReason).toMatch(/Evolution/);
   });
 
   it("não-ROOT não altera o bot", async () => {

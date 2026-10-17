@@ -31,12 +31,17 @@ describe("render da automação", () => {
     expect("skipped" in r).toBe(false);
     if (!("skipped" in r)) {
       expect(r.channel).toBe("EVOLUTION"); expect(r.target).toBe("ALL_GROUPS");
-      expect(r.text).toContain("fila 7"); expect(r.deliveryClass).toBe("QUEUE");
+      // o texto pode vir de uma VARIANTE (anti-repetição); todas citam a fila e o link
+      expect(r.text.toLowerCase()).toContain("fila 7"); expect(r.deliveryClass).toBe("QUEUE");
     }
   });
 
-  it("pula automação desligada", () => {
-    expect(renderAutomation(db, "QUEUE_STATUS", {})).toEqual({ skipped: "disabled" }); // default off
+  it("pula automação desligada", async () => {
+    // AUDITORIA: por pedido do dono as automações nascem LIGADAS; para testar o pulo,
+    // desligamos explicitamente — que é o que o Owner faria no painel.
+    const { saveAutomationSettings } = await import("./bot-automation-store.js");
+    saveAutomationSettings(db, "QUEUE_STATUS", { enabled: false }, { id: "root", name: "Root" });
+    expect(renderAutomation(db, "QUEUE_STATUS", {})).toEqual({ skipped: "disabled" });
   });
 
   it("evento inexistente é pulado, não quebra", () => {

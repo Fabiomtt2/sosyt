@@ -24,6 +24,7 @@ export type InboundIntent =
   | "HUMAN"         // quer uma pessoa de verdade
   | "OPT_OUT"       // pare de me mandar mensagem
   | "OPT_IN"        // quero voltar a receber
+  | "QUEUE_INFO"    // "2" / como funcionam as filas
   | "STATUS"        // "e aí, saiu?"
   | "RESEND_CODE"   // "não chegou meu código"
   | "GREETING"      // oi, bom dia
@@ -54,6 +55,7 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
   ] },
   // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
   { intent: "PARTICIPATE", phrases: ["1"] },
+  { intent: "QUEUE_INFO", phrases: ["2", "fila", "filas", "como funciona a fila", "como funcionam as filas"] },
   { intent: "RESEND_CODE", phrases: ["3", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
   { intent: "STATUS", phrases: ["4"] },
   { intent: "HELP", phrases: ["5", "moedas", "pontos", "niveis", "recompensa"] },
@@ -156,6 +158,7 @@ export const INBOUND_REPLIES: Record<Exclude<InboundIntent, "NAME_CANDIDATE" | "
   STATUS: "Deixa eu conferir pra você! 🔎 Já já te respondo com a situação do seu cadastro por aqui mesmo.",
   RESEND_CODE: "Sem problema! 📲 Vou providenciar o reenvio do seu código de acesso. Se não chegar em alguns minutos, me escreva 'Tenho dúvidas' que uma pessoa te ajuda.",
   GREETING: "Oi! 👋 Que bom te ver por aqui! Eu sou o bot do SOS YOUTUBER e tô aqui pra te ajudar no que precisar. 💛\n\nMe diz o que você quer (pode escrever com suas palavras ou mandar o número):\n\n1️⃣ ENTRAR — quero participar do projeto\n2️⃣ FILA — como funcionam as filas de 10 links\n3️⃣ SENHA — não consigo entrar na minha conta\n4️⃣ STATUS — quero saber como está meu cadastro\n5️⃣ MOEDAS — pontos, níveis e recompensas\n\nE se preferir falar com uma pessoa de verdade, é só escrever *Tenho dúvidas* que eu chamo alguém da equipe. 🙋",
+  QUEUE_INFO: "Te explico! 🎬 No SOS YOUTUBER a gente monta *Filas de 10 links*: cada pessoa entra na fila e coloca o vídeo dela. Quando a fila fecha com 10, todo mundo leva a seleção para o próprio canal e assiste os vídeos dos colegas. 💛\n\nÉ colaboração de verdade: você apoia e é apoiado. Cada participação ainda rende XP e moedas.\n\nQuer entrar numa fila? Responda *1* (ENTRAR). Se tiver outra dúvida, escreva *Tenho dúvidas*.",
   HELP: "Claro, tô aqui pra isso! 💛 Me diz o que você precisa (palavra ou número):\n\n1️⃣ ENTRAR — participar do projeto\n2️⃣ FILA — como funcionam as filas\n3️⃣ SENHA — problema para acessar a conta\n4️⃣ STATUS — situação do seu cadastro\n5️⃣ MOEDAS — pontos, níveis e recompensas\n\nSe nada disso resolver, escreve *Tenho dúvidas* que uma pessoa da equipe te atende. 🙋",
   UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito dessa vez, mas não vou te deixar sem resposta.\n\nPode tentar de um jeito mais simples? Escolha uma opção (palavra ou número):\n\n1️⃣ ENTRAR  2️⃣ FILA  3️⃣ SENHA  4️⃣ STATUS  5️⃣ MOEDAS\n\nOu escreve *Tenho dúvidas* que eu chamo uma pessoa da equipe pra te ajudar com calma. 🙋",
 };
