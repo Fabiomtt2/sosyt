@@ -40,10 +40,22 @@ export class EvolutionSafetyError extends Error {
 }
 
 /**
+ * Telefone (so digitos) a partir de um JID do WhatsApp. Devolve "" quando o JID e um
+ * LID (`<id>@lid`) — LID e identificador PRIVADO, nao telefone, e tratar um como o
+ * outro quebra todo vinculo de conta/grupo (que e chaveado por telefone).
+ */
+export function jidToPhone(jid?: string | null): string {
+  const raw = String(jid ?? "");
+  if (!raw) return "";
+  if (/@lid$/i.test(raw)) return "";
+  const digits = raw.split("@")[0].split(":")[0].replace(/\D/g, "");
+  return /^[1-9]\d{7,14}$/.test(digits) ? digits : "";
+}
+
+/**
  * Dois números são o MESMO WhatsApp? Trata o "nono dígito" brasileiro: o WhatsApp
  * frequentemente representa o ownerJid SEM o 9 (ex.: 557193951582), enquanto o número
- * salvo vem COM o 9 (5571993951582). São o mesmo número. Sem isso, a verificação de
- * identidade reprova a sessão legítima e o worker nunca envia (bot fica mudo).
+ * salvo vem COM o 9 (5571993951582). São o mesmo número.
  */
 export function sameWhatsAppNumber(a: string, b: string): boolean {
   const da = String(a).replace(/\D/g, ""), db = String(b).replace(/\D/g, "");
@@ -250,8 +262,11 @@ export function createEvolutionClient(opts: {
       const data = await call(
         `/group/participants/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`,
       );
-      const list = (data as { participants?: Array<{ id?: string }> }).participants ?? [];
-      return list.map((p) => String(p.id ?? "").replace(/\D/g, "")).filter(Boolean);
+      const list = (data as { participants?: Array<{ id?: string; phoneNumber?: string }> }).participants ?? [];
+      // AUDITORIA / LID: o WhatsApp novo entrega `id` como LID (identificador privado,
+      // NAO telefone) e o telefone real em `phoneNumber`. Ler o `id` cru faria a
+      // sincronizacao de membros comparar LIDs com telefones e nao casar NINGUEM.
+      return list.map((p) => jidToPhone(p.phoneNumber) || jidToPhone(p.id)).filter(Boolean);
     },
 
     async addParticipant(groupId: string, phone: string) {

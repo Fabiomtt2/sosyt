@@ -9,7 +9,7 @@ import { ownerAccounts } from "./owners.js";
 import { automationSettings, ensureBotAutomations } from "./bot-automation-store.js";
 import { renderTemplate, type AutomationEvent } from "./bot-automations.js";
 import { featureEnabled } from "./bot.js";
-import { createEvolutionClient, assertDistinctFromOfficial, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
+import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
 import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
 import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
@@ -200,7 +200,9 @@ export async function syncEvolutionWhatsAppGroups(db:AppDatabase,config:Config){
     const code=groupCodeFromSubject(group.subject);
     if(!code||!/^\d+(?:-\d+)?@g\.us$/.test(group.id))continue;
     if(!Array.isArray(group.participants)){skipped.push({code,reason:"MISSING_PARTICIPANTS"});continue;}
-    const phones=new Set(group.participants.map(p=>String(p.id??"").replace(/@s\.whatsapp\.net$/,"")).filter(phoneValid));
+    // AUDITORIA / LID: `id` pode ser LID (nao telefone); o telefone real vem em
+    // `phoneNumber`. Sem isso o sync compara LIDs com telefones e nao casa ninguem.
+    const phones=new Set(group.participants.map(p=>jidToPhone((p as {phoneNumber?:string}).phoneNumber)||jidToPhone(p.id)).filter(phoneValid));
     const previous=(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_member_verifications WHERE provider='EVOLUTION' AND group_code=? AND revoked_at IS NULL").get(code) as {n:number}).n;
     const reason=!phones.size?"EMPTY_PARTICIPANTS":typeof group.size==="number"&&group.size!==phones.size?"PARTIAL_PARTICIPANTS":previous-phones.size>Math.max(2,Math.ceil(previous*.2))?"SUSPICIOUS_SHRINK":undefined;
     if(reason)skipped.push({code,reason});

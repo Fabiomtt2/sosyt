@@ -215,3 +215,23 @@ describe("sameWhatsAppNumber — tolera o 9º dígito brasileiro (bug do bot mud
     expect((await createEvolutionClient({ config: CFG, fetchImpl: f.impl }).health()).connected).toBe(true);
   });
 });
+
+describe("jidToPhone + participantes LID (impacto no sync de membros)", () => {
+  it("extrai telefone de JID tradicional e recusa LID", async () => {
+    const { jidToPhone } = await import("./bot-evolution.js");
+    expect(jidToPhone("557192679840@s.whatsapp.net")).toBe("557192679840");
+    expect(jidToPhone("557192679840:12@s.whatsapp.net")).toBe("557192679840");
+    expect(jidToPhone("249524832448692@lid")).toBe("");   // LID NÃO é telefone
+    expect(jidToPhone(undefined)).toBe("");
+  });
+  it("groupParticipants usa phoneNumber quando o id vem como LID", async () => {
+    const f = fakeFetch(() => ({ body: { participants: [
+      { id: "141386213019830@lid", phoneNumber: "555182253352@s.whatsapp.net", admin: null },
+      { id: "170652304732240@lid", phoneNumber: "244921782221@s.whatsapp.net", admin: null },
+      { id: "557193951582@s.whatsapp.net", admin: "admin" },
+    ] } }));
+    const phones = await createEvolutionClient({ config: CONFIG, fetchImpl: f.impl }).groupParticipants("123@g.us");
+    expect(phones).toEqual(["555182253352", "244921782221", "557193951582"]);
+    expect(phones.every((p) => /^[1-9]\d{7,14}$/.test(p))).toBe(true);   // nenhum LID vazou
+  });
+});
