@@ -48,6 +48,37 @@ describe("atendimento humano pela conversa original",()=>{
  db.prepare("UPDATE integration_settings SET value='5511988882222'").run();
  expect(routeHumanRelay(db,config,{phone:human,text:`RESPONDER ${a.ticketId} texto`}).messages[0].body).toContain("exclusivo");
  });
+ it("texto de 3000 caracteres preservado nos dois sentidos e payload menor que 4096",()=>{
+ const a=openHumanRelay(db,config,{phone:user,message:"humano"});
+ const text="x".repeat(3000);
+ const outgoing=routeHumanRelay(db,config,{phone:user,text});
+ expect(outgoing.messages[0].body).toContain(text);
+ expect(outgoing.messages[0].body.length).toBeLessThan(4096);
+ const response=routeHumanRelay(db,config,{phone:human,text:`RESPONDER ${a.ticketId} ${text}`});
+ expect(response.messages[0].body).toContain(text);
+ expect(response.messages[0].body.length).toBeLessThan(4096);
+ expect(routeHumanRelay(db,config,{phone:user,text:text+"x"}).messages).toHaveLength(1);
+ expect(routeHumanRelay(db,config,{phone:user,text:text+"x"}).messages[0].body).toContain("não foi encaminhado");
+ });
+ it("pausa bloqueia ambos sentidos, preserva chamado e permite voltar sem avisos ao humano",()=>{
+ const a=openHumanRelay(db,config,{phone:user,message:"humano"});
+ const paused=routeHumanRelay(db,config,{phone:user,text:"Preciso de ajuda",enabled:false});
+ expect(paused.messages).toHaveLength(1);expect(paused.messages[0].recipient).toBe(user);
+ expect(paused.messages[0].body).toContain("Nenhuma mensagem foi encaminhada");
+ const response=routeHumanRelay(db,config,{phone:human,text:`RESPONDER ${a.ticketId} resposta`,enabled:false});
+ expect(response.messages).toHaveLength(1);expect(response.messages[0].recipient).toBe(human);
+ expect(db.prepare("SELECT status FROM bot_support_tickets WHERE id=?").get(a.ticketId)).toEqual({status:"OPEN"});
+ const resume=routeHumanRelay(db,config,{phone:user,text:"VOLTAR AO BOT",enabled:false});
+ expect(resume.messages).toHaveLength(1);expect(resume.messages[0].recipient).toBe(user);
+ expect(db.prepare("SELECT status FROM bot_support_tickets WHERE id=?").get(a.ticketId)).toEqual({status:"CLOSED"});
+ });
+ it("anexo só gera aviso explícito e orientação para texto, nunca finge arquivo encaminhado",()=>{
+ openHumanRelay(db,config,{phone:user,message:"humano"});
+ const response=routeHumanRelay(db,config,{phone:user,text:"",media:true});
+ expect(response.messages[0].recipient).toBe(human);
+ expect(response.messages[0].body).toContain("arquivo NÃO foi encaminhado");
+ expect(response.messages[1].body).toContain("Escreva sua dúvida em texto");
+ });
  it("não cria loop para o próprio humano e mensagem comum não é relayed",()=>{
  expect(openHumanRelay(db,config,{phone:human,message:"humano"}).ticketId).toBeNull();
  expect(routeHumanRelay(db,config,{phone:human,text:"oi"}).handled).toBe(false);

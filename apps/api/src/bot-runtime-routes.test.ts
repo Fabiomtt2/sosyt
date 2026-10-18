@@ -1,4 +1,5 @@
 import {setHumanSupportNumber} from "./bot-human-handoff.js";
+import {routeHumanRelay} from "./bot-human-relay.js";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {randomUUID} from "node:crypto";
 import {mkdtempSync,rmSync,statSync} from "node:fs";
@@ -72,7 +73,18 @@ describe("Root controla o runtime durável do bot",()=>{
   expect(result.statusCode,result.body).toBe(202);
   const id=result.json().outboxId;
   expect(db.prepare("SELECT recipient FROM whatsapp_outbox WHERE id=?").get(id)).toEqual({recipient:"5571999990888"});
+  const ticket=db.prepare("SELECT id,phone,status FROM bot_support_tickets").get() as {id:string;phone:string;status:string};
+  expect(ticket).toMatchObject({phone:"5571999990001",status:"OPEN"});
+  const outbox=db.prepare("SELECT payload FROM whatsapp_outbox WHERE id=?").get(id) as {payload:string};
+  expect(outbox.payload).toContain("RESPONDER "+ticket.id);
+  expect(outbox.payload).toContain("TESTE ADMINISTRATIVO");
+  expect(outbox.payload).not.toContain("wa.me");
+  const relay=routeHumanRelay(db,{} as never,{phone:"5571999990888",text:"RESPONDER "+ticket.id+" Recebido, teste confirmado."});
+  expect(relay.handled).toBe(true);
+  expect(relay.messages[0]).toMatchObject({recipient:"5571999990001"});
+  expect(relay.messages[0].body).toContain("Recebido, teste confirmado.");
   expect((await app.inject({method:"POST",url:"/admin/bot/test-message",headers,payload})).json().outboxId).toBe(id);
+  expect((db.prepare("SELECT COUNT(*) AS n FROM bot_support_tickets").get() as {n:number}).n).toBe(1);
   expect((await app.inject({url:"/admin/bot/test-message/"+id,headers})).json().providerConfirmed).toBe(false);
   expect(fetch).not.toHaveBeenCalled();
  });

@@ -148,6 +148,27 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   const menu=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-3:fallback'").get() as {payload:string};
   expect(payloadBody(menu.payload)).toMatch(/fila/i);
  });
+ it("ticket HTTP recebe 3000 caracteres antes do fallback e pausa respeita gerenciamento",async()=>{
+  await inbound("Tenho dúvidas");
+  const full="a".repeat(3000);
+  await inbound(full);
+  const forwarded=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-2:relay-user-message'").get() as {recipient:string;payload:string};
+  expect(forwarded.recipient).toBe("5571993978956");expect(payloadBody(forwarded.payload)).toContain(full);
+  expect(payloadBody(forwarded.payload).length).toBeLessThan(4096);
+  expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-2:too-long'").get()).toBeUndefined();
+  db.prepare("INSERT INTO integration_settings(key,value,updated_at) VALUES('bot.feature.HUMAN_HANDOFF','0',?) ON CONFLICT(key) DO UPDATE SET value='0'").run(new Date().toISOString());
+  const before=(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE recipient='5571993978956'").get() as {n:number}).n;
+  await inbound(full);
+  const paused=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-3:relay-paused'").get() as {payload:string};
+  expect(payloadBody(paused.payload)).toContain("Nenhuma mensagem foi encaminhada");
+  expect((db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE recipient='5571993978956'").get() as {n:number}).n).toBe(before);
+  expect(db.prepare("SELECT status FROM bot_support_tickets WHERE phone=?").get(phone)).toEqual({status:"OPEN"});
+  await inbound("VOLTAR AO BOT");
+  expect(db.prepare("SELECT status FROM bot_support_tickets WHERE phone=?").get(phone)).toEqual({status:"CLOSED"});
+  await inbound("Tenho dúvidas");
+  const disabled=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-5:human-paused'").get() as {payload:string};
+  expect(payloadBody(disabled.payload)).toContain("Não encaminhei seu pedido");
+ });
  it("pendência antiga verificada não exige aprovação manual para emitir senha",async()=>{
   const at=new Date().toISOString();
   db.prepare("INSERT INTO participation_requests(id,phone,name,status,source,created_at,updated_at) VALUES(?,?,?,'PENDING','WEB',?,?)").run("legacy",phone,"Pessoa",at,at);

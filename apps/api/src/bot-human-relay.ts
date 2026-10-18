@@ -29,14 +29,18 @@ export function openHumanRelay(db:AppDatabase,config:Config,input:{phone:string;
   return {ticketId:ticket.id,messages:[{recipient:support,key:"human-ticket",body:
     `🙋 Atendimento #${ticket.id}\nParticipante: ${input.name||"Participante"}\nMensagem: ${input.message.slice(0,500)}\n\nResponda NESTA conversa com:\nRESPONDER ${ticket.id} sua resposta\nO bot entrega sua resposta na conversa original da pessoa.\nPara concluir: ENCERRAR ${ticket.id}\nNão encaminhe senhas ou códigos.`}]};
 }
-export function routeHumanRelay(db:AppDatabase,config:Config,input:{phone:string;text:string}):{handled:boolean;messages:RelayMessage[]}{
+export function routeHumanRelay(db:AppDatabase,config:Config,input:{phone:string;text:string;enabled?:boolean;media?:boolean}):{handled:boolean;messages:RelayMessage[]}{
   ensureHumanRelay(db);
   const support=humanSupportNumber(db,config),text=input.text.trim();
+  const enabled=input.enabled!==false;
+  const paused=(recipient:string):RelayMessage=>({recipient,key:"relay-paused",body:"O atendimento humano está pausado pelo gerenciamento. Nenhuma mensagem foi encaminhada. Seu chamado continua registrado. Para retomar o bot, envie VOLTAR AO BOT."});
+  const tooLong=(recipient:string):RelayMessage=>({recipient,key:"relay-too-long",body:"Neste atendimento, envie até 3000 caracteres por mensagem. Este texto não foi encaminhado; divida-o em mensagens menores para enviar tudo."});
   const command=text.match(/^(responder|encerrar)\s+#?([a-f0-9]{12})(?:\s+([\s\S]+))?$/i);
   if(command){
     if(!sameWhatsAppNumber(support,input.phone))return {handled:true,messages:[{recipient:input.phone,key:"relay-denied",body:"Este comando é exclusivo do atendimento humano configurado."}]};
     const ticket=db.prepare("SELECT * FROM bot_support_tickets WHERE id=? AND status='OPEN'").get(command[2].toUpperCase()) as Ticket|undefined;
     if(!ticket)return {handled:true,messages:[{recipient:support,key:"relay-missing",body:"Chamado não encontrado ou já encerrado. Confira o identificador."}]};
+    if(!enabled)return {handled:true,messages:[paused(support)]};
     if(command[1].toLowerCase()==="encerrar"){
       close(db,ticket);
       return {handled:true,messages:[
@@ -45,6 +49,7 @@ export function routeHumanRelay(db:AppDatabase,config:Config,input:{phone:string
     }
     const body=command[3]?.trim();
     if(!body)return {handled:true,messages:[{recipient:support,key:"relay-empty",body:`Escreva RESPONDER ${ticket.id} seguido da mensagem para a pessoa.`}]};
+    if(body.length>3000)return {handled:true,messages:[tooLong(support)]};
     db.prepare("UPDATE bot_support_tickets SET updated_at=? WHERE id=?").run(stamp(),ticket.id);
     return {handled:true,messages:[
       {recipient:ticket.phone,key:"relay-response",body:`💬 Equipe humana SOS YOUTUBER:\n${body}\n\nPode responder aqui mesmo. Para voltar ao atendimento automático, envie VOLTAR AO BOT.`},
@@ -57,8 +62,14 @@ export function routeHumanRelay(db:AppDatabase,config:Config,input:{phone:string
     close(db,ticket);
     return {handled:true,messages:[
       {recipient:input.phone,key:"relay-resume",body:"Você voltou ao atendimento automático. 💛 Envie MENU para ver as opções."},
-      {recipient:support,key:"relay-user-closed",body:`Chamado #${ticket.id}: a pessoa voltou ao bot e encerrou o atendimento.`}]};
+      ...(enabled?[{recipient:support,key:"relay-user-closed",body:`Chamado #${ticket.id}: a pessoa voltou ao bot e encerrou o atendimento.`}]:[])]};
   }
+  if(!enabled)return {handled:true,messages:[paused(input.phone)]};
+  if(input.media)return {handled:true,messages:[
+    {recipient:support,key:"relay-media-alert",body:`Chamado #${ticket.id}: a pessoa enviou áudio, imagem ou outro anexo. O arquivo NÃO foi encaminhado: este atendimento pelo bot aceita somente texto. Oriente a pessoa a descrever a dúvida por escrito.
+RESPONDER ${ticket.id} sua resposta`},
+    {recipient:input.phone,key:"relay-media-user",body:"Seu chamado continua aberto. Avisei à equipe que você enviou um anexo, mas o arquivo não pode ser encaminhado por este atendimento. Escreva sua dúvida em texto para a equipe receber por esta conversa."}]};
+  if(text.length>3000)return {handled:true,messages:[tooLong(input.phone)]};
   db.prepare("UPDATE bot_support_tickets SET updated_at=? WHERE id=?").run(stamp(),ticket.id);
   return {handled:true,messages:[
     {recipient:support,key:"relay-user-message",body:`💬 Chamado #${ticket.id} · ${ticket.name||"Participante"}\n${text}\n\nRESPONDER ${ticket.id} sua resposta\nENCERRAR ${ticket.id}`},

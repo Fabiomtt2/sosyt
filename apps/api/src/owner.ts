@@ -1,4 +1,5 @@
-import { humanSupportNumber, humanHandoffAlert } from "./bot-human-handoff.js";
+import { humanSupportNumber } from "./bot-human-handoff.js";
+import { openHumanRelay } from "./bot-human-relay.js";
 import { readSupportAvailability, saveSupportAvailability } from "./support-availability.js";
 import { botAutomationRuntimeStatus, recordBotAutomationEvent, dispatchBotAutomations } from "./bot-automation-runtime.js";
 import { featureEnabled } from "./bot.js";
@@ -541,7 +542,10 @@ export async function registerOwnerRoutes(
       if(old)return {queued:true,...old};
       const recent=db.prepare("SELECT 1 FROM bot_automation_audit WHERE event=? AND actor_owner_id=? AND created_at>?").get(event,account.id,new Date(Date.now()-60_000).toISOString());
       if(recent)return {queued:false,reason:"Aguarde um minuto antes de solicitar outro teste."};
-      const queued=queueBotNotification(db,config,recipient,target==="HUMAN"?humanHandoffAlert({name:account.name,userPhone:account.phone,lastMessage:"Teste administrativo do encaminhamento humano. Não é uma solicitação real de suporte."}):"Teste do SOS YOUTUBER: o painel solicitou esta mensagem para confirmar o envio pelo bot. Nenhuma senha ou código foi incluído.",key,undefined,{deliveryClass:"TRANSACTIONAL",event});
+      const relay=target==="HUMAN"?openHumanRelay(db,config,{phone:account.phone,name:account.name,message:"TESTE ADMINISTRATIVO do atendimento na conversa original do bot. Não é uma solicitação real de suporte. Responda apenas para confirmar o funcionamento."}):null;
+      if(target==="HUMAN"&&!relay?.ticketId)return {queued:false,reason:"O número da sua conta já é o atendimento humano. Use outra conta Root para testar o encaminhamento."};
+      const message=relay?.messages[0]?.body??"Teste do SOS YOUTUBER: o painel solicitou esta mensagem para confirmar o envio pelo bot. Nenhuma senha ou código foi incluído.";
+      const queued=queueBotNotification(db,config,recipient,message,key,undefined,{deliveryClass:"TRANSACTIONAL",event});
       if(queued.outboxId)db.prepare("INSERT INTO bot_automation_audit(event,field,after_value,actor_owner_id,actor_owner_name,created_at) VALUES(?,'dispatch',?,?,?,?)")
         .run(event,queued.outboxId,account.id,account.name,new Date().toISOString());
       return queued;

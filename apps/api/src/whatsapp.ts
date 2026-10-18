@@ -507,6 +507,7 @@ function catalogDeliveryFeature(event:AutomationEvent):BotFeatureCode|undefined 
 /** Revalidate waiting catalog work before spending a transport attempt. Secrets and
  * direct inbound fallback replies deliberately carry no catalog event envelope. */
 function queuedAutomationDisabled(db:AppDatabase,payload:Payload) {
+  if(payload._humanRelay===true&&!featureEnabled(db,"HUMAN_HANDOFF"))return true;
   if(typeof payload._event!=="string"||!isAutomationEvent(payload._event))return false;
   const event=payload._event;
   // Historical MONTHLY_TOP DMs are prize receipts from the gamification bridge;
@@ -661,6 +662,13 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             const fresh = db.prepare("INSERT OR IGNORE INTO whatsapp_received (message_id,received_at) VALUES (?,?)").run(msg.id,now()); if (!fresh.changes) continue;
             const stampGuard = normalizeInboundTimestamp(msg.timestamp);
             const expiresGuard = new Date((Number.isFinite(stampGuard)?stampGuard:Date.now())+24*3600_000).toISOString();
+            if (msg.type !== "text" || !msg.text?.body || msg.text.body.length>500) {
+              const earlyRelay=routeHumanRelay(db,runtimeConfig,{phone:msg.from,text:msg.text?.body??"",media:msg.type!=="text"||!msg.text?.body,enabled:featureEnabled(db,"HUMAN_HANDOFF")});
+              if(earlyRelay.handled){
+                for(const delivery of earlyRelay.messages)queue(db,delivery.recipient,{type:"text",_humanRelay:!["relay-paused","relay-too-long","relay-resume","relay-denied","relay-missing","relay-empty"].includes(delivery.key),text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expiresGuard,runtimeConfig);
+                continue;
+              }
+            }
             if (msg.type !== "text" || !msg.text?.body) {
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:MEDIA_REPLY}},`${msg.id}:media`,expiresGuard,runtimeConfig);
               continue;
@@ -692,12 +700,16 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor(intent)!}},`${msg.id}:${intent}`,expires,runtimeConfig);
               continue;
             }
-            const relay=routeHumanRelay(db,runtimeConfig,{phone:msg.from,text});
+            const relay=routeHumanRelay(db,runtimeConfig,{phone:msg.from,text,enabled:featureEnabled(db,"HUMAN_HANDOFF")});
             if(relay.handled){
-              for(const delivery of relay.messages)queue(db,delivery.recipient,{type:"text",text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
+              for(const delivery of relay.messages)queue(db,delivery.recipient,{type:"text",_humanRelay:!["relay-paused","relay-too-long","relay-resume","relay-denied","relay-missing","relay-empty"].includes(delivery.key),text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
               continue;
             }
             // "humano": o proprio bot mandava escrever isso e nao havia handler.
+            if (intent === "HUMAN" && !featureEnabled(db,"HUMAN_HANDOFF")) {
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:"O atendimento humano está pausado pelo gerenciamento. Não encaminhei seu pedido. Você pode continuar usando o atendimento automático: envie MENU."}},`${msg.id}:human-paused`,expires,runtimeConfig);
+              continue;
+            }
             if (intent === "HUMAN" && featureEnabled(db,"HUMAN_HANDOFF")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'HUMAN_REQUESTED',?) ON CONFLICT(phone) DO UPDATE SET stage='HUMAN_REQUESTED',updated_at=excluded.updated_at").run(msg.from,now());
               // AUDITORIA / PEDIR AJUDA HUMANA NUNCA PODE CAIR NO VAZIO. Antes isto era
@@ -714,8 +726,8 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               const response=supportReply(db,supportEvent,msg.from,fallback) ?? fallback;
               const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
               const ticket=openHumanRelay(db,runtimeConfig,{phone:msg.from,name:who?.name,message:text});
-              for(const delivery of ticket.messages)queue(db,delivery.recipient,{type:"text",text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
-              queue(db,msg.from,{type:"text",text:{preview_url:false,body:ticket.ticketId
+              for(const delivery of ticket.messages)queue(db,delivery.recipient,{type:"text",_humanRelay:!["relay-paused","relay-too-long","relay-resume","relay-denied","relay-missing","relay-empty"].includes(delivery.key),text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
+              queue(db,msg.from,{type:"text",_humanRelay:true,text:{preview_url:false,body:ticket.ticketId
                 ? response+"\n\n"+`Seu chamado é #${ticket.ticketId}. A equipe responde por esta mesma conversa. Suas próximas mensagens serão encaminhadas à equipe. Para retomar o bot, envie VOLTAR AO BOT.`
                 : "Este número é o atendimento humano configurado. Os chamados recebidos trazem instruções para RESPONDER e ENCERRAR."}},`${msg.id}:human`,expires,runtimeConfig);
               continue;
