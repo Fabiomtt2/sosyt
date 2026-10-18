@@ -1,3 +1,33 @@
+# Checkpoint vigente — 2026-10-18T08:45-03:00
+
+Fonte de integração: cofre Claude ~/AUDITORIA-CLAUDE-SOSYT/01-ESPELHO/trabalho,
+branch auditoria/hybrid-plus-convergencia, HEAD local 027b1f7.
+Commits locais: 2d2e1b3 (runtime, acesso e relay), 027b1f7 (relay longo/pausa).
+Ainda SEM push/merge/deploy destes commits. Produção API continua 6b35c3b,
+Web antiga. Sessão Evolution open e login Root HTTP200 confirmados nesta rodada.
+
+Validação atual: 663 testes API e 36 cliente verdes, lint/build verdes.
+E2E completo reexecutando após correções de autoria manual, clique Pix e catálogo lazy.
+Resultado anterior: 11/14; não usar como certificação do conjunto novo.
+Não iniciar segundo navegador/teste pesado. Cache Playwright canônico absoluto preservado.
+
+Leia docs/CONVERGENCIA-FUNCIONAL-20261018.md e docs/INCIDENTE-BOT-ACESSO-20261018.md.
+Leia os três laudos AUDITORIA-PERSONA-*-20261018.md, com evidências e limites.
+A árvore canônica antiga permanece WIP preservado; contém módulos sociais, presentes,
+filas e artes ainda não integrados ao cofre. Não sobrescrever árvores.
+
+Fábio reafirmou atendimento humano NA MESMA conversa do BOT; usuário não abre outro chat.
+Atendente autorizado responde via bot; número humano editável no painel identifica operador.
+Pré-intro flash ~2s autorizada; LaunchFlash e CSS escritos, AINDA sem wiring/validação visual.
+As três personas pedidas foram lançadas e entregaram laudos.
+
+Próximo: concluir E2E, commits frontend/docs, push branch e main seguro, acompanhar API/Web,
+backup consistente e smoke real autorizado. Continuar depois filas/Passe/cooldown, amigos,
+doações, painel Root, ilustrações e inspeção visual atual. Não declarar 100%.
+Autorização para merge/publicação já existe. Não pedir novamente confirmação genérica.
+
+---
+
 ## ESTADO CANÔNICO — VERSÃO NOVA ONLINE — 2026-10-15T03:44:15.681864-03:00
 - Fábio aplicou as7alterações no painel Railway. Patch vazio, nenhum trabalho pendente. Bloqueio anterior é histórico e não requer nova tentativa.
 - APIad9c094f-c783-4c0e-a1ba-8f64147758d5 e Web27559349-38d7-434c-9107-9a975799c0e8 SUCCESS1/1 no mesmo commit586ca40, main, em15/10 às03:19 Bahia.
@@ -689,3 +719,24 @@ Antes da revisão do watch: API 103/103, client 10/10, lint/build GREEN, E2E 3/3
 - accept-deploy devolveu exatamente: “Cancelled — the user did not approve this action. No changes were made.” Não contornar ou repetir sem confirmação.
 - Produção segue Online/SUCCESS 1/1 em cada serviço: API dddb1c3c-44b1-4ab6-be04-35b3a9b90de3; Web 1bf687bd-4bd6-41f5-bd4d-b472fc6f4f6c. Volume da API permanece conectado. Backup/migração novos ainda NÃO confirmados em produção.
 - Próximo: confirmar publicação, reler staged/status, aplicar uma vez, observar SUCCESS, confirmar backup e smoke público. Não usar redeploy do build antigo.
+
+
+## Retomada factual — 18/10/2026, rodada de publicação do bot
+- Fonte editável: cofre Claude, branch auditoria/hybrid-plus-convergencia. Worktree antiga preservada sem sobreposição.
+- Commits locais: 2d2e1b3 (runtime integrado, autenticação/admissão e relay humano) e 027b1f7 (mensagens longas e pausa do atendimento). Ainda não publicados neste checkpoint.
+- Gate consolidado atual: API 663/663, cliente 36/36, lint e build completos verdes; diff sem erros. E2E 12/14: compra excedeu estabilidade/rolagem em 15s na máquina de pouca memória; banner dependia de índice inicial apesar do autoplay. Reexecução focada em andamento, sem clique forçado.
+- Atendimento humano permanece na conversa do BOT: operador configurado responde com RESPONDER ID texto; usuário pode VOLTAR AO BOT. Não exige migrar para conversa humana separada. Arquivos de mídia ainda exigem descrição em texto, explicitamente informada.
+- Evolution verificado open; bot com permissão administrativa nos dois grupos pareados. Consulta agregada de grupos 500; fallback restrito aos grupos pareados foi implementado e testado. Nenhum replay em massa de outbox.
+- Produção ainda precisa receber API e Web coordenadas, seguida de health com oito capacidades, confirmação do backup consistente e testes reais SELF/HUMAN com recibos. Testes sintéticos não comprovam recebimento real.
+- Pendências posteriores continuam explícitas: integração de Passe/filas durante cooldown, amigos/bloqueios e presentes com origem, painel de atendimento, 12 faixas visuais e revisão visual completa. Preintro LaunchFlash existe como arquivo isolado, não integrado e fora desta publicação urgente. Não declarar sistema 100% concluído.
+
+
+## Publicação do backend confirmada — 18/10/2026
+- GitHub main avançou sem force para 027b1f7c2f19632dbea2b215cc01bddf349db991. Fonte Railway continua Fabiomtt2/sosyt@main, sem pin.
+- API deployment 9ffd980e-1707-4f9d-8b78-ee3ba7b94654 SUCCESS. Health público HTTP200, release bot-convergencia-20261018 e oito capacidades confirmadas.
+- Backup pré-migração confirmado no log: /data/backups/pre-bot-runtime-1792342312839-92bb6c21-ab41-4e1d-bf6c-439964f85c1c.sqlite. Volume preservado.
+- Login Root real renovado HTTP200. Testes administrativos SELF e HUMAN: HTTP202, depois SENT com providerConfirmed=true, sem envio direto ou bypass dos freios. HUMAN abre ticket administrativo; resposta real do operador ainda não comprovada.
+- Evolution open e webhook habilitado no backend, com autenticação configurada, foram conferidos nesta retomada.
+- Gate: API 663/663, cliente 36/36, lint/build completos verdes. E2E consolidado anterior 12/14; os dois casos corrigidos passaram em reexecuções focadas (compras e cenário completo community). Portanto os 14 cenários têm aprovação acumulada; não foi uma nova execução única 14/14.
+- Cenário community isolou o modo legado DEV depois de explorar Evolution; autoplay não determina mais o frame inicial; ações limitadas a 30s e expectativas a 15s nessa auditoria longa com capturas na máquina de 4GB. Retorno ao Owner exige também HTTP200 do overview. Nenhuma asserção funcional removida ou clique forçado.
+- Cliente de produção ainda precisa avançar para os commits de frontend. Pré-intro e demais pendências funcionais/visuais continuam fora desta publicação urgente.

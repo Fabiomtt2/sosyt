@@ -1,6 +1,9 @@
 import { ownerSession } from "./helpers/owner-session";
 import { execFileSync } from "node:child_process";
-import { test, expect } from "@playwright/test";
+import { test, expect as playwrightExpect } from "@playwright/test";
+
+// Keep the same assertions; this screenshot-heavy fixture runs on a swapping 4 GB desktop.
+const expect=playwrightExpect.configure({timeout:15_000});
 import { resolve } from "node:path";
 
 async function fillBrazilPhone(page: any, subscriber: string) {
@@ -29,7 +32,10 @@ async function fillBrazilPhone(page: any, subscriber: string) {
 }
 
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
+  // This page-by-page scenario captures many full-size images on the low-memory host.
+  // Allow bounded browser action time while preserving every assertion and server check.
+  page.setDefaultTimeout(30_000);
   const evidence = resolve("../../docs/evidencias"), errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 1000 }); await page.goto("/");
@@ -490,7 +496,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(adminAccountMenu.getByText("Fila atual:",{exact:false})).toBeVisible();
   await expect(adminAccountMenu.getByText("Grupo SOS YOUTUBER #",{exact:false})).toHaveCount(0);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-admin-conta-desktop.png"),fullPage:false});
+  const ownerReturn=page.waitForResponse(response=>new URL(response.url()).pathname==="/admin/overview"&&response.request().method()==="GET",{timeout:30_000});
   await adminAccountMenu.getByRole("button",{name:"Voltar ao painel administrativo"}).click();
+  expect((await ownerReturn).status()).toBe(200);
   await expect(page.getByRole("heading",{name:"Sua conexão, em números."})).toBeVisible();
   await expect(page.getByText("Proteção contra cadastro repetido",{exact:true})).toHaveCount(0);
   await expect(page.locator(".header-admin-badge")).toHaveText("ADMIN");
@@ -506,7 +514,10 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await postOwnerLogoutMenu.getByRole("button",{name:"Sair da minha conta"}).click();
   await expect(page.getByRole("heading",{name:"Entre na sua conexão"})).toBeVisible();
 
-  // This section exercises the legacy DEV identity path explicitly; production defaults to bot password.
+  // Isolate the legacy DEV identity fixture from the Evolution configuration explored above.
+  const legacyOwner=await ownerSession(request);
+  expect((await request.post("http://127.0.0.1:17333/admin/integrations/whatsapp",{headers:{authorization:"Bearer "+legacyOwner},data:{mode:"DISABLED"}})).ok()).toBe(true);
+  await page.reload();
   await page.getByRole("button", { name: "Prefiro a chave no WhatsApp", exact: true }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await fillBrazilPhone(page, "900000001");
   await expect(page.getByLabel("Digite o número correspondente ao seu grupo")).toHaveCount(0); await page.getByRole("button", { name: "Continuar", exact: true }).click();
