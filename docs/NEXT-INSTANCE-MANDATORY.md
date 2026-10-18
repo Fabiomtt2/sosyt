@@ -756,3 +756,12 @@ Antes da revisão do watch: API 103/103, client 10/10, lint/build GREEN, E2E 3/3
 - Gate: API 663/663, cliente 36/36, lint/build completos verdes. E2E consolidado anterior 12/14; os dois casos corrigidos passaram em reexecuções focadas (compras e cenário completo community). Portanto os 14 cenários têm aprovação acumulada; não foi uma nova execução única 14/14.
 - Cenário community isolou o modo legado DEV depois de explorar Evolution; autoplay não determina mais o frame inicial; ações limitadas a 30s e expectativas a 15s nessa auditoria longa com capturas na máquina de 4GB. Retorno ao Owner exige também HTTP200 do overview. Nenhuma asserção funcional removida ou clique forçado.
 - Cliente de produção ainda precisa avançar para os commits de frontend. Pré-intro e demais pendências funcionais/visuais continuam fora desta publicação urgente.
+
+
+## API + Web publicadas e smoke público — 18/10/2026
+- Web af25a7e1-505c-45e1-8409-8f89dab629fe SUCCESS, fonte 6fda9d5e6656f71993b7b3be3d01630611ad6852. Log confirmou verificação das capacidades da API antes de expor o cliente.
+- API permanece 9ffd980e-1707-4f9d-8b78-ee3ba7b94654 SUCCESS, fonte 027b1f7. O código apps/api é idêntico entre esse commit e 6fda9d5; commits posteriores acrescentaram cliente, testes e documentação. Sem necessidade de reconstruir a API por alterações exclusivas de docs.
+- Smoke real via Chromium na URL pública PASS: senha padrão; modo Evolution sem atalho de chave Meta; cadastro abre o contato público correto do bot; mobile sem overflow; nenhum pageerror. Capturas públicas desktop/mobile abertas visualmente e mantidas em pasta privada ignorada, fora do commit.
+- Testes reais SELF e HUMAN SENT, providerConfirmed=true. Isso confirma aceite pelo transporte, não leitura humana. Ida e volta humana ainda depende de resposta real do operador ao ticket administrativo recebido.
+- Lint completo reexecutado após os ajustes finais, EXIT0; diff check limpo. Chaves/sessões e screenshots excluídas do staged.
+- Este marco encerra a publicação urgente do bot. Próxima frente: integrar correções preparadas de filas/Passe/cooldown, amigos/bloqueio/presentes e painel; depois pré-intro e convergência visual. Não confundir essas pendências com funcionalidades publicadas.
