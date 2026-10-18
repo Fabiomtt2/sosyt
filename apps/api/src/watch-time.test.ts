@@ -114,11 +114,13 @@ describe("tempo verificado de acompanhamento",()=>{
     expect(crossed.json().rewardCoins).toBe(1);
     expect(crossed.json().walletTotal).toBe(11);
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_TIME'").get(user.userId) as {n:number}).n).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM bot_automation_events WHERE event='COINS_EARNED' AND user_id=?").get(user.userId)).toEqual({n:1});
 
     ageState(user.userId,5000);
     const noSecond=await observe(user.token,roundId,{...base,playerSeconds:16});
     expect(noSecond.json().rewardDeltaCoins).toBe(0);
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_TIME'").get(user.userId) as {n:number}).n).toBe(1);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM bot_automation_events WHERE event='COINS_EARNED' AND user_id=?").get(user.userId)).toEqual({n:1});
   });
 
   it("não converte moedas WATCH_PROGRESS antigas em minutos verificados",async()=>{

@@ -28,6 +28,13 @@ export const DAILY_SCHEDULE = {
  * dispatch substitui depois. Mínimo de 5 por evento para não cansar.
  */
 export const EVENT_VARIANTS: Record<string, string[]> = {
+  WELCOME_DM: [
+    "Oi! 👋 Que bom receber você no SOS YOUTUBER! Aqui a gente cresce colaborando, um vídeo de cada vez. 💛",
+    "Seja bem-vindo ao SOS YOUTUBER! 😊 Vamos dar seu primeiro passo juntos, com calma e sem complicação. 💛",
+    "Olá! Que bom que você chegou. 🌟 Sou o assistente do SOS YOUTUBER e vou ajudar você a começar. 💛",
+    "Chega mais! 👋 No SOS YOUTUBER tem espaço para aprender e colaborar. Vou acompanhar você por aqui. 💛",
+    "É um prazer ter você com a gente! 🙌 Vamos preparar seu acesso ao SOS YOUTUBER, passo a passo. 💛",
+  ],
   QUEUE_OPEN: [
     "🚀 Fila nova no ar! A fila {fila} abriu agora. Tem lugar pra todo mundo colaborar, vem com calma: {link}",
     "✨ Abriu a fila {fila}! Bora montar mais um ciclo juntos? Sua vaga te espera em {link}",

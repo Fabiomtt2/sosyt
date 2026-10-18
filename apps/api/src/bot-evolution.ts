@@ -229,11 +229,10 @@ export function createEvolutionClient(opts: {
           const list = Array.isArray(listing) ? listing : [listing];
           const entry = list.find((item: Record<string, unknown>) => String(item.name ?? (item.instance as { instanceName?: string } | undefined)?.instanceName ?? "") === config.instance);
           const ownerRaw = String(entry?.ownerJid ?? (entry?.instance as { owner?: string; ownerJid?: string } | undefined)?.ownerJid ?? (entry?.instance as { owner?: string } | undefined)?.owner ?? "");
-          // JID real pode vir como numero:device@server ou formato LID; compara só os
-          // dígitos do número (antes de ':' e '@') para não congelar sessão legítima.
-          const owner = ownerRaw.split("@")[0].split(":")[0].replace(/\D/g, "");
-          const expected = String(config.number).replace(/\D/g, "");
-          if (owner && expected && !sameWhatsAppNumber(owner, expected)) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
+          // LID is a transport mask, never proof of the configured phone.
+          const owner = jidToPhone(ownerRaw);
+          const expected = jidToPhone(config.number);
+          if (!owner || !expected || !sameWhatsAppNumber(owner, expected)) return { connected: false, state: "identity_unverified", detail: "A sessão conectada não confirmou o telefone salvo. Reconecte a instância correta." };
         }
         return { connected: state === "open", state: state || undefined };
       } catch (cause) {
@@ -249,11 +248,24 @@ export function createEvolutionClient(opts: {
     async configureWebhook(url: string, secret: string) {
       return call(`/webhook/set/${encodeURIComponent(config.instance)}`, { method: "POST", body: { webhook: { enabled: true, url, webhookByEvents: false, webhookBase64: false, headers: { "x-sos-webhook-secret": secret }, events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] } } });
     },
-    /** Lista todos os grupos com participantes (para o sync de membership). */
-    async groups(): Promise<Array<{ id: string; subject: string; participants: Array<{ id?: string; admin?: string }>; size?: number }>> {
-      const data = await call(`/group/fetchAllGroups/${encodeURIComponent(config.instance)}?getParticipants=true`);
+    /** A listagem agregada pode falhar no provider; lê membros separadamente nesse caso. */
+    async groups(): Promise<Array<{ id: string; subject: string; participants: Array<{ id?: string; phoneNumber?: string; admin?: string }>; size?: number }>> {
+      let data: unknown;
+      try { data = await call(`/group/fetchAllGroups/${encodeURIComponent(config.instance)}?getParticipants=true`); }
+      catch (cause) {
+        if (!(cause instanceof EvolutionSafetyError) || cause.code !== "EVOLUTION_500") throw cause;
+        data = await call(`/group/fetchAllGroups/${encodeURIComponent(config.instance)}?getParticipants=false`);
+        if (!Array.isArray(data)) throw new EvolutionSafetyError("INVALID_GROUP_LIST", "O motor não retornou uma lista completa de grupos.");
+        // Sequential reads avoid turning one provider failure into a request burst.
+        for (const group of data) {
+          if (!/^SOS\s*YOUTUBER?\s*\d+$/i.test(String(group.subject ?? "").trim())) continue;
+          const members = await call(`/group/participants/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(group.id)}`);
+          if (!Array.isArray(members.participants)) throw new EvolutionSafetyError("INVALID_PARTICIPANT_LIST", "O motor não confirmou a lista de participantes.");
+          group.participants = members.participants;
+        }
+      }
       if (!Array.isArray(data)) throw new EvolutionSafetyError("INVALID_GROUP_LIST", "O motor não retornou uma lista completa de grupos.");
-      return data as Array<{ id: string; subject: string; participants: Array<{ id?: string; admin?: string }>; size?: number }>;
+      return data as Array<{ id: string; subject: string; participants: Array<{ id?: string; phoneNumber?: string; admin?: string }>; size?: number }>;
     },
     /** DM individual (boas-vindas, senha, suporte) com confirmação de recibo. */
     async sendText(recipient: string, text: string) {
@@ -274,11 +286,12 @@ export function createEvolutionClient(opts: {
       const data = await call(
         `/group/participants/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`,
       );
-      const list = (data as { participants?: Array<{ id?: string; phoneNumber?: string }> }).participants ?? [];
+      const list = (data as { participants?: Array<{ id?: string; jid?: string; phoneNumber?: string }> }).participants;
+      if (!Array.isArray(list)) throw new EvolutionSafetyError("INVALID_PARTICIPANT_LIST", "O motor não confirmou a lista de participantes.");
       // AUDITORIA / LID: o WhatsApp novo entrega `id` como LID (identificador privado,
       // NAO telefone) e o telefone real em `phoneNumber`. Ler o `id` cru faria a
       // sincronizacao de membros comparar LIDs com telefones e nao casar NINGUEM.
-      return list.map((p) => jidToPhone(p.phoneNumber) || jidToPhone(p.id)).filter(Boolean);
+      return list.map((p) => jidToPhone(p.phoneNumber) || jidToPhone(p.id) || jidToPhone(p.jid)).filter(Boolean);
     },
 
     /** Link de convite do grupo — plano B quando a pessoa bloqueia ser adicionada. */
@@ -290,10 +303,16 @@ export function createEvolutionClient(opts: {
     },
 
     async addParticipant(groupId: string, phone: string) {
-      return call(`/group/updateParticipant/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`, {
+      const result = await call(`/group/updateParticipant/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(groupId)}`, {
         method: "POST",
         body: { action: "add", participants: [phone.replace(/\D/g, "")] },
       });
+      const outcomes = Array.isArray(result) ? result : result.participants;
+      if (Array.isArray(outcomes)) {
+        const failure = outcomes.find((item: { status?: string | number }) => item.status !== undefined && !["200", "201"].includes(String(item.status)));
+        if (failure) throw new EvolutionSafetyError(`EVOLUTION_PARTICIPANT_${failure.status}`, "O WhatsApp não confirmou a inclusão no grupo.");
+      }
+      return result;
     },
 
     async removeParticipant(groupId: string, phone: string) {

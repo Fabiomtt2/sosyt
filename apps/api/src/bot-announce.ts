@@ -8,6 +8,15 @@ import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { renderAutomation, targetGroups, type AutomationContext } from "./bot-dispatch.js";
 import { queueGroupAutomation } from "./whatsapp.js";
+import { featureEnabled, type BotFeatureCode } from "./bot.js";
+import { spreadFanOut } from "./bot-evolution.js";
+
+function featureForAnnouncement(event: string): BotFeatureCode | undefined {
+  if(event.startsWith("QUEUE_") || event==="UPLOAD_NOTICE")return "QUEUE_ANNOUNCE";
+  if(event.startsWith("WELCOME_"))return "DECISION_NOTICE";
+  if(["BROADCAST_GLOBAL","WEEKLY_XP_RANK","MONTHLY_TOP","PINNED_MESSAGE"].includes(event))return "BROADCAST";
+  return undefined;
+}
 
 /**
  * Anuncia um evento nos grupos. `dedupeKey` garante idempotência (ex.: o id da
@@ -19,6 +28,8 @@ export function announceToGroups(
   vars: Record<string, string | number>,
   opts: { dedupeKey: string; ctx?: AutomationContext; expiresMinutes?: number; now?: Date },
 ): { queued: number; skipped?: string } {
+  const feature=featureForAnnouncement(event);
+  if(feature && !featureEnabled(db,feature))return {queued:0,skipped:"feature-disabled"};
   const rendered = renderAutomation(db, event, vars);
   if ("skipped" in rendered) return { queued: 0, skipped: rendered.skipped };
   if (rendered.channel !== "EVOLUTION") return { queued: 0, skipped: "not-group-channel" };
@@ -27,13 +38,15 @@ export function announceToGroups(
   // warmup/silencio adiar alem disso, descarta em vez de postar "fulano fez upload" de
   // um video velho. 0 = sem validade.
   const minutes = opts.expiresMinutes ?? 720;
-  const expiresAt = minutes > 0 ? new Date((opts.now ?? new Date()).getTime() + minutes * 60_000).toISOString() : undefined;
+  const at=opts.now ?? new Date();
+  const delays=spreadFanOut(groups.length);
+  const expiresAt = minutes > 0 ? new Date(at.getTime() + minutes * 60_000).toISOString() : undefined;
   let queued = 0;
-  for (const group of groups) {
+  for (const [index,group] of groups.entries()) {
     const result = queueGroupAutomation(
       db, config, group.groupId, rendered.text,
       `${event}:${group.groupId}:${opts.dedupeKey}`,
-      { event, deliveryClass: "ENGAGEMENT", expiresAt },
+      { event, deliveryClass: rendered.deliveryClass==="QUEUE" ? "QUEUE" : "ENGAGEMENT", availableAt:new Date(at.getTime()+(delays[index]??0)).toISOString(), expiresAt },
     );
     if (result.queued) queued += 1;
   }

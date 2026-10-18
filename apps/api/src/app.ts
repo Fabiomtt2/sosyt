@@ -1,3 +1,5 @@
+import { resolveStoredPhone } from "./phone-identity.js";
+import { scheduleBotAutomations, dispatchBotAutomations, recordBotAutomationEvent } from "./bot-automation-runtime.js";
 import { ensureBotPassword, readBotPasswordSettings, saveBotPasswordSettings } from "./bot-password.js";
 import { readGamificationBot, saveGamificationBot, dispatchGamificationEvents } from "./gamification-bot.js";
 import { gamificationData, gamificationRanks, dropLabel } from "./gamification-view.js";
@@ -176,7 +178,7 @@ function avatarFromRow(db: AppDatabase, row: Row) {
 }
 
 function getUser(db: AppDatabase, userId: string) {
-  const row=db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode,
+  const row=db.prepare(`SELECT u.id,u.name,u.phone,COALESCE((SELECT gm.group_code FROM group_memberships gm JOIN groups g ON g.code=gm.group_code WHERE gm.phone=u.phone AND gm.revoked_at IS NULL AND g.enabled=1 LIMIT 1),u.group_code) AS groupCode,
     p.avatar_kind AS avatarKind,p.avatar_preset AS avatarPreset,p.avatar_image AS avatarImage,p.avatar_mime AS avatarMime,
     y.channel_id AS youtubeChannelId,y.channel_title AS youtubeChannelTitle,y.channel_thumbnail_url AS youtubeChannelThumbnailUrl
     FROM users u
@@ -457,6 +459,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(),request.user.sub);
   }
 
+  async function accountAccessGuard(request:FastifyRequest,reply:FastifyReply){
+    await participantIdentityGuard(request,reply);
+    if(reply.sent||request.user.adminRole)return;
+    const user=db.prepare("SELECT phone,group_code AS groupCode FROM users WHERE id=?").get(request.user.sub) as {phone:string;groupCode:string};
+    const membership=db.prepare("SELECT m.group_code AS groupCode,m.revoked_at AS revokedAt,g.enabled FROM group_memberships m LEFT JOIN groups g ON g.code=m.group_code WHERE m.phone=?").get(user.phone) as {groupCode:string;revokedAt:string|null;enabled:number}|undefined;
+    if(membership&&(membership.revokedAt||!membership.enabled))return reply.code(403).send({code:"GROUP_ACCESS_REVOKED",message:"Seu acesso ao grupo está pausado. Fale com o atendimento."});
+    if(membership&&user.groupCode&&membership.groupCode!==user.groupCode)return reply.code(403).send({code:"GROUP_CHANGED",message:"Seu grupo mudou. Entre novamente com a sua senha."});
+  }
   async function authGuard(request: FastifyRequest, reply: FastifyReply) {
     await participantIdentityGuard(request,reply);
     if(reply.sent)return;
@@ -464,7 +474,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const administrativeParticipant=Boolean(request.user.adminRole);
     const cooldown=cooldownState(db,request.user.sub);
     if(!administrativeParticipant&&cooldown)return reply.code(423).send({code:"COOLDOWN_ACTIVE",message:"Seu intervalo após concluir uma fila ainda está em andamento.",...cooldown});
-    if(!administrativeParticipant&&config.REQUIRE_GROUP_MEMBERSHIP&&!hasMembership(db,String(user.phone),String(user.groupCode)))return reply.code(403).send({message:"Seu acesso precisa da aprovação do Owner em um grupo SOS YOUTUBER."});
+    if(!administrativeParticipant&&config.REQUIRE_GROUP_MEMBERSHIP&&!hasMembership(db,String(user.phone),String(user.groupCode)))return reply.code(403).send({code:"GROUP_MEMBERSHIP_PENDING",message:"Sua conta está ativa. Aguardamos confirmar sua entrada no grupo para liberar esta função."});
   }
   const {ownerGuard,rootOwnerGuard}=await registerOwnerRoutes(app,db,config,participantIdentityGuard);
   const invalidateBotPasswordDelivery=(userId:string,stamp:string)=>{
@@ -533,7 +543,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/admin/gamification/settle",{preHandler:rootOwnerGuard},async()=>settleClosedMonths(db));
   const settle=()=>{try{settleClosedMonths(db);}catch(error){app.log.error(error,"Gamification month settlement failed");}};
   let gamificationTimer:ReturnType<typeof setInterval>|undefined;
-  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);}catch(error){app.log.error(error,"Daily automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
+  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);scheduleBotAutomations(db,config);dispatchBotAutomations(db,config);}catch(error){app.log.error(error,"Bot automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
   app.addHook("onClose",async()=>{if(gamificationTimer)clearInterval(gamificationTimer);});
 
   // AUDITORIA / decisão do Fábio: login é SÓ pela senha entregue pelo bot. O login
@@ -560,7 +570,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if (!request.url.startsWith("/health") && !request.url.startsWith("/public/")) reply.header("cache-control", "no-store");
     return payload;
   });
-  app.get("/health", async () => ({ ok: true,release:"jornada-20261014",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"bot-convergencia-20261018",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -586,6 +596,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/auth/request-code", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const runtimeWhatsApp=effectiveWhatsAppConfig(db,config);
+    if(!devAuthEnabled(config)&&runtimeWhatsApp.WHATSAPP_MODE==="EVOLUTION")return reply.code(409).send({code:"BOT_PASSWORD_LOGIN",message:"Entre com a senha enviada pelo bot. Para criar ou recuperar sua senha, converse com o bot no WhatsApp. A chave temporária exige um canal oficial separado."});
     if (!devAuthEnabled(config) && (!whatsappConfigured(runtimeWhatsApp) || !runtimeWhatsApp.WHATSAPP_OTP_TEMPLATE)) return reply.code(503).send({message:"A entrega WhatsApp ainda precisa ser configurada pelos Owners."});
     const body=requestCodeSchema.extend({registration:z.boolean().default(false),consent:z.literal(true).optional()}).parse(request.body);
     if(body.registration&&!body.consent)return reply.code(400).send({message:"Autorize o uso do seu nome e WhatsApp para solicitar o cadastro."});
@@ -889,7 +900,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   });
 
   app.post("/auth/password/login", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    const body = passwordLoginSchema.parse(request.body);
+    const parsed = passwordLoginSchema.parse(request.body);
+    const body = {...parsed,phone:resolveStoredPhone(db,parsed.phone)};
     const resolved = resolveGroupForPhone(db, body.phone);
     const groupCode = body.groupCode ?? resolved.groupCode ?? undefined;
     const user = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
@@ -922,6 +934,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const cooldown = cooldownState(db, user.id);
     if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
     db.prepare("UPDATE user_passwords SET attempts=0, locked_until=NULL WHERE user_id=?").run(user.id);
+    if(resolved.groupCode&&hasMembership(db,body.phone,resolved.groupCode))db.prepare("UPDATE users SET group_code=? WHERE id=?").run(resolved.groupCode,user.id);
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), user.id);
     // AUDITORIA / ENTRADA NO GRUPO DEPOIS DO LOGIN (fluxo desenhado pelo dono): entrar
     // com a senha que o bot enviou PROVA a posse do número — e é essa prova, e não uma
@@ -941,7 +954,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // Define/troca a propria senha. Exige sessao com prova fresca (OTP/Google) OU a
   // senha atual correta. Nunca permite definir senha so com sessao de senha sem
   // confirmar a senha atual (evita que uma sessao sequestrada troque a credencial).
-  app.post("/auth/password/set", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  app.post("/auth/password/set", { preHandler: accountAccessGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const body = passwordSetSchema.parse(request.body);
     const userId = request.user.sub;
     const existing = db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as { hash: string } | undefined;
@@ -1156,7 +1169,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return changed.changes ? { ok:true } : reply.code(404).send({ message:"Avatar não encontrado." });
   });
 
-  app.get("/dashboard", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
+  app.get("/dashboard", { preHandler: accountAccessGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     ensureOpenRound(db);
     await backfillActiveSubmissionMetadata(db,effectiveYouTubeApiKey(db,config));
     // AUDITORIA / multi-fila: o quadro mostra a fila DO USUARIO (ou a que ele pediu
@@ -1182,6 +1195,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const watchRewardRefs = db.prepare("SELECT reference_id AS referenceId FROM wallet_ledger WHERE user_id = ? AND kind = 'WATCH_PROGRESS'")
       .all(request.user.sub) as Array<{ referenceId?: string }>;
     const currentUser=getUser(db,request.user.sub)!;
+    const membershipReady=Boolean(request.user.adminRole)||!config.REQUIRE_GROUP_MEMBERSHIP||hasMembership(db,String(currentUser.phone),String(currentUser.groupCode));
+    const groupJob=db.prepare("SELECT status,group_code AS groupCode,last_error AS reason FROM group_join_requests WHERE phone=?").get(String(currentUser.phone)) as {status:string;groupCode:string|null;reason:string|null}|undefined;
+    const groupAccess={ready:membershipReady,state:membershipReady?"MEMBER" as const:groupJob?.status==="INVITED"?"INVITED" as const:groupJob?.status==="FAILED"?"NEEDS_SUPPORT" as const:"JOINING" as const,groupCode:groupJob?.groupCode??undefined};
+
     const paymentRuntime=effectivePaymentConfig(db,config);
     const demoPayments=paymentRuntime.provider==="DISABLED" && config.PAYMENTS_DEV_MODE && config.NODE_ENV!=="production";
     const commerce={
@@ -1195,6 +1212,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     };
     return {
       user: currentUser,
+      groupAccess,
       wallet: walletView(db, request.user.sub), subscription:effectiveSuper(db,request.user.sub),
       openRound: roundView(db, open.id,Boolean(request.user.adminRole)),
       readyRounds: ready.map(({ id }) => {
@@ -1342,8 +1360,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           .run(randomUUID(),request.user.sub,`watch-time:${coin}`,now,"1 moeda por 20 minutos verificados");
         credited+=inserted.changes;
       }
-      if(credited) db.prepare("UPDATE wallets SET reward_millis=reward_millis+?,updated_at=? WHERE user_id=?")
-        .run(credited*1000,now,request.user.sub);
+      if(credited) {
+        db.prepare("UPDATE wallets SET reward_millis=reward_millis+?,updated_at=? WHERE user_id=?").run(credited*1000,now,request.user.sub);
+        const person=db.prepare("SELECT name FROM users WHERE id=?").get(request.user.sub) as {name:string};
+        recordBotAutomationEvent(db,{event:"COINS_EARNED",sourceId:"watch-time:"+request.user.sub+":"+targetCoins,userId:request.user.sub,
+          vars:{nome:person.name,moedas:credited,total:walletView(db,request.user.sub).total}});
+      }
       if(targetCoins!==total.rewardedCoins) db.prepare("UPDATE watch_time_totals SET rewarded_coins=?,updated_at=? WHERE user_id=?")
         .run(targetCoins,now,request.user.sub);
       const xp=acceptedMillis>0?recordVerifiedXp(db,request.user.sub,roundId,body.videoIndex):{xpDelta:0,levelRewards:[]};
@@ -1498,14 +1520,21 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           }, { dedupeKey: submissionId, ctx: { groupCode: String(author.groupCode) } });
         } catch (error) { app.log.error(error, "UPLOAD_NOTICE announce failed"); }
 
+        const queueNumber=(db.prepare("SELECT display_number AS n FROM rounds WHERE id=?").get(open.id) as {n:number}).n;
+        if(next.slot===8) recordBotAutomationEvent(db,{event:"QUEUE_FILLING",sourceId:open.id,vars:{fila:queueNumber,vagas:2,link:config.WEB_APP_URL}});
         if (next.slot === 10) {
           db.prepare("UPDATE rounds SET status = 'READY', completed_at = ? WHERE id = ?").run(now, open.id);
+          recordBotAutomationEvent(db,{event:"QUEUE_COMPLETE",sourceId:open.id,vars:{fila:queueNumber}});
           const contributors = db.prepare("SELECT DISTINCT user_id AS userId FROM submissions WHERE round_id = ?").all(open.id) as Array<{ userId: string }>;
           for (const contributor of contributors) {
             const inserted=db.prepare("INSERT OR IGNORE INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'CURATION_REWARD', 1000, ?, ?)")
               .run(randomUUID(), contributor.userId, open.id, now);
-            if(inserted.changes) db.prepare("UPDATE wallets SET reward_millis = reward_millis + 1000, updated_at = ? WHERE user_id = ?")
-              .run(now, contributor.userId);
+            if(inserted.changes) {
+              db.prepare("UPDATE wallets SET reward_millis = reward_millis + 1000, updated_at = ? WHERE user_id = ?").run(now, contributor.userId);
+              const person=db.prepare("SELECT name FROM users WHERE id=?").get(contributor.userId) as {name:string};
+              recordBotAutomationEvent(db,{event:"COINS_EARNED",sourceId:"curation:"+open.id+":"+contributor.userId,userId:contributor.userId,
+                vars:{nome:person.name,moedas:1,total:walletView(db,contributor.userId).total}});
+            }
           }
           const openedNew = ensureOpenQueue(db);   // AUDITORIA: proxima fila pelo menor numero livre
           // AUDITORIA / anuncio "nova fila aberta" em todos os grupos quando um ciclo

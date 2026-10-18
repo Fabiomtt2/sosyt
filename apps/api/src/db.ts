@@ -1,3 +1,5 @@
+import { ensureHumanRelay } from "./bot-human-relay.js";
+import { ensureBotAutomationRuntime } from "./bot-automation-runtime.js";
 import { initializeBotPassword } from "./bot-password.js";
 import { ensureBotAutomations } from "./bot-automation-store.js";
 import { ensureBotOptOut } from "./bot-inbound.js";
@@ -42,6 +44,21 @@ export async function backupBeforeGamificationMigration(filename:string):Promise
     const folder=join(dirname(filename),"backups");mkdirSync(folder,{recursive:true,mode:0o700});
     const destination=join(folder,"pre-gamification-"+Date.now()+"-"+randomUUID()+".sqlite");
     await source.backup(destination);chmodSync(destination,0o600);return destination;
+  }finally{source.close();}
+}
+
+/** Snapshot includes committed WAL pages before the automation runtime schema is added. */
+export async function backupBeforeBotRuntimeMigration(filename:string):Promise<string|undefined>{
+  if(filename===":memory:"||!existsSync(filename))return;
+  const source=new Database(filename,{readonly:true,fileMustExist:true});
+  try{
+    if(source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bot_automation_events'").get())return;
+    const folder=join(dirname(filename),"backups");mkdirSync(folder,{recursive:true,mode:0o700});
+    const destination=join(folder,"pre-bot-runtime-"+Date.now()+"-"+randomUUID()+".sqlite");
+    await source.backup(destination);chmodSync(destination,0o600);
+    const check=new Database(destination,{readonly:true,fileMustExist:true});
+    try{if((check.pragma("quick_check",{simple:true}))!=="ok")throw new Error("BOT_RUNTIME_BACKUP_INVALID");}finally{check.close();}
+    return destination;
   }finally{source.close();}
 }
 
@@ -565,6 +582,8 @@ export function createDatabase(filename: string): AppDatabase {
   // estas tabelas eram criadas so no registro das rotas, entao qualquer chamada
   // direta (inclusive em teste) batia em "no such table".
   ensureBotAutomations(db);
+  ensureBotAutomationRuntime(db);
+  ensureHumanRelay(db);
   ensureBotOptOut(db);
   ensureBotDelivery(db);
   ensurePasswordResets(db);

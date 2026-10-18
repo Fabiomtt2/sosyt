@@ -1,6 +1,5 @@
 // Configuração persistida dos modos e preferências do bot. O painel lê do banco
-// a cada requisição, mas os fluxos de envio ainda não consomem estas flags.
-// Portanto uma preferência salva não equivale a uma automação em operação.
+// a cada requisição; os produtores e o transporte respeitam as flags.
 import { z } from "zod";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -54,11 +53,11 @@ export function featureEnabled(db: AppDatabase, code: BotFeatureCode): boolean {
 /** Um motor de mensageria está pronto? (oficial OU evolution, conforme o modo) */
 function messagingReady(mode: BotMode, wa: ReturnType<typeof readWhatsAppIntegration>): boolean {
   if (mode === "OFFICIAL" || mode === "HYBRID_PLUS" || mode === "META_GROUPS") return wa.officialReady;
-  if (mode === "EVOLUTION") return Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured);
+  if (mode === "EVOLUTION") return wa.evolutionConfigured;
   return false;
 }
 function groupReady(mode: BotMode, wa: ReturnType<typeof readWhatsAppIntegration>): boolean {
-  if (mode === "EVOLUTION" || mode === "HYBRID_PLUS") return Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured);
+  if (mode === "EVOLUTION" || mode === "HYBRID_PLUS") return wa.evolutionConfigured;
   return false;
 }
 
@@ -86,7 +85,7 @@ export function botStatus(db: AppDatabase, config: Config) {
 
   const features = BOT_FEATURES.map((f) => {
     const enabled = featureEnabled(db, f.code);
-    const engineOk = f.engine === "group" ? grpOk : msgOk;
+    const engineOk = f.code==="LOGIN_CODE" ? mode!=="EVOLUTION" && msgOk : f.engine === "group" ? grpOk : msgOk;
     // AUDITORIA / painel mentiroso: isto era `false` fixo, herdado de quando as flags
     // ainda não eram consumidas. Na convergência cada função foi LIGADA de verdade ao
     // runtime (inbound/suporte, senha do bot, avisos de fila, handoff humano, diárias,
@@ -99,7 +98,7 @@ export function botStatus(db: AppDatabase, config: Config) {
       active: enabled && engineOk && wiredToRuntime,
       blockedReason: enabled && (!engineOk || !wiredToRuntime)
         ? (!engineOk
-          ? (f.engine === "group" ? "Requer motor Evolution configurado." : "Requer um motor de mensagens pronto (Meta oficial ou Evolution).")
+          ? (f.code==="LOGIN_CODE" && mode==="EVOLUTION" ? "OTP exige um número oficial separado. Neste modo, entre com a senha enviada pelo bot." : f.engine === "group" ? "Requer motor Evolution configurado." : "Requer um motor de mensagens pronto (Meta oficial ou Evolution).")
           : "Configuração salva; esta função ainda não está conectada ao fluxo do aplicativo.")
         : null,
       riskNote: f.engine === "group" ? "Função não-oficial: risco de bloqueio do número pela Meta." : null
@@ -109,7 +108,7 @@ export function botStatus(db: AppDatabase, config: Config) {
   return {
     mode,
     engines: {
-      messaging: { ready: msgOk, official: wa.officialReady, evolution: Boolean(wa.evolutionUrl && wa.evolutionInstance && wa.evolutionApiKeyConfigured) },
+      messaging: { ready: msgOk, official: wa.officialReady, evolution: wa.evolutionConfigured },
       group: { ready: grpOk }
     },
     dependencies: {

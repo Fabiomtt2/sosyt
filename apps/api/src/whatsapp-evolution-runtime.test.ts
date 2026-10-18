@@ -87,8 +87,10 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   saveAutomationSettings(db,"SUPPORT_HANDOFF",{text:"Atendimento de {nome} encaminhado pelo suporte."},{id:"root:test",name:"Root"});
   const body={event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id:"custom-1",remoteJid:phone+"@s.whatsapp.net"},messageTimestamp:Math.floor(Date.now()/1000),message:{conversation:"humano"}}};
   expect((await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body})).statusCode).toBe(200);
-  expect(String((db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string}).payload)).toContain("encaminhado pelo suporte");
+  expect(String((db.prepare("SELECT payload FROM whatsapp_outbox WHERE recipient=?").get(phone) as {payload:string}).payload)).toContain("encaminhado pelo suporte");
   saveAutomationSettings(db,"SUPPORT_HANDOFF",{enabled:false},{id:"root:test",name:"Root"});
+  db.prepare("UPDATE bot_support_tickets SET status='CLOSED'").run();
+  db.prepare("UPDATE whatsapp_conversations SET stage='ACTIVE' WHERE phone=?").run(phone);
   body.data.key.id="custom-2";
   await app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},payload:body});
   // AUDITORIA / PEDIR AJUDA HUMANA NUNCA CAI NO VAZIO: desligar a automacao desliga
@@ -96,8 +98,8 @@ describe("Evolution runtime selecionado e identidade isolada",()=>{
   // continua sendo avisada (o interruptor do handoff e a feature HUMAN_HANDOFF).
   // 2 chamadas x (resposta + aviso) = 4.
   expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:4});
-  // o aviso a equipe traz o link direto pra conversa da pessoa
-  expect(String((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%human-alert'").get() as {payload:string}|undefined)?.payload??"")).toContain("wa.me/"+phone);
+  // O aviso permite responder pelo bot, na conversa original da pessoa.
+  expect(String((db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%human-ticket'").get() as {payload:string}|undefined)?.payload??"")).toContain("RESPONDER");
  });
  it("reconexão e chamadas repetidas não drenam grupos em rajada; cadência fica no banco",async()=>{
   vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));vi.spyOn(Math,"random").mockReturnValue(0);

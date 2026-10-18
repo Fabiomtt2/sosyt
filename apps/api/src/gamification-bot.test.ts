@@ -1,3 +1,4 @@
+import { saveAutomationSettings } from "./bot-automation-store.js";
 import { randomUUID } from "node:crypto";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { createDatabase,type AppDatabase } from "./db.js";
@@ -77,5 +78,50 @@ describe("ponte real de avisos de gamificação",()=>{
   settings.events.LEVEL_UP.text="Olá {name}!";saveGamificationBot(db,settings,"root");
   expect(db.prepare("SELECT actor_id AS actor FROM gamification_bot_config_audit").get()).toEqual({actor:"root"});
   expect(readGamificationBot(db).runtime.wired).toBe(true);expect(fetch).not.toHaveBeenCalled();
+ });
+
+ it("os cinco eventos reais criam uma mensagem interna e uma outbox cada, sem replay",()=>{
+  ready();proof();
+  const events=[
+   ["LEVEL_UP",{level:2,coins:1}],
+   ["BOOSTER_CLAIMED",{code:"PASS",quantity:1}],
+   ["MONTHLY_TOP",{place:1,xp:300,coins:15}],
+   ["REWARD_REDEEMED",{itemCode:"SKIP",priceCoins:100}],
+   ["REWARD_COINS_GIFTED",{coins:3}]
+  ] as const;
+  // Separate days respect the real per-person daily budget rather than disabling it.
+  for(const [kind,payload] of events){
+   proof();event(kind,payload);
+   expect(dispatchGamificationEvents(db,config)).toMatchObject({processed:1,queued:1,internalDelivered:1});
+   expect(dispatchGamificationEvents(db,config)).toMatchObject({processed:0,queued:0,internalDelivered:0});
+   vi.advanceTimersByTime(86400000);
+  }
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:5});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM mail_messages WHERE sender_role='SYSTEM'").get()).toEqual({n:5});
+  expect(fetch).not.toHaveBeenCalled();
+ });
+ it("LEVEL_UP respeita texto e pausa do catálogo Owner no mesmo consumidor, uma vez",()=>{
+  ready();proof();
+  saveAutomationSettings(db,"LEVEL_UP",{enabled:false,text:"Olá {nome}, nível {nivel}!"},{id:"owner-fixture",name:"Root"});
+  const id=event();
+  expect(dispatchGamificationEvents(db,config)).toMatchObject({queued:0,internalDelivered:0,waiting:1});
+  saveAutomationSettings(db,"LEVEL_UP",{enabled:true},{id:"owner-fixture",name:"Root"});
+  expect(dispatchGamificationEvents(db,config)).toMatchObject({queued:1,internalDelivered:1});
+  dispatchGamificationEvents(db,config);
+  expect(db.prepare("SELECT body FROM mail_messages WHERE id=?").get("gamification:"+id)).toEqual({body:"Olá Ana, nível 2!"});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:1});
+  expect(fetch).not.toHaveBeenCalled();
+ });
+ it("migra só o antigo texto padrão de presente e preserva personalizações",()=>{
+  const settings=readGamificationBot(db).settings;
+  settings.events.REWARD_COINS_GIFTED.text="Oi, {name}! Você recebeu um presente de {coins} moedas de recompensa da comunidade. Elas já estão disponíveis na sua conta!";
+  saveGamificationBot(db,settings,"root");
+  initializeGamificationBot(db);
+  expect(readGamificationBot(db).settings.events.REWARD_COINS_GIFTED.text).toContain("{coins} moedas da comunidade");
+  const custom=readGamificationBot(db).settings;
+  custom.events.REWARD_COINS_GIFTED.text="Um carinho de {coins} moedas para {name}.";
+  saveGamificationBot(db,custom,"root");
+  initializeGamificationBot(db);
+  expect(readGamificationBot(db).settings.events.REWARD_COINS_GIFTED.text).toBe(custom.events.REWARD_COINS_GIFTED.text);
  });
 });

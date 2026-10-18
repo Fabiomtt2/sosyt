@@ -1,3 +1,4 @@
+import { botProgressReply } from "./bot-progress-replies.js";
 import { encryptToken, decryptToken } from "./youtube.js";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -5,18 +6,21 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { AppDatabase } from "./db.js";
-import { ownerAccounts } from "./owners.js";
+import { ownerAccounts, effectiveOwnerAccounts } from "./owners.js";
 import { automationSettings, ensureBotAutomations } from "./bot-automation-store.js";
-import { renderTemplate, type AutomationEvent } from "./bot-automations.js";
-import { featureEnabled } from "./bot.js";
+import { renderTemplate, isAutomationEvent, type AutomationEvent } from "./bot-automations.js";
+import { featureEnabled, type BotFeatureCode } from "./bot.js";
 import { ensureBotPassword, reissueBotPassword } from "./bot-password.js";
 import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
 import { enqueueGroupJoin, ensureGroupJoinQueue, processGroupJoin } from "./bot-group-join.js";
-import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
+import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, sameWhatsAppNumber, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
 import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
-import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
+import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
 import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
+import { openHumanRelay, routeHumanRelay } from "./bot-human-relay.js";
+import { renderAutomation } from "./bot-dispatch.js";
+import { supportAvailableNow } from "./support-availability.js";
 import { canDeliver, ensureBotDelivery, recordDelivery, recordSuppressed, inQuietHours, nextQuietHoursEnd, DEFAULT_DELIVERY_POLICY, type DeliveryClass } from "./bot-delivery-policy.js";
 
 declare module "fastify" { interface FastifyRequest { whatsappRawBody?: Buffer } }
@@ -75,7 +79,8 @@ export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:strin
   if(runtime.WHATSAPP_MODE==="HYBRID_PLUS")assertDistinctFromOfficial(runtime.EVOLUTION_PHONE,runtime.WHATSAPP_BUSINESS_PHONE);
   const prior=db.prepare("SELECT id FROM whatsapp_outbox WHERE dedupe_key=?").get(dedupeKey) as {id:string}|undefined;
   if(prior)return {queued:true,outboxId:prior.id};
-  const payload={_transport:"EVOLUTION_GROUP",_instance:runtime.EVOLUTION_INSTANCE,_phone:runtime.EVOLUTION_PHONE,text:{body:body.slice(0,4096)}};
+  const payload={_transport:"EVOLUTION_GROUP",_instance:runtime.EVOLUTION_INSTANCE,_phone:runtime.EVOLUTION_PHONE,
+    _deliveryClass:options?.deliveryClass??"ENGAGEMENT",_event:options?.event??dedupeKey,text:{body:body.slice(0,4096)}};
   const id=randomUUID(),stamp=now(),availableAt=options?.availableAt??stamp;
   if(!Number.isFinite(Date.parse(availableAt)))return {queued:false,reason:"INVALID_SCHEDULE"};
   // AUDITORIA / Teo M1: anuncio de grupo pode carregar validade. Se o backlog de warmup
@@ -100,7 +105,7 @@ export function queueBotNotification(db:AppDatabase,config:Config,phone:string,b
     recordSuppressed(db,phone,event,verdict.reason);
     return {queued:false,reason:verdict.reason};
   }
-  const safePayload=(payload:Payload):Payload=>options?.encryptPayload?{encryptedNotification:encryptToken(JSON.stringify(payload),config)}:payload;
+  const safePayload=(payload:Payload):Payload=>({... (options?.encryptPayload?{encryptedNotification:encryptToken(JSON.stringify(payload),config)}:payload),_event:event,_deliveryClass:deliveryClass});
   const proof=db.prepare("SELECT MAX(whatsapp_verified_at) AS at FROM participation_requests WHERE phone=? AND source='WHATSAPP'").get(phone) as {at:string|null};
   const start=proof.at?Date.parse(proof.at):0;
   const expires=start+24*3600_000;
@@ -124,13 +129,17 @@ export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: str
   const hasGoogleClaims = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='google_identity_claims'").get();
   const identityCount = hasGoogleClaims ? (db.prepare("SELECT COUNT(*) AS n FROM google_identity_claims WHERE status='PENDING'").get() as { n: number }).n : 0;
   const count = participationCount + identityCount;
+  const request=db.prepare("SELECT status FROM participation_requests WHERE id=?").get(requestId) as {status:string}|undefined;
+  const alertBody=request?.status==="APPROVED"
+    ? `Cadastro automático concluído: ${name} (${phone}). A conta foi criada; a entrada no grupo é confirmada separadamente. Nenhuma aprovação manual é necessária.`
+    : `Nova solicitação: ${name} (${phone}). Há ${count} solicitações aguardando análise no painel.`;
   const recipients = config.OWNER_ALERT_WHATSAPP
     ? [{ id: "primary", phone: config.OWNER_ALERT_WHATSAPP }]
     : ownerAccounts(config).filter((owner) => owner.phone).map((owner) => ({ id: owner.id, phone: owner.phone! }));
   for (const recipient of recipients) queue(
     db,
     recipient.phone,
-    config.WHATSAPP_MODE==="EVOLUTION"?{type:"text",text:{body:`Nova solicitação: ${name} (${phone}). Há ${count} solicitações aguardando análise no painel.`}}:template(config,config.WHATSAPP_OWNER_ALERT_TEMPLATE!,[name,phone,String(count)]),
+    config.WHATSAPP_MODE==="EVOLUTION"?{type:"text",text:{body:alertBody}}:template(config,config.WHATSAPP_OWNER_ALERT_TEMPLATE!,[name,phone,String(count)]),
     eventId + ":owner:" + recipient.id + ":" + requestId,undefined,config
   );
 }
@@ -160,9 +169,11 @@ export function queueParticipationDecision(
 
   if ((inServiceWindow && serviceExpiresAt) || config.WHATSAPP_MODE==="EVOLUTION") {
     const body = status === "APPROVED"
-      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} com o mesmo WhatsApp: solicite uma chave de acesso ou use sua identidade Google, se já estiver vinculada à conta. O grupo será identificado pelo seu cadastro aprovado.`
+      ? `Olá, ${request.name}! Seu cadastro foi aprovado no SOS YOUTUBER ${groupCode}. Você já pode acessar ${config.WEB_APP_URL} com o mesmo WhatsApp e a senha enviada por este bot. Se precisar de outra senha, responda 3. Seu grupo é reconhecido automaticamente.`
       : `Olá, ${request.name}. Sua solicitação ao SOS YouTube não foi aprovada neste momento. Se acreditar que houve engano, responda por aqui para que os Owners possam revisar.`;
-    queue(db,request.phone,{type:"text",text:{preview_url:true,body}},dedupe,config.WHATSAPP_MODE==="EVOLUTION"?undefined:serviceExpiresAt!.toISOString(),config);
+    const configuredBody=status==="APPROVED"?welcomeCopy(db,config,request.phone,body,groupCode,false):body;
+    if(!configuredBody)return false;
+    queue(db,request.phone,{type:"text",text:{preview_url:true,body:configuredBody}},dedupe,config.WHATSAPP_MODE==="EVOLUTION"?undefined:serviceExpiresAt!.toISOString(),config);
     return true;
   }
 
@@ -190,15 +201,54 @@ async function graphJson<T>(config: Config, path: string): Promise<T> {
   return await response.json() as T;
 }
 
+/** Catalog copy never replaces password delivery or other essential account actions. */
+function welcomeCopy(db:AppDatabase,config:Config,phone:string,fallback:string,groupCode?:string,vary=true) {
+  const rule=automationSettings(db,"WELCOME_DM");
+  if(!rule.enabled)return undefined;
+  const user=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {name:string}|undefined;
+  const request=db.prepare("SELECT name FROM participation_requests WHERE phone=?").get(phone) as {name:string}|undefined;
+  if(!vary&&!rule.customized)return fallback;
+  const rendered=renderAutomation(db,"WELCOME_DM",{nome:user?.name??request?.name??"participante",grupo:groupCode??"da comunidade",link:config.WEB_APP_URL});
+  return "text" in rendered ? rendered.text : fallback;
+}
+/** First complete synchronization establishes a quiet baseline; only later arrivals welcome. */
+function welcomeNewGroupMember(db:AppDatabase,config:Config,phone:string,groupCode:string,groupJid:string) {
+  if(!featureEnabled(db,"DECISION_NOTICE"))return;
+  const rule=automationSettings(db,"WELCOME_MEMBER");
+  if(!rule.enabled||rule.channel!=="EVOLUTION"||rule.target!=="GROUP")return;
+  const person=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {name:string}|undefined;
+  const request=db.prepare("SELECT name FROM participation_requests WHERE phone=?").get(phone) as {name:string}|undefined;
+  const name=person?.name??request?.name??"participante";
+  const body=renderTemplate(rule.text,{nome:name,grupo:groupCode,link:config.WEB_APP_URL})
+    .replace(/(?:\+?\d[\s().-]*){8,15}/g,"[dado privado]");
+  queueGroupAutomation(db,config,groupJid,body,"welcome-member:"+groupJid+":"+createHash("sha256").update(phone).digest("hex"),
+    {event:"WELCOME_MEMBER",deliveryClass:"ENGAGEMENT",expiresAt:new Date(Date.now()+86_400_000).toISOString()});
+}
 export async function syncEvolutionWhatsAppGroups(db:AppDatabase,config:Config){
   const runtime=effectiveWhatsAppConfig(db,config);
   const empty={discovered:0,linked:0,memberships:0,skipped:[] as Array<{code:string;reason:string}>};
   if(!["EVOLUTION","HYBRID_PLUS"].includes(runtime.WHATSAPP_MODE)||!runtime.WHATSAPP_GROUPS_SYNC_ENABLED||!featureEnabled(db,"GROUP_SYNC"))return empty;
   const client=evolutionClient(runtime);
   if(!(await client.health()).connected)return {...empty,skipped:[{code:"session",reason:"DISCONNECTED"}]};
-  const groups=await client.groups();
-  let linked=0,memberships=0;
+  let groups: Awaited<ReturnType<typeof client.groups>>;
+  let fallback=false;
   const skipped:Array<{code:string;reason:string}>=[];
+  try { groups=await client.groups(); }
+  catch {
+    // A broken discovery endpoint cannot turn a partial response into mass removal.
+    // Recover only mappings already paired by the Owner; failed reads stay untouched.
+    fallback=true;groups=[];
+    skipped.push({code:"discovery",reason:"GROUP_DISCOVERY_UNAVAILABLE"});
+    const paired=db.prepare("SELECT code,whatsapp_group_id AS id FROM groups WHERE enabled=1 AND whatsapp_group_id IS NOT NULL").all() as Array<{code:string;id:string}>;
+    for(const group of paired){
+      if(!/^\d+(?:-\d+)?@g\.us$/.test(group.id)||!/^\d{1,3}$/.test(group.code))continue;
+      try {
+        const phones=await client.groupParticipants(group.id);
+        groups.push({id:group.id,subject:"SOS YOUTUBER "+group.code,participants:phones.map(phone=>({id:phone+"@s.whatsapp.net"}))});
+      } catch { skipped.push({code:group.code,reason:"GROUP_PARTICIPANTS_UNAVAILABLE"}); }
+    }
+  }
+  let linked=0,memberships=0;
   for(const group of groups){
     const code=groupCodeFromSubject(group.subject);
     if(!code||!/^\d+(?:-\d+)?@g\.us$/.test(group.id))continue;
@@ -213,8 +263,16 @@ export async function syncEvolutionWhatsAppGroups(db:AppDatabase,config:Config){
     db.transaction(()=>{
       // External synchronization must not enable a group explicitly disabled by an Owner.
       db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id,membership_mode,last_synced_at) VALUES (?,1,?,'EVOLUTION',?) ON CONFLICT(code) DO UPDATE SET whatsapp_group_id=excluded.whatsapp_group_id,membership_mode=excluded.membership_mode,last_synced_at=excluded.last_synced_at").run(code,group.id,stamp);
-      recordGroupVerification(db,"EVOLUTION",code,group.id,group.subject,group.participants.filter(p=>p.admin==="admin"||p.admin==="superadmin").length,stamp);
-      for(const phone of phones){recordMemberVerification(db,"EVOLUTION",code,phone,group.id,true,stamp);materializeApprovedMembership(db,phone,code,stamp);}
+      if(!fallback)recordGroupVerification(db,"EVOLUTION",code,group.id,group.subject,group.participants.filter(p=>p.admin==="admin"||p.admin==="superadmin").length,stamp);
+      const baselineKey="bot.welcome.baseline:"+group.id;
+      const baseline=Boolean(db.prepare("SELECT 1 FROM integration_settings WHERE key=?").get(baselineKey));
+      for(const phone of phones){
+        const known=Boolean(db.prepare("SELECT 1 FROM whatsapp_member_verifications WHERE provider='EVOLUTION' AND group_code=? AND phone=? AND revoked_at IS NULL").get(code,phone));
+        recordMemberVerification(db,"EVOLUTION",code,phone,group.id,true,stamp);
+        materializeApprovedMembership(db,phone,code,stamp);
+        if(baseline&&!known)welcomeNewGroupMember(db,runtime,phone,code,group.id);
+      }
+      if(!reason)db.prepare("INSERT OR IGNORE INTO integration_settings(key,value,updated_at) VALUES(?,'1',?)").run(baselineKey,stamp);
       if(!reason){
         const existing=db.prepare("SELECT phone FROM whatsapp_member_verifications WHERE provider='EVOLUTION' AND group_code=? AND revoked_at IS NULL").all(code) as Array<{phone:string}>;
         for(const member of existing)if(!phones.has(member.phone)){
@@ -346,8 +404,8 @@ async function send(config: Config, recipient: string, payload: Payload): Promis
   }
   if(payload._transport==="EVOLUTION")throw new Error("SENDER_IDENTITY_CHANGED");
   if(payload._phoneNumberId && payload._phoneNumberId!==config.WHATSAPP_PHONE_NUMBER_ID)throw new Error("SENDER_IDENTITY_CHANGED");
-  const {_transport:_transport,_instance:_instance,_phone:_phone,_phoneNumberId:_phoneNumberId,...providerPayload}=payload;
-  void _transport;void _instance;void _phone;void _phoneNumberId;
+  // Routing and Owner-policy metadata belong exclusively to our durable envelope.
+  const providerPayload=Object.fromEntries(Object.entries(payload).filter(([key])=>!key.startsWith("_")));
   if (!config.WHATSAPP_ACCESS_TOKEN || !config.WHATSAPP_PHONE_NUMBER_ID) throw new Error("WHATSAPP_NOT_CONFIGURED");
   const response = await fetch(`https://graph.facebook.com/${config.WHATSAPP_GRAPH_VERSION}/${config.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
     method: "POST", signal: AbortSignal.timeout(15_000), headers: { authorization: `Bearer ${config.WHATSAPP_ACCESS_TOKEN}`, "content-type": "application/json" },
@@ -438,6 +496,25 @@ function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;rec
   db.prepare("UPDATE evolution_attempt_state SET next_attempt_at=?,breaker_until=NULL WHERE identity=?").run(new Date(at.getTime()+nextSendDelayMs()).toISOString(),identity);
   return {allowed:true,nextAt:stamp,reason:null};
 }
+function catalogDeliveryFeature(event:AutomationEvent):BotFeatureCode|undefined {
+  if(event.startsWith("QUEUE")||event==="UPLOAD_NOTICE")return "QUEUE_ANNOUNCE";
+  if(event.startsWith("WELCOME"))return "DECISION_NOTICE";
+  if(["WEEKLY_XP_RANK","MONTHLY_TOP","BROADCAST_GLOBAL","PINNED_MESSAGE"].includes(event))return "BROADCAST";
+  if(event==="SUPPORT_HANDOFF")return "HUMAN_HANDOFF";
+  if(event.startsWith("SUPPORT"))return "SUPPORT_CHAT";
+  return undefined;
+}
+/** Revalidate waiting catalog work before spending a transport attempt. Secrets and
+ * direct inbound fallback replies deliberately carry no catalog event envelope. */
+function queuedAutomationDisabled(db:AppDatabase,payload:Payload) {
+  if(typeof payload._event!=="string"||!isAutomationEvent(payload._event))return false;
+  const event=payload._event;
+  // Historical MONTHLY_TOP DMs are prize receipts from the gamification bridge;
+  // the catalog event with this name governs only the public group ranking.
+  if(event==="MONTHLY_TOP"&&payload._transport!=="EVOLUTION_GROUP")return false;
+  const feature=catalogDeliveryFeature(event);
+  return !automationSettings(db,event).enabled||Boolean(feature&&!featureEnabled(db,feature));
+}
 export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit = 10) {
   config = effectiveWhatsAppConfig(db,config);
   const groupMode=["EVOLUTION","HYBRID_PLUS"].includes(config.WHATSAPP_MODE)&&evolutionConfigured(config);
@@ -454,6 +531,13 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
       const row = db.prepare("SELECT * FROM whatsapp_outbox WHERE ((status='PENDING' AND available_at<=?) OR (status='SENDING' AND lease_until<=?)) AND (? OR COALESCE(json_extract(payload,'$._transport'),'META')!='EVOLUTION_GROUP') AND (? OR json_extract(payload,'$._transport')='EVOLUTION_GROUP') ORDER BY created_at,rowid LIMIT 1").get(stamp,stamp,evoOnline?1:0,whatsappConfigured(config)?1:0) as { id: string; recipient: string; payload: string; attempts: number } | undefined;
       if (row){
         const stored=JSON.parse(row.payload) as Payload;
+        const group=stored._transport==="EVOLUTION_GROUP";
+        const groupState=group?db.prepare("SELECT enabled FROM groups WHERE whatsapp_group_id=?").get(row.recipient) as {enabled:number}|undefined:undefined;
+        if(queuedAutomationDisabled(db,stored)||(groupState&&groupState.enabled!==1)){
+          db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error=?,lease_until=NULL WHERE id=?")
+            .run(groupState&&groupState.enabled!==1?"GROUP_DISABLED":"EVENT_DISABLED",row.id);
+          return {deferred:true as const};
+        }
         if(stored._transport==="EVOLUTION"||stored._transport==="EVOLUTION_GROUP"){
           const content=typeof stored.encryptedNotification==="string"?JSON.parse(decryptToken(stored.encryptedNotification,config)) as Payload:stored;
           if(stored._purpose==="OTP"||/^Sua chave de acesso ao SOS YOUTUBER é /u.test(String((content.text as {body?:string}|undefined)?.body??""))){
@@ -502,20 +586,20 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
 export function whatsappStatus(db: AppDatabase, config: Config) {
   config = effectiveWhatsAppConfig(db,config);
   const count = (status: string) => (db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE status=?").get(status) as { n: number }).n;
-  const groupsLinked = (db.prepare("SELECT COUNT(*) AS n FROM groups WHERE whatsapp_group_id IS NOT NULL AND membership_mode='META_GROUPS_API'").get() as { n: number }).n;
-  const automaticMemberships = (db.prepare("SELECT COUNT(*) AS n FROM whatsapp_member_verifications WHERE provider='META_GROUPS_API' AND revoked_at IS NULL").get() as { n: number }).n;
+  const groupsLinked = (db.prepare("SELECT COUNT(*) AS n FROM groups WHERE whatsapp_group_id IS NOT NULL AND membership_mode IN ('META_GROUPS_API','EVOLUTION')").get() as { n: number }).n;
+  const automaticMemberships = (db.prepare("SELECT COUNT(*) AS n FROM whatsapp_member_verifications WHERE provider IN ('META_GROUPS_API','EVOLUTION') AND revoked_at IS NULL").get() as { n: number }).n;
   return {
     configured: whatsappConfigured(config),
     otpConfigured:whatsappOtpConfigured(config),
-    ownerAlertsConfigured: Boolean(config.WHATSAPP_OWNER_ALERT_TEMPLATE && (config.OWNER_ALERT_WHATSAPP || ownerAccounts(config).some((o) => o.phone))),
-    decisionTemplateConfigured: Boolean(config.WHATSAPP_DECISION_TEMPLATE),
+    ownerAlertsConfigured: featureEnabled(db,"OWNER_ALERTS")&&Boolean((config.WHATSAPP_MODE==="EVOLUTION"||config.WHATSAPP_OWNER_ALERT_TEMPLATE) && (config.OWNER_ALERT_WHATSAPP || ownerAccounts(config).some((o) => o.phone))),
+    decisionTemplateConfigured: Boolean(config.WHATSAPP_MODE==="EVOLUTION"&&whatsappConfigured(config)||config.WHATSAPP_DECISION_TEMPLATE),
     groupsSyncEnabled: Boolean(config.WHATSAPP_GROUPS_SYNC_ENABLED),
     groupsLinked,
     automaticMemberships,
     queued: count("PENDING")+count("SENDING"),
     failed: count("FAILED"),
     sent: count("SENT"),
-    membershipMode: groupsLinked > 0 ? "META_GROUPS_API" : "OWNER_VERIFIED"
+    membershipMode: groupsLinked > 0 ? config.WHATSAPP_MODE==="EVOLUTION"?"EVOLUTION":"META_GROUPS_API" : "OWNER_VERIFIED"
   };
 }
 /**
@@ -608,6 +692,11 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor(intent)!}},`${msg.id}:${intent}`,expires,runtimeConfig);
               continue;
             }
+            const relay=routeHumanRelay(db,runtimeConfig,{phone:msg.from,text});
+            if(relay.handled){
+              for(const delivery of relay.messages)queue(db,delivery.recipient,{type:"text",text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
+              continue;
+            }
             // "humano": o proprio bot mandava escrever isso e nao havia handler.
             if (intent === "HUMAN" && featureEnabled(db,"HUMAN_HANDOFF")) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'HUMAN_REQUESTED',?) ON CONFLICT(phone) DO UPDATE SET stage='HUMAN_REQUESTED',updated_at=excluded.updated_at").run(msg.from,now());
@@ -617,23 +706,22 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               // uma pessoa de verdade e NADA acontecia (nem resposta a ela, nem aviso ao
               // atendimento). O interruptor do handoff e a feature HUMAN_HANDOFF, ja
               // checada acima; a automacao decide apenas o TEXTO.
-              const response=supportReply(db,"SUPPORT_HANDOFF",msg.from,replyFor("HUMAN")!) ?? replyFor("HUMAN")!;
-              queue(db,msg.from,{type:"text",text:{preview_url:false,body:response}},`${msg.id}:human`,expires,runtimeConfig);
-              // Avisa a equipe no numero humano com link direto pra conversa da pessoa:
-              // atendimento proativo (a equipe procura), sem popup para o usuario.
-              const supportNumber=humanSupportNumber(db,runtimeConfig);
-              if(supportNumber && supportNumber!==msg.from.replace(/\D/g,"")){
-                const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
-                const alert=humanHandoffAlert({name:who?.name,userPhone:msg.from,lastMessage:text});
-                queue(db,supportNumber,{type:"text",text:{preview_url:true,body:alert}},`${msg.id}:human-alert`,expires,runtimeConfig);
-              }
+              const outsideHours=!supportAvailableNow(db);
+              const supportEvent=outsideHours?"SUPPORT_OFFHOURS":"SUPPORT_HANDOFF";
+              const fallback=outsideHours
+                ? "Seu pedido ficou registrado e a equipe já foi avisada. Estamos fora do horário de atendimento humano e responderemos assim que possível. Você pode adiantar sua dúvida por aqui."
+                : "Seu pedido ficou registrado e a equipe já foi avisada. Uma pessoa responderá assim que possível. Enquanto isso, pode me contar o que precisa.";
+              const response=supportReply(db,supportEvent,msg.from,fallback) ?? fallback;
+              const who=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name?:string}|undefined;
+              const ticket=openHumanRelay(db,runtimeConfig,{phone:msg.from,name:who?.name,message:text});
+              for(const delivery of ticket.messages)queue(db,delivery.recipient,{type:"text",text:{preview_url:false,body:delivery.body}},`${msg.id}:${delivery.key}`,expires,runtimeConfig);
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:ticket.ticketId
+                ? response+"\n\n"+`Seu chamado é #${ticket.ticketId}. A equipe responde por esta mesma conversa. Suas próximas mensagens serão encaminhadas à equipe. Para retomar o bot, envie VOLTAR AO BOT.`
+                : "Este número é o atendimento humano configurado. Os chamados recebidos trazem instruções para RESPONDER e ENCERRAR."}},`${msg.id}:human`,expires,runtimeConfig);
               continue;
             }
-            // A recusa PROMETIA "responda por aqui" e nao havia quem respondesse.
-            if (conversation?.stage === "DECLINED") {
-              queue(db,msg.from,{type:"text",text:{preview_url:false,body:DECLINED_FOLLOWUP_REPLY}},`${msg.id}:declined-followup`,expires,runtimeConfig);
-              continue;
-            }
+            // A historical declined conversation is not an account lock: commands,
+            // password recovery and human support must remain reachable.
             if(!featureEnabled(db,"SUPPORT_CHAT"))continue;
 
             // AUDITORIA / O BOT PRECISA AGIR, NAO SO FALAR. Antes, "3 / senha" mandava
@@ -675,9 +763,22 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               continue;
             }
 
+            const knownAccount=db.prepare("SELECT id,name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {id:string;name:string}|undefined;
+            const administrative=effectiveOwnerAccounts(db,runtimeConfig).some(owner=>owner.phone&&sameWhatsAppNumber(owner.phone,msg.from??"")) ||
+              Boolean(db.prepare("SELECT 1 FROM owner_access WHERE phone=? AND active=1").get(msg.from));
+            const needsName=!administrative&&(!knownAccount||!looksLikeName(knownAccount.name));
+            if (intent === "GREETING" && needsName) {
+              db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
+              const greeting=welcomeCopy(db,runtimeConfig,msg.from,"Oi! 👋 Que bom ter você no SOS YOUTUBER! 💛");
+              const body=[greeting,"Como prefere ser chamado? Pode responder só com seu nome. 😊",replyFor("GREETING")].filter(Boolean).join("\n\n");
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body}},`${msg.id}:greeting`,expires,runtimeConfig);
+              continue;
+            }
             if (intent === "PARTICIPATE") {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
-              queue(db,msg.from,{type:"text",text:{preview_url:true,body:`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`}},`${msg.id}:welcome`,expires,runtimeConfig);
+              const group=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from) as {code:string}|undefined;
+              const greeting=welcomeCopy(db,runtimeConfig,msg.from,`Olá! 👋 Seja bem-vindo ao Projeto SOS YouTube. Aqui, participantes dos grupos SOS YOUTUBER colaboram na montagem de ciclos com 10 links e podem levar a seleção para a própria conta do YouTube. Seu acesso é individual e o grupo é identificado automaticamente pelo WhatsApp informado.`,group?.code);
+              if(greeting)queue(db,msg.from,{type:"text",text:{preview_url:true,body:greeting}},`${msg.id}:welcome`,expires,runtimeConfig);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Como gostaria de ser chamado? Responda apenas com seu nome ou com a forma como prefere ser chamado."}},`${msg.id}:ask-name`,expires,runtimeConfig);
             // AUDITORIA / "oi" NAO E NOME. Antes este ramo usava looksLikeName(text), que
             // so olha tamanho/link — entao um "oi", "bom dia" ou um numero do menu virava
@@ -693,6 +794,9 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               // conta existente e seguimos direto para o que ela realmente precisa.
               const jaTemConta = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as { id: string } | undefined;
               if (jaTemConta) {
+                // Repair legacy command-as-name records without issuing another welcome grant.
+                if(!administrative&&knownAccount&&!looksLikeName(knownAccount.name))
+                  ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
                 const temSenha = Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(jaTemConta.id));
                 db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
                 queue(db,msg.from,{type:"text",text:{preview_url:true,body: temSenha
@@ -707,11 +811,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                   | { id: string; status: "PENDING" | "APPROVED" | "DECLINED"; retryBlockUntil?: string }
                   | undefined;
                 const stamp = now(), blockActive = Boolean(existing?.retryBlockUntil && Date.parse(existing.retryBlockUntil) > Date.now());
-                if (existing?.status === "PENDING") {
-                  db.prepare("UPDATE participation_requests SET name=?,source='WHATSAPP',whatsapp_verified_at=?,updated_at=? WHERE id=?")
-                    .run(text,stamp,stamp,existing.id);
-                  responseBody = `Olá, ${text}! Seu pedido já está registrado e continua aguardando análise. Não é necessário enviar outro cadastro. 📨`;
-                } else if ((existing?.status === "DECLINED" || existing?.status === "APPROVED") && blockActive) {
+                if (existing?.status === "DECLINED" && blockActive) {
                   db.prepare("UPDATE participation_requests SET source='WHATSAPP',whatsapp_verified_at=?,updated_at=? WHERE id=?")
                     .run(stamp,stamp,existing.id);
                   responseBody = `Olá, ${text}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
@@ -733,7 +833,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                     .run(id,msg.from,text,stamp,stamp,stamp,stamp);
                   const conta=ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
                   responseBody = conta.passwordSent
-                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui mesmo, na próxima mensagem.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Assim que você entrar, eu já te coloco num grupo do SOS YOUTUBER com vaga. 💛`
+                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui nesta conversa.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Assim que você entrar, eu já te coloco num grupo do SOS YOUTUBER com vaga. 💛`
                     : `Pronto, ${text}! 🎉 Criei sua conta. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
                   // Owner INFORMADO, nunca bloqueando: ele acompanha e pode intervir.
                   queueOwnerAlerts(db,runtimeConfig,id,msg.from,text,msg.id);
@@ -754,12 +854,13 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                     whatsapp_verified_at=excluded.whatsapp_verified_at,approved_at=COALESCE(participation_requests.approved_at,excluded.approved_at),
                     preferred_group=COALESCE(excluded.preferred_group,participation_requests.preferred_group),updated_at=excluded.updated_at`)
                   .run(randomUUID(),msg.from,text,stamp,stamp,vinculo?.code ?? null,stamp,stamp);
+                ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
                 responseBody = `Prontinho, ${text}! ✅ Confirmei seu número no grupo SOS YOUTUBER${vinculo?.code?` ${vinculo.code}`:""} e já liberei seu acesso. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires,runtimeConfig);
-              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Depois da aprovação, basta entrar no aplicativo com seu nome e o mesmo WhatsApp. O grupo é reconhecido automaticamente e não existe credencial adicional para participante."}},`${msg.id}:project-info`,expires,runtimeConfig);
-            } else if (conversation?.stage === "WAITING_NAME") {
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Entre no aplicativo com este WhatsApp e a senha enviada pelo bot. O grupo é reconhecido automaticamente; se você ainda não estiver em um, sua entrada será encaminhada após o login."}},`${msg.id}:project-info`,expires,runtimeConfig);
+            } else if (conversation?.stage === "WAITING_NAME" && intent === "UNKNOWN") {
               // Nome com link, vazio ou longo demais caia num else-if mudo: a pessoa
               // nao sabia que errou nem como consertar. Agora explicamos com carinho
               // e mantemos a conversa no mesmo estagio para ela tentar de novo.
@@ -775,7 +876,15 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               // decide apenas se vale o texto CUSTOMIZADO do Owner; a resposta padrao
               // sempre sai. Para o bot ficar realmente quieto existe o interruptor
               // proprio (feature SUPPORT_CHAT), que e uma escolha explicita do Owner.
-              const padrao=replyFor(intent) ?? replyFor("UNKNOWN")!;
+              const account=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {name:string}|undefined;
+              const membership=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from) as {code:string}|undefined;
+              const status=intent==="STATUS"
+                ? account
+                  ? `${account.name}, sua conta está criada. 💛 ${membership ? `Seu vínculo com o grupo SOS YOUTUBER ${membership.code} está confirmado.` : "Sua entrada no grupo ainda está sendo confirmada; isso é separado da criação da conta."} Entre em ${runtimeConfig.WEB_APP_URL} com seu WhatsApp e senha. Se precisar de uma nova senha, responda *3*.`
+                  : "Ainda não concluímos seu cadastro. 💛 Responda *1* para começar; vou pedir como prefere ser chamado e preparar seu acesso."
+                : undefined;
+              const liveProgress=botProgressReply(db,msg.from,text);
+              const padrao=status ?? liveProgress ?? replyFor(intent) ?? replyFor("UNKNOWN")!;
               // AUDITORIA / O TEXTO DO OWNER NAO PODE ENGOLIR O MENU. supportReply devolve
               // o texto customizado de SUPPORT_AUTO quando existe — e isso sobrepunha
               // TODAS as respostas: "oi" deixava de abrir o menu, "2" nao explicava mais

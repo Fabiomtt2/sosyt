@@ -1,3 +1,4 @@
+import { humanSupportNumber, setHumanSupportNumber } from "./bot-human-handoff.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
@@ -21,6 +22,7 @@ export function persistedWhatsAppMode(db:AppDatabase):WhatsAppMode|undefined {
 
 const metaSettingsSchema = z.object({
   mode: whatsappModeSchema.optional(),
+  humanSupportPhone: z.string().trim().max(30).transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/)).optional(),
   businessAccountId: z.string().trim().regex(/^\d{5,40}$/).optional(),
   phoneNumberId: z.string().trim().regex(/^\d{5,40}$/).optional(),
   businessPhone: z.string().trim().max(30).transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o número Business com DDI, DDD e telefone.")).optional(),
@@ -131,6 +133,7 @@ export function readWhatsAppIntegration(db: AppDatabase, config: Config) {
     businessAccountId: businessAccountId ?? "",
     phoneNumberId: phoneNumberId ?? "",
     businessPhone,
+    humanSupportPhone:humanSupportNumber(db,config),
     senderValidationRequired,
     graphVersion,
     otpTemplate,
@@ -177,6 +180,7 @@ export function saveWhatsAppIntegration(db: AppDatabase, config: Config, raw: un
   if (body.phoneNumberId!==undefined) set(db,keyNames.phoneNumberId,body.phoneNumberId);
   if (body.businessPhone!==undefined) set(db,keyNames.businessPhone,body.businessPhone);
   set(db,keyNames.graphVersion,body.graphVersion);
+  if (body.humanSupportPhone!==undefined) setHumanSupportNumber(db,body.humanSupportPhone);
   if (body.otpTemplate!==undefined) set(db,keyNames.otpTemplate,body.otpTemplate);
   if (body.ownerAlertTemplate!==undefined) set(db,keyNames.ownerAlertTemplate,body.ownerAlertTemplate);
   if (body.decisionTemplate!==undefined) set(db,keyNames.decisionTemplate,body.decisionTemplate);

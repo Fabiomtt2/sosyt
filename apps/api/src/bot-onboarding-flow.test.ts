@@ -95,6 +95,79 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   expect(db.prepare("SELECT COUNT(*) AS n FROM user_passwords WHERE user_id=?").get(user.id)).toEqual({n:1});
   expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+user.id)).toEqual({n:1});
  });
+ it("saudação pede nome, comandos não viram nome e recusa histórica não sequestra menu ou senha",async()=>{
+  await inbound("oi");
+  const greeting=(db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-1:greeting'").get() as {payload:string}).payload;
+  expect(payloadBody(greeting)).toMatch(/Como prefere ser chamado/);
+  expect(payloadBody(greeting)).toContain("1️⃣");
+  await inbound("Continuar");
+  expect(db.prepare("SELECT 1 FROM users WHERE phone=?").get(phone)).toBeUndefined();
+  await inbound("Pessoa Sintetica");
+  const user=db.prepare("SELECT id FROM users WHERE phone=?").get(phone) as {id:string};
+  const old=issuedPassword(user.id);
+  db.prepare("UPDATE whatsapp_conversations SET stage='DECLINED' WHERE phone=?").run(phone);
+  await inbound("2");await inbound("TROCAR SENHA");
+  const rows=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key IN ('evo:sos-primary:synthetic-onboarding-4:fallback','evo:sos-primary:synthetic-onboarding-5:senha')").all() as {payload:string}[];
+  expect(rows.some(r=>/entrada no grupo ainda precisa ser confirmada/.test(payloadBody(r.payload)))).toBe(true);
+  expect(issuedPassword(user.id)).not.toBe(old);
+ });
+ it("pedido humano com LID cria aviso ao Business humano e confirmação à pessoa",async()=>{
+  await inbound("Tenho dúvidas");
+  const rows=db.prepare("SELECT recipient,payload FROM whatsapp_outbox").all() as {recipient:string;payload:string}[];
+  expect(rows.some(r=>r.recipient===phone&&/pedido|equipe/i.test(payloadBody(r.payload)))).toBe(true);
+  const alert=rows.find(r=>r.recipient==="5571993978956");
+  expect(alert).toBeTruthy();expect(payloadBody(alert!.payload)).toContain("RESPONDER");
+  expect(payloadBody(alert!.payload)).not.toContain("wa.me/");
+  expect(payloadBody(alert!.payload)).toContain("Tenho dúvidas");
+ });
+ it("relay HTTP LID: humano autorizado responde na conversa original, com dedupe e encerramento",async()=>{
+  await inbound("Tenho dúvidas");
+  const ticket=db.prepare("SELECT id FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone) as {id:string};
+  expect(ticket.id).toMatch(/^[A-F0-9]{12}$/);
+  await inbound("Não consigo acessar a fila");
+  const humanMessage=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-2:relay-user-message'").get() as {recipient:string;payload:string};
+  expect(humanMessage.recipient).toBe("5571993978956");
+  expect(payloadBody(humanMessage.payload)).toContain("Não consigo acessar a fila");
+  async function fromHuman(id:string,text:string,from="557193978956"){
+   return app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":secret},
+    payload:{event:"MESSAGES_UPSERT",instance:"sos-primary",data:{
+     key:{id,remoteJid:"900000000000002@lid",remoteJidAlt:from+"@s.whatsapp.net",fromMe:false},
+     messageTimestamp:Date.now(),message:{conversation:text}}}});
+  }
+  expect((await fromHuman("relay-http-denied","RESPONDER "+ticket.id+" invasor","5511999990888")).statusCode).toBe(200);
+  expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE recipient=? AND dedupe_key='evo:sos-primary:relay-http-denied:relay-response'").get(phone)).toBeUndefined();
+  const command="RESPONDER "+ticket.id+" Olá! Sou da equipe, vamos resolver.";
+  expect((await fromHuman("relay-http-response",command)).statusCode).toBe(200);
+  await fromHuman("relay-http-response",command);
+  const replies=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:relay-http-response:relay-response'").all() as {recipient:string;payload:string}[];
+  expect(replies).toHaveLength(1);expect(replies[0].recipient).toBe(phone);
+  expect(payloadBody(replies[0].payload)).toContain("Olá! Sou da equipe, vamos resolver.");
+  expect((await fromHuman("relay-http-close","ENCERRAR "+ticket.id)).statusCode).toBe(200);
+  expect(db.prepare("SELECT status FROM bot_support_tickets WHERE id=?").get(ticket.id)).toEqual({status:"CLOSED"});
+  await inbound("2");
+  const menu=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-3:fallback'").get() as {payload:string};
+  expect(payloadBody(menu.payload)).toMatch(/fila/i);
+ });
+ it("pendência antiga verificada não exige aprovação manual para emitir senha",async()=>{
+  const at=new Date().toISOString();
+  db.prepare("INSERT INTO participation_requests(id,phone,name,status,source,created_at,updated_at) VALUES(?,?,?,'PENDING','WEB',?,?)").run("legacy",phone,"Pessoa",at,at);
+  const user=await signup();
+  expect(user.password).toBeTruthy();
+  expect(db.prepare("SELECT status FROM participation_requests WHERE phone=?").get(phone)).toEqual({status:"APPROVED"});
+ });
+ it("repara nome legado Continuar sem duplicar carteira ou moedas de boas-vindas",async()=>{
+  const account=ensureSelfServiceAccount(db,config,phone,"Continuar");
+  const before=db.prepare("SELECT promo_millis AS promo FROM wallets WHERE user_id=?").get(account.userId);
+  await inbound("MENU");
+  expect(db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(phone)).toEqual({stage:"WAITING_NAME"});
+  await inbound("Nome Correto");
+  expect(db.prepare("SELECT name FROM users WHERE id=?").get(account.userId)).toEqual({name:"Nome Correto"});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM wallets WHERE user_id=?").get(account.userId)).toEqual({n:1});
+  expect(db.prepare("SELECT promo_millis AS promo FROM wallets WHERE user_id=?").get(account.userId)).toEqual(before);
+  expect(db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WELCOME'").get(account.userId)).toEqual({n:1});
+  await inbound("oi");
+  expect(db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(phone)).toEqual({stage:"SUBMITTED"});
+ });
  it("recriar o mesmo telefone não recria as moedas promocionais",()=>{
   const first=ensureSelfServiceAccount(db,config,phone,"Pessoa Sintetica");
   const stamp=new Date().toISOString();

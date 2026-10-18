@@ -16,7 +16,9 @@ import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { effectiveWhatsAppConfig } from "./integrations.js";
-import { pickGroupWithRoom, type EvolutionClient, type GroupSlot } from "./bot-evolution.js";
+import { pickGroupWithRoom, sameWhatsAppNumber, type EvolutionClient, type GroupSlot } from "./bot-evolution.js";
+
+import { recordGroupVerification, recordMemberVerification, materializeApprovedMembership } from "./group-verification.js";
 
 /** Lotação padrão de um grupo de WhatsApp (o limite real da plataforma). */
 export const GROUP_CAPACITY = 1024;
@@ -79,12 +81,21 @@ export async function processGroupJoin(
   const runtime = effectiveWhatsAppConfig(db, config);
   if (runtime.WHATSAPP_MODE !== "EVOLUTION" && runtime.WHATSAPP_MODE !== "HYBRID_PLUS") return undefined;
 
+  db.prepare("UPDATE group_join_requests SET status='PENDING' WHERE status='PROCESSING' AND updated_at<?")
+    .run(new Date(Date.now() - 120_000).toISOString());
   const job = db.prepare(
     "SELECT id,phone,name,attempts FROM group_join_requests WHERE status='PENDING' ORDER BY created_at LIMIT 1",
   ).get() as { id: string; phone: string; name?: string; attempts: number } | undefined;
   if (!job) return undefined;
 
   const stamp = new Date().toISOString();
+  const claimed = db.prepare("UPDATE group_join_requests SET status='PROCESSING',updated_at=? WHERE id=? AND status='PENDING'").run(stamp, job.id);
+  if (!claimed.changes) return undefined;
+  if (db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(job.phone)) {
+    db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='MEMBERSHIP_REVOKED_REQUIRES_REVIEW',updated_at=? WHERE id=?").run(stamp, job.id);
+    deps.escalate?.(job.phone, job.name, "MEMBERSHIP_REVOKED_REQUIRES_REVIEW");
+    return { phone: job.phone, escalated: true, reason: "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" };
+  }
   const target = pickGroupWithRoom(groupSlots(db));
   if (!target) {
     db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='NO_GROUP_WITH_ROOM',attempts=attempts+1,updated_at=? WHERE id=?").run(stamp, job.id);
@@ -99,11 +110,28 @@ export async function processGroupJoin(
   }
 
   try {
-    await client.addParticipant(groupJid, job.phone);
-    db.prepare("UPDATE group_join_requests SET status='DONE',group_code=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?").run(target.code, stamp, job.id);
+    const containsPhone = (phones: string[]) => phones.some(phone => sameWhatsAppNumber(phone, job.phone));
+    if (!containsPhone(await client.groupParticipants(groupJid))) await client.addParticipant(groupJid, job.phone);
+    if (!containsPhone(await client.groupParticipants(groupJid))) throw new Error("EVOLUTION_MEMBERSHIP_NOT_CONFIRMED");
+    db.transaction(() => {
+      const revoked = db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(job.phone);
+      if (revoked) throw new Error("MEMBERSHIP_REVOKED_REQUIRES_REVIEW");
+      recordGroupVerification(db, "EVOLUTION", target.code, groupJid, `SOS YOUTUBER ${target.code}`, 0, stamp);
+      recordMemberVerification(db, "EVOLUTION", target.code, job.phone, groupJid, true, stamp);
+      const approved = materializeApprovedMembership(db, job.phone, target.code, stamp);
+      if (!approved.accessGranted) throw new Error("MEMBERSHIP_APPROVAL_NOT_CONFIRMED");
+      db.prepare("UPDATE users SET group_code=?,updated_at=? WHERE phone=? AND deleted_at IS NULL").run(target.code, stamp, job.phone);
+      db.prepare("UPDATE group_join_requests SET status='DONE',group_code=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?").run(target.code, stamp, job.id);
+    })();
     return { phone: job.phone, groupCode: target.code, added: true };
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message.slice(0, 120) : "ADD_FAILED";
+    if (reason === "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" || reason === "MEMBERSHIP_APPROVAL_NOT_CONFIRMED") {
+      db.prepare("UPDATE group_join_requests SET status='FAILED',group_code=?,attempts=attempts+1,last_error=?,updated_at=? WHERE id=?")
+        .run(target.code, reason, stamp, job.id);
+      deps.escalate?.(job.phone, job.name, reason);
+      return { phone: job.phone, groupCode: target.code, escalated: true, reason };
+    }
     // Privacidade: a pessoa pode bloquear "ser adicionada". O convite resolve sem
     // expor ninguém — ela entra com um toque.
     let inviteUrl: string | undefined;
@@ -116,7 +144,7 @@ export async function processGroupJoin(
       else deps.escalate?.(job.phone, job.name, reason);
       return { phone: job.phone, groupCode: target.code, invited: Boolean(inviteUrl), escalated: !inviteUrl, reason };
     }
-    db.prepare("UPDATE group_join_requests SET attempts=?,last_error=?,updated_at=? WHERE id=?").run(attempts, reason, stamp, job.id);
+    db.prepare("UPDATE group_join_requests SET status='PENDING',attempts=?,last_error=?,updated_at=? WHERE id=?").run(attempts, reason, stamp, job.id);
     return { phone: job.phone, groupCode: target.code, reason };
   }
 }

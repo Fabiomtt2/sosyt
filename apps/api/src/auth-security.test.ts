@@ -84,7 +84,8 @@ describe("identidade por WhatsApp e fronteira administrativa",()=>{
     expect((await app.inject({method:"POST",url:"/auth/request-code",payload:{name:"Pessoa",phone,registration:true}})).statusCode).toBe(400);
     config.AUTH_DEV_MODE=false;
     const result=await key(phone,true);
-    expect(result.statusCode).toBe(503);
+    expect(result.statusCode).toBe(409);
+    expect(result.json().code).toBe("BOT_PASSWORD_LOGIN");
     expect(result.json().devCode).toBeUndefined();
     expect(db.prepare("SELECT COUNT(*) AS n FROM login_codes").get()).toEqual({n:0});
   });

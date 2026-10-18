@@ -4,6 +4,7 @@ import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { readWhatsAppIntegration } from "./integrations.js";
 import { queueBotNotification } from "./whatsapp.js";
+import { automationSettings } from "./bot-automation-store.js";
 
 // This bridge consumes real gamification events. It never claims all Claude automations are wired.
 export const GAMIFICATION_BOT_EVENTS=["LEVEL_UP","BOOSTER_CLAIMED","MONTHLY_TOP","REWARD_REDEEMED","REWARD_COINS_GIFTED"] as const;
@@ -31,7 +32,7 @@ const texts:Record<GamificationBotEvent,string>={
   BOOSTER_CLAIMED:"Oi, {name}! Seu Booster trouxe {item}. O presente já está disponível na sua conta. Aproveite no seu tempo!",
   MONTHLY_TOP:"Parabéns, {name}! Você ficou em {rank}º lugar no mês, com {xp} XP, e recebeu {coins} moedas de recompensa. Obrigado por participar!",
   REWARD_REDEEMED:"Tudo certo, {name}! Você trocou {coins} moedas de recompensa por {item}. O benefício já está disponível na sua conta.",
-  REWARD_COINS_GIFTED:"Oi, {name}! Você recebeu um presente de {coins} moedas de recompensa da comunidade. Elas já estão disponíveis na sua conta!"
+  REWARD_COINS_GIFTED:"Oi, {name}! Você recebeu um presente de {coins} moedas da comunidade. Elas já estão disponíveis na sua conta!"
 };
 export const DEFAULT_GAMIFICATION_BOT_SETTINGS:GamificationBotSettings={
   enabled:true,events:Object.fromEntries(GAMIFICATION_BOT_EVENTS.map(event=>[event,{
@@ -50,6 +51,13 @@ export function initializeGamificationBot(db:AppDatabase) {
     );
   `);
   db.prepare("INSERT OR IGNORE INTO gamification_bot_config(id,settings_json,updated_at) VALUES(1,?,?)").run(JSON.stringify(DEFAULT_GAMIFICATION_BOT_SETTINGS),now());
+  // Migrate only the former default; personalized Owner messages stay untouched.
+  const row=db.prepare("SELECT settings_json AS json FROM gamification_bot_config WHERE id=1").get() as {json:string};
+  const settings=gamificationBotSchema.parse(JSON.parse(row.json));
+  if(settings.events.REWARD_COINS_GIFTED.text==="Oi, {name}! Você recebeu um presente de {coins} moedas de recompensa da comunidade. Elas já estão disponíveis na sua conta!"){
+    settings.events.REWARD_COINS_GIFTED.text=texts.REWARD_COINS_GIFTED;
+    db.prepare("UPDATE gamification_bot_config SET settings_json=?,updated_at=? WHERE id=1").run(JSON.stringify(settings),now());
+  }
 }
 function settingsOf(db:AppDatabase):GamificationBotSettings {
   const row=db.prepare("SELECT settings_json AS json FROM gamification_bot_config WHERE id=1").get() as {json:string};
@@ -58,7 +66,7 @@ function settingsOf(db:AppDatabase):GamificationBotSettings {
 export function readGamificationBot(db:AppDatabase) {
   return {
     settings:settingsOf(db),catalog:GAMIFICATION_BOT_EVENTS.map(event=>({event,label:labels[event],placeholders:[...placeholders]})),
-    runtime:{wired:true,transport:"META_DM",note:"Os cinco eventos de progresso estão integrados. Mensagens externas dependem do modo, da conexão e de um template aprovado ou conversa recente."},
+    runtime:{wired:true,transport:"SELECTED_DM",note:"Os cinco eventos usam o motor selecionado: Evolution no modo puro; Meta no Oficial/HYBRID+. A fila acompanha a conexão e o recibo real de entrega."},
     deliveries:db.prepare(`SELECT d.event_id AS eventId,e.event,d.user_id AS userId,u.name,d.status,d.reason,d.mail_id AS mailId,d.outbox_id AS outboxId,d.checked_at AS checkedAt,d.created_at AS createdAt
       FROM gamification_notification_deliveries d JOIN gamification_bot_events e ON e.id=d.event_id LEFT JOIN users u ON u.id=d.user_id
       ORDER BY d.created_at DESC,d.rowid DESC LIMIT 100`).all()
@@ -77,7 +85,7 @@ export function saveGamificationBot(db:AppDatabase,raw:unknown,actorId:string) {
 function notificationBody(text:string,name:string,payload:Record<string,unknown>) {
   const item=payload.itemCode==="SKIP"||payload.code==="SKIP"?"Pular":payload.itemCode==="PASS"||payload.code==="PASS"?"Passe":
     payload.code==="SUPER_TRIAL"?"SUPER por "+String(payload.trialDays??7)+" dias":Number(payload.coins)>0?String(payload.coins)+" moedas de recompensa":"seu benefício";
-  const vars:Record<string,string|number>={name,level:Number(payload.level??1),coins:Number(payload.coins??payload.priceCoins??0),
+  const vars:Record<string,string|number>={name,nome:name,nivel:Number(payload.level??1),level:Number(payload.level??1),coins:Number(payload.coins??payload.priceCoins??0),
     item,rank:Number(payload.place??0),xp:Number(payload.xp??0),trialDays:Number(payload.trialDays??0)};
   // One replacement pass: a participant name containing braces is never expanded again.
   return text.replace(/\{(\w+)\}/g,(match,key:string)=>Object.prototype.hasOwnProperty.call(vars,key)?String(vars[key]):match).slice(0,2000);
@@ -112,7 +120,11 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
       };
       if(!event.phone||event.deletedAt){setState("SKIPPED","ACCOUNT_UNAVAILABLE");continue;}
       if(!GAMIFICATION_BOT_EVENTS.includes(event.event as GamificationBotEvent)){setState("SKIPPED","UNKNOWN_EVENT");continue;}
-      const rule=settings.events[event.event as GamificationBotEvent];
+      const baseRule=settings.events[event.event as GamificationBotEvent];
+      // The five-event bridge remains the sole LEVEL_UP delivery engine. A saved
+      // Owner catalog message governs it without activating a second dispatcher.
+      const catalogRule=event.event==="LEVEL_UP"?automationSettings(db,"LEVEL_UP"):undefined;
+      const rule=catalogRule?.customized?{...baseRule,enabled:catalogRule.enabled,text:catalogRule.text}:baseRule;
       if(!settings.enabled||!rule.enabled){setState("WAITING","EVENT_DISABLED");waiting++;continue;}
       let payload:Record<string,unknown>;
       try{payload=JSON.parse(event.payload);}catch{setState("SKIPPED","INVALID_EVENT");continue;}
@@ -131,7 +143,7 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
       }else if(wa.mode==="OFFICIAL"||wa.mode==="HYBRID_PLUS"){
         if(!wa.officialReady){setState("WAITING","META_NOT_READY");waiting++;continue;}
       }else{setState("WAITING","MODE_UNAVAILABLE");waiting++;continue;}
-      const result=queueBotNotification(db,config,event.phone,body,"gamification:"+event.id,rule.templateName?{name:rule.templateName,language:rule.templateLanguage}:undefined,{deliveryClass:"REWARD",event:event.event});
+      const result=queueBotNotification(db,config,event.phone,body,"gamification:"+event.id,rule.templateName?{name:rule.templateName,language:rule.templateLanguage}:undefined,{deliveryClass:"REWARD",event:event.event==="LEVEL_UP"?"LEVEL_UP":"GAMIFICATION_"+event.event});
       if(!result.queued||!result.outboxId){setState("WAITING",result.reason??"CHANNEL_UNAVAILABLE");waiting++;continue;}
       const outbox=db.prepare("SELECT status FROM whatsapp_outbox WHERE id=?").get(result.outboxId) as {status:string}|undefined;
       if(!outbox){setState("WAITING","OUTBOX_NOT_FOUND");waiting++;continue;}

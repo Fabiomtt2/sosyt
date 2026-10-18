@@ -268,3 +268,25 @@ describe("roteador de grupo: menor número com vaga (regra do dono, N de 1 a 99)
     expect(pickGroupWithRoom([{ ...slot("1", 0), enabled: false }, slot("2", 0)])?.code).toBe("2");
   });
 });
+
+
+describe("confirmed Evolution group operations", () => {
+  it("HTTP 200 with participant 403 is not a successful addition", async () => {
+    const f = fakeFetch(() => ({ body: { participants: [{ status: "403" }] } }));
+    await expect(createEvolutionClient({ config: CONFIG, fetchImpl: f.impl }).addParticipant("123@g.us", "5511999990001"))
+      .rejects.toMatchObject({ code: "EVOLUTION_PARTICIPANT_403" });
+  });
+  it("falls back from aggregate 500 to separate verified participant reads", async () => {
+    const f = fakeFetch(url => url.includes("getParticipants=true") ? { status: 500 } : url.includes("getParticipants=false")
+      ? { body: [{id:"123@g.us",subject:"SOS Youtuber 1",size:1}] }
+      : { body: {participants:[{id:"123456789000001@lid",phoneNumber:"5511999990001@s.whatsapp.net"}]} });
+    const groups = await createEvolutionClient({ config: CONFIG, fetchImpl: f.impl }).groups();
+    expect(groups[0].participants[0].phoneNumber).toBe("5511999990001@s.whatsapp.net");
+    expect(f.calls).toHaveLength(3);
+  });
+  it("missing participant payload cannot silently become an empty authoritative list", async () => {
+    const f = fakeFetch(() => ({body:{ok:true}}));
+    await expect(createEvolutionClient({config:CONFIG,fetchImpl:f.impl}).groupParticipants("123@g.us"))
+      .rejects.toMatchObject({code:"INVALID_PARTICIPANT_LIST"});
+  });
+});

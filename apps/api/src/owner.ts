@@ -1,3 +1,7 @@
+import { humanSupportNumber, humanHandoffAlert } from "./bot-human-handoff.js";
+import { readSupportAvailability, saveSupportAvailability } from "./support-availability.js";
+import { botAutomationRuntimeStatus, recordBotAutomationEvent, dispatchBotAutomations } from "./bot-automation-runtime.js";
+import { featureEnabled } from "./bot.js";
 import { gamificationData } from "./gamification-view.js";
 import { listCatalog, catalogTierOf } from "./avatar-tiers.js";
 import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
@@ -17,7 +21,7 @@ import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
 import type { AppDatabase } from "./db.js";
 import { effectiveOwnerAccounts, ownerPhoneKey, administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
-import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
+import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, whatsappRuntimeStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
 import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
 import { ensureAsaasWebhook } from "./payments.js";
@@ -27,7 +31,7 @@ import { importAvatarLibrary } from "./avatar-library-import.js";
 import { createPasswordReset, markResetDelivered, passwordResetHistory, passwordResetStatus, resetMessage } from "./password-reset.js";
 import { welcomeAlreadyGranted, welcomeReference } from "./wallet-guards.js";
 import { queueBotNotification } from "./whatsapp.js";
-import { AutomationValidationError, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
+import { AutomationValidationError, automationSettings, automationAudit, ensureBotAutomations, listAutomationSettings, resetAutomationSettings, saveAutomationSettings } from "./bot-automation-store.js";
 
 const phoneSchema = z.string().transform(normalizePhone).pipe(z.string().regex(/^[1-9]\d{7,14}$/, "Informe o WhatsApp com código do país."));
 const groupSchema = z.string().regex(/^[1-9]\d{0,2}$/);
@@ -299,7 +303,7 @@ export async function registerOwnerRoutes(
   });
   app.post("/auth/role", { config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const body = z.object({ name: z.string().trim().min(2).max(80), phone: phoneSchema }).parse(request.body);
-    const account = ownerAccounts(config).find((owner) => owner.phone === body.phone && ownerNameMatches(owner.name, body.name));
+    const account = effectiveOwnerAccounts(db,config).find((owner) => owner.phone === body.phone && ownerNameMatches(owner.name, body.name));
     return { role: account ? "owner" as const : "user" as const };
   });
 
@@ -477,6 +481,7 @@ export async function registerOwnerRoutes(
   });
 
   app.get("/admin/version", { preHandler: ownerGuard }, async () => gitVersionInfo());
+  app.get("/admin/integrations/whatsapp/runtime",{preHandler:rootOwnerGuard},async()=>whatsappRuntimeStatus(db,config));
   app.get("/admin/integrations/whatsapp", { preHandler: rootOwnerGuard }, async () => readWhatsAppIntegration(db,config));
   app.post("/admin/integrations/whatsapp", { preHandler: rootOwnerGuard }, async (request) => saveWhatsAppIntegration(db,config,request.body));
   // AUDITORIA I-01: terceira integracao, no mesmo molde das outras duas.
@@ -523,6 +528,55 @@ export async function registerOwnerRoutes(
     catalog: AUTOMATION_CATALOG,
     groups: automationsByCategory().map((g) => ({ category: g.category, events: g.items.map((i) => i.event) }))
   }));
+  app.get("/admin/bot/deliveries",{preHandler:rootOwnerGuard},async()=>{
+    const entries=db.prepare("SELECT id,status,last_error AS reason,attempts,available_at AS availableAt,created_at AS createdAt,provider_message_id IS NOT NULL AS providerConfirmed,substr(recipient,-4) AS recipientSuffix,json_extract(payload,'$._event') AS event,json_extract(payload,'$._transport') AS transport FROM whatsapp_outbox ORDER BY created_at DESC,rowid DESC LIMIT 100").all();
+    return {entries};
+  });
+  app.post("/admin/bot/test-message",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const {referenceId,target}=z.object({referenceId:z.string().uuid(),target:z.enum(["SELF","HUMAN"]).default("SELF")}).parse(request.body),account=resolveOwnerContext(request)!;
+    const event=target==="HUMAN"?"ROOT_HUMAN_TEST":"ROOT_SELF_TEST",recipient=target==="HUMAN"?humanSupportNumber(db,config):account.phone;
+    const key="owner-test:"+event+":"+account.id+":"+referenceId;
+    const result=db.transaction(()=>{
+      const old=db.prepare("SELECT id AS outboxId FROM whatsapp_outbox WHERE dedupe_key=?").get(key) as {outboxId:string}|undefined;
+      if(old)return {queued:true,...old};
+      const recent=db.prepare("SELECT 1 FROM bot_automation_audit WHERE event=? AND actor_owner_id=? AND created_at>?").get(event,account.id,new Date(Date.now()-60_000).toISOString());
+      if(recent)return {queued:false,reason:"Aguarde um minuto antes de solicitar outro teste."};
+      const queued=queueBotNotification(db,config,recipient,target==="HUMAN"?humanHandoffAlert({name:account.name,userPhone:account.phone,lastMessage:"Teste administrativo do encaminhamento humano. Não é uma solicitação real de suporte."}):"Teste do SOS YOUTUBER: o painel solicitou esta mensagem para confirmar o envio pelo bot. Nenhuma senha ou código foi incluído.",key,undefined,{deliveryClass:"TRANSACTIONAL",event});
+      if(queued.outboxId)db.prepare("INSERT INTO bot_automation_audit(event,field,after_value,actor_owner_id,actor_owner_name,created_at) VALUES(?,'dispatch',?,?,?,?)")
+        .run(event,queued.outboxId,account.id,account.name,new Date().toISOString());
+      return queued;
+    })();
+    return reply.code(result.queued?202:409).send(result);
+  });
+  app.get("/admin/bot/test-message/:outboxId",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const account=resolveOwnerContext(request)!;
+    const {outboxId}=z.object({outboxId:z.string().uuid()}).parse(request.params);
+    const row=db.prepare("SELECT o.status,o.last_error AS reason,o.provider_message_id AS providerId FROM whatsapp_outbox o JOIN bot_automation_audit a ON a.after_value=o.id WHERE o.id=? AND a.event IN ('ROOT_SELF_TEST','ROOT_HUMAN_TEST') AND a.actor_owner_id=?")
+      .get(outboxId,account.id) as {status:string;reason:string|null;providerId:string|null}|undefined;
+    if(!row)return reply.code(404).send({message:"Teste não encontrado."});
+    return {status:row.status,reason:row.reason,providerConfirmed:row.status==="SENT"&&Boolean(row.providerId)};
+  });
+  app.get("/admin/bot/support-availability",{preHandler:rootOwnerGuard},async()=>readSupportAvailability(db));
+  app.post("/admin/bot/support-availability",{preHandler:rootOwnerGuard},async(request)=>{
+    const account=resolveOwnerContext(request)!;
+    return saveSupportAvailability(db,request.body,{id:account.id,name:account.name});
+  });
+  app.get("/admin/bot/automations/runtime", {preHandler:rootOwnerGuard},async()=>botAutomationRuntimeStatus(db));
+  app.post("/admin/bot/automations/BROADCAST_GLOBAL/dispatch",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const body=z.object({message:z.string().trim().min(1).max(3000),referenceId:z.string().uuid()}).parse(request.body);
+    const account=resolveOwnerContext(request)!;
+    if(!featureEnabled(db,"BROADCAST") || !automationSettings(db,"BROADCAST_GLOBAL").enabled)return reply.code(409).send({message:"Ative os recados globais no painel do bot antes de enviar."});
+    const result=db.transaction(()=>{
+      const eventId=recordBotAutomationEvent(db,{event:"BROADCAST_GLOBAL",sourceId:"owner:"+account.id+":"+body.referenceId,
+        vars:{mensagem:body.message,link:config.WEB_APP_URL}});
+      if(!db.prepare("SELECT 1 FROM bot_automation_audit WHERE event='BROADCAST_GLOBAL' AND field='dispatch' AND after_value=?").get(eventId)){
+        db.prepare("INSERT INTO bot_automation_audit(event,field,after_value,actor_owner_id,actor_owner_name,created_at) VALUES('BROADCAST_GLOBAL','dispatch',?,?,?,?)")
+          .run(eventId,account.id,account.name,new Date().toISOString());
+      }
+      return {eventId,...dispatchBotAutomations(db,config)};
+    })();
+    return reply.code(202).send(result);
+  });
   app.patch("/admin/bot/automations/:event", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const account = resolveOwnerContext(request)!;
     const { event } = request.params as { event: string };

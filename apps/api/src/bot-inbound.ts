@@ -55,6 +55,7 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
   ] },
   // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
   { intent: "PARTICIPATE", phrases: ["1"] },
+  { intent: "HELP", phrases: ["ranking", "rank", "classificacao", "meu nivel", "nivel", "xp", "carteira", "saldo", "inventario", "gamificacao"] },
   { intent: "QUEUE_INFO", phrases: ["2", "fila", "filas", "como funciona a fila", "como funcionam as filas"] },
   { intent: "RESEND_CODE", phrases: ["3", "trocar senha", "nova senha", "mudar senha", "resetar senha", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
   { intent: "STATUS", phrases: ["4"] },
@@ -63,9 +64,9 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
     "nao chegou", "nao recebi", "reenviar codigo", "reenvia o codigo", "codigo nao", "sem codigo",
   ] },
   { intent: "STATUS", phrases: ["status", "e ai saiu", "ja saiu", "foi aprovado", "minha solicitacao", "novidade"] },
-  { intent: "PARTICIPATE", phrases: ["quero participar", "quero entrar", "como participo", "como entro", "participar"] },
+  { intent: "PARTICIPATE", phrases: ["quero participar", "quero entrar", "como participo", "como entro", "participar", "continuar", "comecar", "cadastrar"] },
   { intent: "HELP", phrases: ["ajuda", "socorro", "nao entendi", "me ajuda", "duvida", "como funciona"] },
-  { intent: "GREETING", phrases: ["oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "opa"] },
+  { intent: "GREETING", phrases: ["oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "opa", "menu"] },
 ];
 
 /** Frase curta é saudação só quando é a mensagem inteira (evita casar "oi" dentro de "coisa"). */
@@ -90,7 +91,7 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
       // escolhido nada. Digito isolado agora exige igualdade exata.
       const hit = /^\d$/.test(phrase)
         ? text === phrase
-        : intent === "OPT_OUT"
+        : intent === "OPT_OUT" || (intent === "HELP" && (phrase === "rank" || phrase === "xp"))
           ? wholeWord(phrase)
           : SHORT_EXACT.includes(intent) && phrase.length <= 4
             ? text === phrase
@@ -108,12 +109,13 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
  */
 export function looksLikeName(raw: string): boolean {
   const name = raw.trim();
-  return name.length >= 2 && name.length <= 80 && !/[\r\n]/.test(name) && !/https?:\/\//i.test(name);
+  return nameRejectionReason(name) === undefined;
 }
 
 /** Por que o nome não serve — usado para explicar com gentileza, em vez de calar. */
 export function nameRejectionReason(raw: string): string | undefined {
   const name = raw.trim();
+  if (!/\p{L}/u.test(name) || /^(continuar|cadastrar|entrar|sim|ok|okay|menu|voltar|obrigad[oa])$/i.test(normalizeInbound(name))) return "Ainda preciso saber seu nome. Como prefere ser chamado?";
   if (name.length < 2) return "Esse nome ficou curtinho — me manda com pelo menos duas letras?";
   if (name.length > 80) return "Esse nome ficou bem comprido! Pode mandar só como prefere ser chamado?";
   if (/https?:\/\//i.test(name)) return "Por segurança não consigo guardar links aqui. Me manda só o seu nome?";

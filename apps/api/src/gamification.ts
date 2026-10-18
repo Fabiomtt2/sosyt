@@ -31,6 +31,12 @@ export const DEFAULT_GAMIFICATION_CONFIG:GamificationConfig={
 type DropCode=GamificationConfig["boosterDrops"][number]["code"];
 function fail(statusCode:number,message:string,code:string):never {throw Object.assign(new Error(message),{statusCode,code});}
 const stamp=()=>new Date().toISOString();
+function isRootProgress(db:AppDatabase,userId:string):boolean {
+  return Boolean(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1 AND role='ROOT_OWNER'").get(userId));
+}
+export type GamificationProgress =
+  | {administrative:true;unlimitedXp:true;xp:null;level:null;nextLevelXp:null;levelStartXp:null}
+  | {administrative:false;unlimitedXp:false;xp:number;level:number;nextLevelXp:number;levelStartXp:number};
 function userExists(db:AppDatabase,id:string) {
   if(!db.prepare("SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL").get(id))fail(404,"Participante não encontrado.","USER_NOT_FOUND");
 }
@@ -136,6 +142,9 @@ export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,vid
   const c=gamificationConfig(db);
   if(!c.enabled||!c.xpEnabled)return {xpDelta:0,levelRewards:[] as Array<{level:number;coins:number;trialDays:number}>};
   userExists(db,userId);
+  // Root access is unlimited and never competes with, or collects progression
+  // rewards from, participants. Historical immutable records are retained.
+  if(isRootProgress(db,userId))return {xpDelta:0,levelRewards:[] as Array<{level:number;coins:number;trialDays:number}>};
   return db.transaction(()=>{
     const durationRow=db.prepare("SELECT video_duration_seconds AS duration FROM submissions WHERE round_id=? AND slot=?").get(roundId,videoIndex+1) as {duration:number}|undefined;
     const duration=durationRow?.duration;
@@ -169,12 +178,13 @@ export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,vid
 export function boosterView(db:AppDatabase,userId:string) {
   const c=gamificationConfig(db),clock=bahiaClock();
   const claim=db.prepare("SELECT e.payload_json AS payload FROM gamification_booster_claims b JOIN gamification_events e ON e.id=b.event_id WHERE b.user_id=? AND b.local_date=?").get(userId,clock.date) as {payload:string}|undefined;
-  return {available:c.enabled&&c.boosterEnabled&&clock.friday&&clock.hour>=6&&!claim,claimed:Boolean(claim),date:clock.date,
+  return {available:!isRootProgress(db,userId)&&c.enabled&&c.boosterEnabled&&clock.friday&&clock.hour>=6&&!claim,claimed:Boolean(claim),date:clock.date,
     timeZone:"America/Bahia",windowEndsAt:clock.date+"T23:59:59.999-03:00",opensAt:"sexta-feira às 06:00",closesAt:"sexta-feira às 23:59",reward:claim?JSON.parse(claim.payload):undefined,
     odds:c.boosterDrops.map(d=>({...d,probabilityPercent:d.weight/100}))};
 }
 export function claimBooster(db:AppDatabase,userId:string) {
   userExists(db,userId);
+  if(isRootProgress(db,userId))fail(409,"Sua conta administrativa já tem acesso ilimitado aos itens. O Booster é dedicado aos participantes.","ADMINISTRATIVE_ACCESS");
   return db.transaction(()=>{
     const view=boosterView(db,userId),c=gamificationConfig(db);
     if(view.claimed)return {replayed:true,reward:view.reward};
@@ -191,6 +201,7 @@ export function claimBooster(db:AppDatabase,userId:string) {
 }
 export function redeemRewardItem(db:AppDatabase,userId:string,itemCode:"SKIP"|"PASS",referenceId:string) {
   userExists(db,userId);
+  if(isRootProgress(db,userId))fail(409,"Sua conta administrativa já tem acesso ilimitado aos itens.","ADMINISTRATIVE_ACCESS");
   z.string().uuid().parse(referenceId);
   if(itemCode!=="SKIP"&&itemCode!=="PASS")fail(400,"Escolha Pular ou Passe.","INVALID_REDEMPTION");
   return db.transaction(()=>{
@@ -246,12 +257,15 @@ export function settleClosedMonths(db:AppDatabase) {
   })();
 }
 /** Lightweight public presentation; no wallet, claim state or personal event history. */
-export function gamificationProgress(db:AppDatabase,userId:string) {
+export function gamificationProgress(db:AppDatabase,userId:string):GamificationProgress {
+  // JSON carries explicit administrative access, never numeric Infinity or a
+  // counterfeit participant level. Promotion does not destroy prior history.
+  if(isRootProgress(db,userId))return {administrative:true,unlimitedXp:true,xp:null,level:null,nextLevelXp:null,levelStartXp:null};
   const xp=totalXp(db,userId);
   const profile=db.prepare("SELECT curve_json AS curve,level FROM gamification_users WHERE user_id=?").get(userId) as {curve:string;level:number}|undefined;
   const curve=profile?JSON.parse(profile.curve):gamificationConfig(db).curve;
   const progress=levelAt(xp,curve);
-  return {xp,level:Math.max(profile?.level??1,progress.level),nextLevelXp:progress.nextLevelXp,levelStartXp:progress.levelStartXp};
+  return {administrative:false,unlimitedXp:false,xp,level:Math.max(profile?.level??1,progress.level),nextLevelXp:progress.nextLevelXp,levelStartXp:progress.levelStartXp};
 }
 export function gamificationView(db:AppDatabase,userId:string) {
   userExists(db,userId);

@@ -1,21 +1,7 @@
-// AUDITORIA / escalonamento para atendimento humano ("Tenho dúvidas").
-//
-// POR QUE ASSIM, E NÃO UM LINK wa.me JOGADO NA CARA DO USUÁRIO
-//
-// A tela final do WhatsApp (mensagem pronta + botão enviar) é da Meta e não pode ser
-// restilizada por ninguém — nem por nós, nem por serviço/repo externo. O que os
-// "wa.me customizados" fazem é enfeitar o BOTÃO antes de abrir o WhatsApp; a tela em
-// si continua a mesma, e ainda terceirizam dados de usuário. Então não dependemos de
-// ninguém de fora.
-//
-// O desenho que o dono pediu (sem o popup padrão incomodando o usuário):
-//   1. A pessoa escreve "Tenho dúvidas" na conversa privada com o bot.
-//   2. O bot acolhe e diz que já chamou a equipe — a pessoa não precisa clicar em nada.
-//   3. O bot AVISA o número humano de atendimento, com um link direto pra conversa da
-//      pessoa (wa.me do usuário) — aí um humano de verdade a procura.
-//
-// Assim o atendimento é proativo: quem tem a fricção do wa.me é a EQUIPE (um clique no
-// link), nunca o usuário. O número humano é configurável pelo Owner.
+// Atendimento humano: configuração do destinatário e textos legados de diagnóstico.
+// O fluxo de pedido humano usa bot-human-relay.ts: ticket persistente e respostas
+// autorizadas enviadas pelo bot na mesma conversa do participante.
+// humanHandoffAlert permanece para avisos operacionais e falhas de senha.
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 
@@ -61,12 +47,12 @@ export function humanHandoffUserReply(name?: string): string {
   const primeiro = (name ?? "").trim().split(/\s+/)[0];
   const ola = primeiro ? `Pode deixar comigo, ${primeiro}! 💛` : "Pode deixar comigo! 💛";
   return `${ola} Já avisei a nossa equipe que você quer uma ajuda mais de pertinho. ` +
-    "Em pouquinho uma pessoa de verdade vai te chamar aqui mesmo, nesta conversa. " +
+    "Uma pessoa de verdade poderá responder por esta mesma conversa assim que estiver disponível. " +
     "Se quiser, já me adianta numa frase o que você precisa, que a gente agiliza. 🙌";
 }
 
 /**
- * Mensagem que o bot envia ao NÚMERO HUMANO, com o link direto pra conversa da pessoa.
+ * Aviso operacional ao número humano, com contato direto para diagnóstico.
  * O humano toca no link e já cai na conversa — essa é a única fricção wa.me, e fica do
  * lado da equipe, não do usuário.
  */

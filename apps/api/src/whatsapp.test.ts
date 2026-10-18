@@ -115,8 +115,8 @@ describe("bot oficial WhatsApp", () => {
     const decisionPayload=JSON.parse(job.payload);
     expect(decisionPayload.type).toBe("text");
     expect(decisionPayload.text.body).toContain("aprovado no SOS YOUTUBER 1");
-    expect(decisionPayload.text.body).toContain("solicite uma chave de acesso");
-    expect(decisionPayload.text.body).toContain("Google, se já estiver vinculada");
+    expect(decisionPayload.text.body).toContain("senha enviada por este bot");
+    expect(decisionPayload.text.body).toContain("responda 3");
     expect(count("login_codes")).toBe(0);
     expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key LIKE 'approval-credential:%'").get()).toBeUndefined();
   });
@@ -272,7 +272,11 @@ describe("bot oficial WhatsApp", () => {
 
     it("'humano' recebe resposta e marca o transbordo (antes: silencio total)", async () => {
       expect((await post(payload("m-humano","quero falar com humano"))).statusCode).toBe(200);
-      expect(bodies().some((b) => /chamando uma pessoa/i.test(b))).toBe(true);
+      expect(bodies().some((b) => /equipe.*avisada|chamando uma pessoa/i.test(b))).toBe(true);
+      const humanAlert=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%:human-ticket'").get() as {recipient:string;payload:string};
+      expect(humanAlert.recipient).toBe("5571993978956");
+      expect(humanAlert.payload).toContain("RESPONDER");
+      expect(humanAlert.payload).not.toContain("wa.me/");
       expect((db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone='5571999999001'").get() as {stage:string}).stage)
         .toBe("HUMAN_REQUESTED");
     });

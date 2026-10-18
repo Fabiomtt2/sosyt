@@ -185,6 +185,8 @@ describe("regressões de domínio e segurança", () => {
     const completed=await submit(tenth.token,"curate00010");
     expect(completed.statusCode).toBe(201);
     expect(completed.json().roundCompleted).toBe(true);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM bot_automation_events WHERE event='QUEUE_FILLING'").get()).toEqual({n:1});
+    expect(db.prepare("SELECT COUNT(*) AS n FROM bot_automation_events WHERE event='QUEUE_COMPLETE'").get()).toEqual({n:1});
 
     const firstWallet=await dashboard(users[0].token);
     const secondWallet=await dashboard(users[1].token);

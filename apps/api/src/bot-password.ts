@@ -1,3 +1,5 @@
+import {effectiveOwnerAccounts} from "./owners.js";
+import {sameWhatsAppNumber} from "./bot-evolution.js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
@@ -54,7 +56,7 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
   return db.transaction(()=>{
     const user=db.prepare("SELECT phone,name FROM users WHERE id=? AND deleted_at IS NULL").get(userId) as {phone:string;name:string}|undefined;
     if(!user)return {created:false,queued:false,reason:"ACCOUNT_UNAVAILABLE"};
-    if(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1").get(userId))return {created:false,queued:false,reason:"ADMIN_ACCOUNT"};
+    if(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1").get(userId)||effectiveOwnerAccounts(db,config).some(owner=>owner.phone&&sameWhatsAppNumber(owner.phone,user.phone)))return {created:false,queued:false,reason:"ADMIN_ACCOUNT"};
     if(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(userId))return {created:false,queued:false,reason:"PASSWORD_ALREADY_SET"};
     if(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId))return {created:false,queued:false,reason:"DELIVERY_STATE_CONFLICT"};
     const password=generateBotPassword();

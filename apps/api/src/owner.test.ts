@@ -123,11 +123,12 @@ describe("Owner e acesso por grupo", () => {
     expect(promoted.json()).toMatchObject({userId:adminUserId,name:"Rafael",phone:adminPhone,role:"ADMIN_OWNER"});
 
     // O intervalo de participante não pode prender um Owner/Admin fora do painel.
-    // /dashboard usa authGuard e deve respeitar o cooldown; /admin/elevate usa
+    // A conta permanece legível no intervalo; novas ações de fila seguem bloqueadas. /admin/elevate usa
     // apenas a identidade de participante para reemitir a sessão administrativa.
     db.prepare("UPDATE users SET cooldown_until=?,cooldown_reason=? WHERE id=?")
       .run(new Date(Date.now()+120*60_000).toISOString(),"Teste de retorno ao painel",adminUserId);
-    expect((await app.inject({method:"GET",url:"/dashboard",headers:authorization(participantToken)})).statusCode).toBe(423);
+    expect((await app.inject({method:"GET",url:"/dashboard",headers:authorization(participantToken)})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url:"/rounds/current/submissions",headers:authorization(participantToken),payload:{url:"https://youtu.be/abcdefghijk"}})).statusCode).toBe(423);
 
     const elevated=await app.inject({method:"POST",url:"/admin/elevate",headers:authorization(participantToken)});
     expect(elevated.statusCode).toBe(200);
