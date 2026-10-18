@@ -45,7 +45,8 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
  expect((await (await request.get(api+"/queues/mine",{headers:ah})).json()).skipsAvailable).toBe(1);
  await page.keyboard.press("Escape");
  await request.post(api+"/chat/global",{headers:{authorization:"Bearer "+b.token},data:{body:"Vamos conversar sobre nossa próxima seleção?"}});
- await expect(room.getByRole("button",{name:"Ver João Criador",exact:true})).toBeVisible();
+ // Another session posts through the API; allow one 5s polling cycle plus transport.
+  await expect(room.getByRole("button",{name:"Ver João Criador",exact:true})).toBeVisible({timeout:12_000});
  await room.getByRole("button",{name:"Ver João Criador",exact:true}).click();
  await page.getByRole("button",{name:"Abrir conversa",exact:true}).click();
  const direct=page.getByRole("dialog",{name:"Mensagens e inventário"});

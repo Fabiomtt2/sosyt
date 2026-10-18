@@ -4,7 +4,7 @@ import { isCompletePhoneField } from "./PhoneField";
 
 const verifierKey="sos_google_browser_verifier";
 const pendingKey="sos_google_identity_pending";
-export function GoogleAccess({name,phone,onDone}:{name:string;phone:string;onDone:()=>void}) {
+export function GoogleAccess({name,phone,onDone,loadOptions=api.authOptions}:{name:string;phone:string;onDone:()=>void;loadOptions?:()=>ReturnType<typeof api.authOptions>}) {
   const [configured,setConfigured]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -12,7 +12,7 @@ export function GoogleAccess({name,phone,onDone}:{name:string;phone:string;onDon
   const started=useRef(false);
   const done=useRef(onDone);done.current=onDone;
   useEffect(()=>{
-    void api.authOptions().then((value)=>setConfigured(value.googleConfigured)).catch(()=>{});
+    void loadOptions().then((value)=>setConfigured(value.googleConfigured)).catch(()=>{});
     if(started.current)return;started.current=true;
     const fragment=new URLSearchParams(window.location.hash.slice(1));
     const ticket=fragment.get("google_login"),failure=fragment.get("google_error");
@@ -34,7 +34,7 @@ export function GoogleAccess({name,phone,onDone}:{name:string;phone:string;onDon
       const saved=localStorage.getItem(pendingKey);
       if(saved)void api.googleStatus(saved).then(remember).catch(()=>localStorage.removeItem(pendingKey));
     }
-  },[]);
+  },[loadOptions]);
   async function start(){
     setError("");setBusy(true);
     try{

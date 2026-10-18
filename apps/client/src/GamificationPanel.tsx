@@ -33,7 +33,9 @@ export type BoosterClaimResult = {
 export type GamificationData = {
   milestones?:{every:number;coins:number;trialEvery:number;trialDays:number};
   redemptionEnabled?:boolean;
-  progress: JourneyProgress;
+  administrative?: boolean;
+  unlimitedXp?: boolean;
+  progress: JourneyProgress | null;
   ranks: { monthly: JourneyRankEntry[]; allTime: JourneyRankEntry[] };
   booster: {
     available: boolean;
@@ -60,11 +62,12 @@ const tiers = [
 ];
 
 export function LevelBadge({ progress, className = "", compact = false }: {
-  progress: { level: number };
+  progress?: { level: number } | null;
   className?: string;
   compact?: boolean;
 }) {
-  const level = Math.max(1, Math.floor(Number.isFinite(progress.level) ? progress.level : 1));
+  if (!progress || !Number.isFinite(progress.level) || progress.level < 1) return null;
+  const level = Math.floor(progress.level);
   const tier = tiers.find((item) => level >= item.from) ?? tiers[tiers.length - 1];
   const Emblem = tier.icon;
   return <span className={"journey-level-badge journey-tier-" + tier.className + (compact ? " is-compact" : "") + " " + className}
@@ -103,11 +106,11 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     return () => window.clearInterval(timer);
   }, []);
   const { progress } = data;
-  const percent = progressValue(progress.progressPercent);
-  const roadmap = progress.roadmap.filter((item) => item.level > progress.level).slice(0, 10);
+  const percent = progressValue(progress?.progressPercent ?? 0);
+  const roadmap = progress ? progress.roadmap.filter((item) => item.level > progress.level).slice(0, 10) : [];
   const windowEndsAt = data.booster.windowEndsAt ? Date.parse(data.booster.windowEndsAt) : undefined;
   const expired = windowEndsAt !== undefined && Number.isFinite(windowEndsAt) && now >= windowEndsAt;
-  const canClaim = data.booster.available && !data.booster.claimed && !reward && !expired;
+  const canClaim = Boolean(progress) && !data.administrative && data.booster.available && !data.booster.claimed && !reward && !expired;
   const deadline = windowEndsAt !== undefined && Number.isFinite(windowEndsAt)
     ? new Date(windowEndsAt).toLocaleString("pt-BR", { timeZone: "America/Bahia", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : undefined;
 
@@ -134,7 +137,7 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     }
   }
   async function redeem(code: "SKIP" | "PASS") {
-    if (operation.current || data.redemptionEnabled===false || progress.rewardCoins < data.redemption[code]) return;
+    if (!progress || data.administrative || operation.current || data.redemptionEnabled===false || progress.rewardCoins < data.redemption[code]) return;
     operation.current = true;
     setBusy(code); setError(""); setNotice("");
     try {
@@ -159,6 +162,14 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : "Não conseguimos atualizar sua jornada agora."); }
     finally { operation.current = false; if (mounted.current) setBusy(undefined); }
   }
+
+  if (!progress) return <section className="journey-panel" aria-labelledby="journey-heading">
+    <div className="journey-heading"><div><p className="journey-eyebrow">COMUNIDADE</p><h2 id="journey-heading">{data.administrative ? "Acesso administrativo" : "Sua jornada"}</h2><p>{data.administrative ? "XP administrativo ∞ · acesso ilimitado. Sua conta fica fora da competição e das recompensas de progressão." : "O progresso será exibido quando estiver disponível."}</p></div></div>
+    <div className="journey-ranks"><div className="journey-block-heading"><Trophy size={20} aria-hidden="true"/><div><h3>Criadores em movimento</h3><p>Conheça as jornadas da comunidade.</p></div></div>
+      <div className="journey-ranking-tabs" role="group" aria-label="Período do ranking"><button type="button" aria-pressed={rankingTab === "monthly"} onClick={() => setRankingTab("monthly")}>Este mês</button><button type="button" aria-pressed={rankingTab === "allTime"} onClick={() => setRankingTab("allTime")}>Desde o início</button></div>
+      <Ranking entries={data.ranks[rankingTab]} label={rankingTab === "monthly" ? "Ranking de experiência do mês" : "Ranking de experiência desde o início"}/>
+    </div>
+  </section>;
 
   return <section className="journey-panel" aria-labelledby="journey-heading">
     <div className="journey-heading">

@@ -54,6 +54,7 @@ test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma c
   await page.getByRole("button",{name:"Verificar situação"}).click();
   await expect(page.getByRole("heading",{name:"Cadastro aprovado"})).toBeVisible();
   await page.getByRole("button",{name:"Voltar ao acesso"}).click();
+  await page.getByRole("button",{name:"Prefiro a chave no WhatsApp",exact:true}).click();
   const response2=page.waitForResponse(result=>result.url().endsWith("/auth/request-code"));
   await page.getByRole("button",{name:"Continuar",exact:true}).click();
   const issued2=await (await response2).json();
@@ -79,7 +80,6 @@ test("chave WhatsApp: registro confirmado, aprovação manual e login na mesma c
   await page.getByRole("button",{name:"Selecionar DDD do Brasil"}).click();
   await page.keyboard.type("71");await page.getByRole("button",{name:"DDD 71 BA"}).click();
   await page.getByLabel("WhatsApp",{exact:true}).fill("999998077");
-  await page.getByRole("button",{name:"Entrar com senha",exact:true}).click();
   await page.getByLabel("Senha recebida ou criada por você").fill("Fixture-access-8077!");
   await page.getByRole("button",{name:"Continuar",exact:true}).click();
   await expect(page.getByRole("button",{name:"Abrir menu da minha conta"})).toBeVisible();

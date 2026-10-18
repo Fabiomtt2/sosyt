@@ -2,7 +2,7 @@ const base=process.env.VITE_API_URL;
 if(!base)throw new Error("VITE_API_URL is required for coordinated publication.");
 const url=new URL("health",base.replace(/\/$/,"")+"/");
 if(url.protocol!=="https:"&&url.hostname!=="127.0.0.1")throw new Error("Use an HTTPS production API.");
-const required=["gamification-v1","reward-redemption-v1","bot-password-v1"];
+const required=["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1"];
 const seconds=Math.max(0,Math.min(300,Number(process.env.API_RELEASE_WAIT_SECONDS)||0));
 const deadline=Date.now()+seconds*1000;
 for(;;){

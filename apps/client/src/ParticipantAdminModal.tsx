@@ -84,20 +84,20 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
         </div>
 
         <div className="participant-admin-status">
-          <span className={detail.membership?.revokedAt ? "status-chip pending" : "status-chip ok"}>{detail.membership?.revokedAt ? "Acesso revogado" : "Acesso autorizado"}</span>
+          <span className={detail.membership?.revokedAt ? "status-chip pending" : "status-chip ok"}>{detail.membership?.revokedAt ? "Acesso revogado" : detail.membership ? "Vínculo com grupo registrado" : "Entrada no grupo pendente"}</span>
           {detail.wallet?.paymentHold ? <span className="status-chip pending"><AlertTriangle size={14}/>Carteira em revisão</span> : detail.wallet && <span className="status-chip ok"><ShieldCheck size={14}/>Carteira disponível</span>}
           {detail.verification?.required && <span className={detail.verification.accessReady ? "status-chip ok" : "status-chip pending"}>{detail.verification.accessReady ? "Grupo verificado" : "Verificação de grupo pendente"}</span>}
         </div>
 
         <section className="admin-detail-grid">
-          <article><span>Aprovação</span><strong>{when(detail.membership?.approvedAt ?? detail.request?.approvedAt)}</strong><small>por {detail.membership?.approvedByOwnerName ?? detail.request?.approvedByOwnerName ?? "Owner não identificado (registro legado)"}</small></article>
+          <article><span>Confirmação do grupo</span><strong>{when(detail.membership?.approvedAt)}</strong><small>{detail.membership ? detail.membership.approvedByOwnerName ? "por "+detail.membership.approvedByOwnerName : "Vínculo confirmado pelo sistema" : "Conta criada; aguardando confirmação de entrada no grupo."}</small></article>
           <article><span>Cadastro</span><strong>{when(detail.profile.createdAt)}</strong><small>Origem: {detail.request?.source ?? detail.membership?.source ?? "—"}</small></article>
           <article><span>Último acesso</span><strong>{when(detail.profile.lastSeenAt)}</strong><small>{detail.profile.userId ? "Conta de uso criada" : "Ainda não fez o primeiro login"}</small></article>
           <article><span>Contribuições</span><strong>{detail.activity.submissions} URLs</strong><small>em {detail.activity.rounds} fila{detail.activity.rounds===1?"":"s"}</small></article>
           <article><span>Jornada</span><strong>{detail.activity.playlists} playlists</strong><small>{detail.activity.completedTasks} tarefa{detail.activity.completedTasks===1?"":"s"} concluída{detail.activity.completedTasks===1?"":"s"}</small></article>
         </section>
 
-        {detail.gamification&&<p><LevelBadge progress={detail.gamification.progress}/> {detail.gamification.progress.xp} XP · {detail.gamification.progress.rewardCoins} moedas de recompensa</p>}
+        {detail.gamification?.progress?<p><LevelBadge progress={detail.gamification.progress}/> {detail.gamification.progress.xp} XP · {detail.gamification.progress.rewardCoins} moedas de recompensa</p>:detail.gamification?.administrative?<p>XP administrativo ∞ · fora da competição</p>:null}
       <WatchTimeSummary rewards={detail.watchRewards}/>
 
         <form className="participant-edit-form" onSubmit={save}>

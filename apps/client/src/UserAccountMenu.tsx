@@ -41,10 +41,13 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
   const verification=profile?.access.verification;
   const administrative=Boolean(data.viewer.adminRole);
   const administrativeLabel=data.viewer.adminRole==="ROOT_OWNER"?"Owner principal":"Administrador";
-  const accessTitle=administrative ? "Acesso administrativo ativo" : profile?.access.revoked?"Acesso revogado":verification?.required
+  const pendingGroup=data.groupAccess?.ready===false;
+  const accessTitle=pendingGroup ? data.groupAccess?.state==="INVITED"?"Convite do grupo enviado":data.groupAccess?.state==="NEEDS_SUPPORT"?"Entrada no grupo precisa de atenção":"Entrada no grupo em andamento" : administrative ? "Acesso administrativo ativo" : profile?.access.revoked?"Acesso revogado":verification?.required
     ? verification.accessReady ? "Presença no grupo confirmada" : "Verificação externa pendente"
     : "Acesso autorizado pelo Owner";
-  const accessCopy=administrative
+  const accessCopy=pendingGroup
+    ? data.groupAccess?.state==="INVITED"?"Sua conta e senha estão ativas. Confira e aceite o convite no WhatsApp. A presença no grupo será confirmada automaticamente.":data.groupAccess?.state==="NEEDS_SUPPORT"?"Sua conta e senha estão ativas. A entrada automática encontrou uma dificuldade e precisa ser conferida pelo atendimento.":"Sua conta e senha estão ativas. Estamos preparando sua entrada automática no grupo; as filas serão liberadas após a confirmação de presença."
+    : administrative
     ? `Você está participando da Fila ${data.openRound.sequence} com privilégios administrativos. Esse marcador não é um número de grupo e não altera a numeração real das filas.`
     : profile?.access.revoked
       ? "Seu acesso foi interrompido. Fale com um Owner se quiser entender ou solicitar uma nova autorização."
@@ -59,7 +62,7 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
       <button className="close" aria-label="Fechar minha conta" onClick={onClose}><X size={20}/></button>
       <div className="account-menu-head">
         <span className="account-avatar-shell"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="account-avatar"/>{data.viewer.adminRole&&<b className="admin-badge account-admin-badge">ADMIN</b>}</span>
-        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2>{data.user.presentation?.progress&&<LevelBadge progress={data.user.presentation.progress}/>}<p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · Grupo SOS YOUTUBER ${data.user.groupCode}`}</p></div>
+        <div><p className="eyebrow dark">MINHA CONTA</p><h2>{data.user.name}</h2>{data.user.presentation?.progress&&<LevelBadge progress={data.user.presentation.progress}/>}<p>{administrative ? `${administrativeLabel} · Fila atual ${data.openRound.sequence}` : `${data.user.youtubeChannel?.title ?? "Seu espaço no SOS YouTuber"} · ${pendingGroup?"Entrada no grupo em andamento":"Grupo SOS YOUTUBER "+data.user.groupCode}`}</p></div>
       </div>
 
       <section className="account-profile-tools">

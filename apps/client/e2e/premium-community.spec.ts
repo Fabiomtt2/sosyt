@@ -28,7 +28,9 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  }
  await page.keyboard.press("Escape");await page.setViewportSize({width:1440,height:960});
  await page.getByRole("button",{name:/Trocar avatar/}).click();
+ const avatarSaved=page.waitForResponse(response=>response.url()===server+"/admin/profile/avatar"&&response.request().method()==="PUT");
  await page.getByRole("button",{name:"Escolher Avatar Premium E2E",exact:true}).click();
+ expect((await avatarSaved).status()).toBe(200);
  await expect(page.getByRole("dialog",{name:"Escolher avatar"})).toHaveCount(0);
  const adminSession=await request.post(server+"/admin/participant-session",{headers:ownerHeaders});
  expect(adminSession.ok()).toBe(true);const rootParticipant=(await adminSession.json()).token;

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 // Integrated UI: the added management panels must be reachable in a real browser
 // and fit desktop/mobile after converging the two branches.
 test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",async({page,request})=>{
-  const api="http://127.0.0.1:17333";
+  test.setTimeout(180_000);
   const token=await ownerSession(request);
   await page.goto("/?audit=convergencia-visual");
   await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},token);
@@ -38,7 +38,7 @@ test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",asy
         const confirmation=page.getByLabel("Repetir",{exact:true});
         await password.fill("semnumerosabc");
         await confirmation.fill("semnumerosabc");
-        await page.locator(".owner-access-form").first().getByRole("button",{name:"Salvar",exact:true}).click();
+        await page.locator(".owner-access-form").first().getByRole("button",{name:"Salvar minha credencial",exact:true}).click();
         await expect(page.getByRole("alert")).toContainText("letras e números");
         await expect(password).toHaveValue("semnumerosabc");
         await expect(confirmation).toHaveValue("semnumerosabc");
@@ -49,7 +49,7 @@ test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",asy
         await upload.focus();
         await expect(upload).toBeFocused();
       }
-      if(title!=="Solicitações") await page.screenshot({path:resolve(`../../docs/evidencias/convergencia-${title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}-${width}.png`),fullPage:true});
+      if(title!=="Solicitações") await page.screenshot({path:resolve(`../../docs/evidencias/convergencia-${title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}-${width}.png`),fullPage:true,animations:"disabled",timeout:30_000});
     }
   }
 });

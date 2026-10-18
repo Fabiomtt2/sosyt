@@ -46,6 +46,7 @@ export function OwnerAccessPanel() {
 
   async function saveMine(event: FormEvent) {
     event.preventDefault();
+    if (mine.password.length < 10 || !/[a-zA-Z]/.test(mine.password) || !/[0-9]/.test(mine.password)) { setError("Use pelo menos 10 caracteres, incluindo letras e números."); return; }
     if (mine.password !== mine.confirm) { setError("As duas senhas precisam ser iguais."); return; }
     const saved = await run(() => ownerApi.saveCredential({ password: mine.password }), "Sua credencial do painel foi atualizada.");
     if (saved) setMine({ password: "", confirm: "" });
@@ -71,7 +72,8 @@ export function OwnerAccessPanel() {
         <form className="owner-access-form" onSubmit={saveMine}>
           <label>Nova credencial<input type="password" value={mine.password} onChange={(e) => setMine({ ...mine, password: e.target.value })} placeholder="mínimo 10, com letras e números" autoComplete="new-password" /></label>
           <label>Repetir<input type="password" value={mine.confirm} onChange={(e) => setMine({ ...mine, confirm: e.target.value })} autoComplete="new-password" /></label>
-          <button className="primary" disabled={busy || mine.password.length < 10}>Salvar</button>
+          <p className="muted">Use pelo menos 10 caracteres, com letras e números, e repita a mesma credencial.</p>
+          <button className="primary" disabled={busy}>{busy ? "Salvando…" : "Salvar minha credencial"}</button>
         </form>
       </div>
 
@@ -190,7 +192,7 @@ export function OwnerAccessPanel() {
         )}
       </div>
 
-      {notice && <p className="bot-notice">{notice}</p>}
+      {notice && <p className="bot-notice" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
     <BotPasswordSettings/>
 </section>

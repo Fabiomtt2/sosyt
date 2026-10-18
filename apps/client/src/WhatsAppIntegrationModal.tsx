@@ -1,13 +1,16 @@
 import { useModalLifecycle } from "./useModalLifecycle";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Bot, CheckCircle2, CircleHelp, ExternalLink, KeyRound, LoaderCircle, MessageCircleMore, Settings2, Smartphone } from "lucide-react";
-import { ownerApi, type WhatsAppIntegrationState } from "./api";
+import { ownerApi, type WhatsAppIntegrationState, type WhatsAppRuntimeState } from "./api";
 
-type HelpTopic = "businessPhone" | "mode" | "hybrid" | "evolution" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken" | "evolutionUrl" | "evolutionInstance" | "evolutionApiKey";
+type HelpTopic = "businessPhone" | "mode" | "hybrid" | "evolution" | "meta" | "waba" | "phoneId" | "token" | "secret" | "verify" | "webhook" | "wppUrl" | "wppSession" | "wppToken" | "evolutionUrl" | "evolutionInstance" | "evolutionApiKey" | "humanSupportPhone" | "evolutionPhone" | "evolutionWebhookSecret";
 
 const HELP: Record<HelpTopic,{title:string;body:string}> = {
+  humanSupportPhone:{title:"Pessoa que assume o atendimento",body:"Este telefone recebe o aviso quando alguém pede atendimento humano. É um destinatário de suporte; não é a identidade da sessão do bot. Trocar este campo não muda o número que envia mensagens automáticas."},
+  evolutionPhone:{title:"Número que atende automaticamente",body:"Informe DDI, DDD e número da conta pareada à instância Evolution. O servidor confere se a sessão pertence a esse telefone. Ao trocar o chip, atualize o número e faça o pareamento da instância correspondente."},
+  evolutionWebhookSecret:{title:"Proteção dos eventos Evolution",body:"Segredo compartilhado entre Evolution e SOS para autenticar os eventos recebidos. Deixe vazio para manter o segredo salvo. A chave da API autoriza chamadas ao Evolution; este segredo protege o caminho de volta."},
   businessPhone:{title:"Número público do SOS YouTuber",body:"Este é o telefone Business para receber pedidos de participação. Ao salvar, links e configurações passam a usar o novo número a partir do servidor, inclusive após reiniciar. Se você trocar o número usado pelo bot, atualize também o ID fornecido pela Meta e use Validar integração. O número do telefone sozinho não ativa o envio automático nem altera os contatos pessoais dos Owners."},
-  mode:{title:"Qual modo devo usar?",body:"Meta Oficial usa somente a plataforma oficial do WhatsApp Business. Meta + Grupos mantém a Meta para mensagens e acrescenta o WPPConnect apenas para grupos, membros e administradores. Evolution Gateway tem campos reservados; o transporte ainda não foi implementado. Desativado pausa automações externas sem apagar os dados salvos."},
+  mode:{title:"Qual modo devo usar?",body:"Meta Oficial usa somente a plataforma oficial do WhatsApp Business. Meta + Grupos mantém a Meta para mensagens e acrescenta o WPPConnect apenas para grupos, membros e administradores. Evolution envia e recebe mensagens pela sessão pareada e sincroniza grupos. Híbrido+ usa Meta para mensagens e Evolution para grupos. Desativado pausa automações externas sem apagar os dados salvos."},
   hybrid:{title:"O que muda em Meta + Grupos?",body:"A Meta continua responsável por mensagens e webhooks. O complemento WPPConnect entra apenas para consultar grupos tradicionais, membros e administradores quando a API oficial não expõe esses dados. A sessão complementar é separada e pode exigir novo pareamento após mudanças no WhatsApp."},
   evolution:{title:"Como funciona o Evolution Gateway?",body:"É um gateway independente configurado pelo Owner. URL, instância e API key ficam no servidor; a chave é protegida e não volta para a tela depois de salva. Conexões baseadas em WhatsApp Web/Baileys podem exigir novo pareamento e têm risco operacional diferente da Cloud API oficial."},
   meta:{title:"Onde encontro esses dados?",body:"Entre no Meta for Developers com a conta responsável pelo negócio, abra ou crie o aplicativo e adicione o produto WhatsApp. Depois, no WhatsApp Manager, você verá a conta do WhatsApp Business, o número comercial e as credenciais necessárias. Se algum item não aparecer, a conta pode precisar de verificação ou permissão adicional."},
@@ -31,10 +34,22 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
   onSaved: (state: WhatsAppIntegrationState, message: string) => void;
 }) {
   const [state,setState]=useState(initial);
+  const [runtime,setRuntime]=useState<WhatsAppRuntimeState>();
+  const [runtimeBusy,setRuntimeBusy]=useState(false);
+  const [runtimeError,setRuntimeError]=useState("");
+  async function refreshRuntime() {
+    setRuntimeBusy(true); setRuntimeError("");
+    try { setRuntime(await ownerApi.whatsappRuntime()); }
+    catch(cause) { setRuntimeError(cause instanceof Error ? cause.message : "Não foi possível consultar a sessão."); }
+    finally { setRuntimeBusy(false); }
+  }
+  useEffect(()=>{ void refreshRuntime(); },[]);
+
   const [form,setForm]=useState({
     mode:initial.mode,
     businessAccountId:initial.businessAccountId,
     phoneNumberId:initial.phoneNumberId,
+    humanSupportPhone:initial.humanSupportPhone? `+${initial.humanSupportPhone}`:"",
     businessPhone:initial.businessPhone?`+${initial.businessPhone}`:"",
     graphVersion:initial.graphVersion,
     otpTemplate:initial.otpTemplate,
@@ -49,6 +64,8 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
     wppToken:"",
     evolutionUrl:initial.evolutionUrl,
     evolutionInstance:initial.evolutionInstance,
+    evolutionPhone:initial.evolutionPhone? `+${initial.evolutionPhone}`:"",
+    evolutionWebhookSecret:"",
     evolutionApiKey:""
   });
   const [busy,setBusy]=useState(false);
@@ -60,20 +77,20 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
   const modalRef=useModalLifecycle(()=>{if(help)setHelp(undefined);else onClose();});
 
   const metaMode=form.mode==="OFFICIAL" || form.mode==="META_GROUPS" || form.mode==="HYBRID_PLUS";
-  const evolutionReady=Boolean(form.evolutionUrl && form.evolutionInstance && (form.evolutionApiKey || state.evolutionApiKeyConfigured));
-  const modeCopy = form.mode==="HYBRID_PLUS" ? "Meta para mensagens; Evolution para grupos. Os dados são salvos juntos. A conexão de grupos ainda está em preparação." : form.mode==="OFFICIAL"
+  const evolutionReady=Boolean(form.evolutionUrl && form.evolutionInstance && form.evolutionPhone && (form.evolutionApiKey || state.evolutionApiKeyConfigured) && (form.evolutionWebhookSecret || state.evolutionWebhookSecretConfigured));
+  const modeCopy = form.mode==="HYBRID_PLUS" ? "Meta para mensagens; Evolution para grupos. Os dados são salvos juntos. A conexão de grupos depende da sessão Evolution pareada." : form.mode==="OFFICIAL"
     ? "Usa somente a plataforma oficial da Meta para mensagens, respostas automáticas e webhooks. É o modo recomendado para produção."
     : form.mode==="META_GROUPS"
       ? "Mantém a Meta como canal oficial e acrescenta o WPPConnect somente para grupos, membros e administradores."
       : form.mode==="EVOLUTION"
-        ? "Permite guardar os dados do Evolution. O transporte ainda não foi implementado e não envia mensagens."
+        ? "Envia e recebe mensagens pela sessão Evolution pareada e sincroniza os grupos vinculados. O envio respeita os limites e a cadência do número."
         : "Pausa o envio e a leitura por provedores externos. Nenhum dado salvo é apagado e a administração manual continua disponível.";
   const selectedModeHelp = form.mode==="HYBRID_PLUS" ? {title:"Híbrido+ · Meta e Evolution",body:"Combina a Meta para mensagens e a Evolution para grupos. Salvar atualiza também a aba Bot. Credenciais configuradas não significam grupos sincronizados: a execução depende da conexão real de cada motor."} : form.mode==="OFFICIAL"
     ? { title:"Como funciona o modo Meta Oficial?", body:"É o caminho mais estável: o SOS YouTube envia e recebe mensagens pela plataforma oficial da Meta. Ele exige a conta Business, o número cadastrado, as credenciais e o endereço de retorno configurados. É o modo recomendado para produção." }
     : form.mode==="META_GROUPS"
       ? { title:"O que muda em Meta + Grupos?", body:"O canal de mensagens continua sendo a Meta, mas acrescentamos o WPPConnect para consultar grupos tradicionais que a integração oficial pode não enxergar. Ele pode verificar membros e administradores, porém precisa de pareamento próprio e pode exigir reconexão após mudanças no WhatsApp." }
       : form.mode==="EVOLUTION"
-        ? { title:"Como funciona o Evolution Gateway?", body:"Os dados podem ser salvos para uma integração futura. Esta versão ainda não implementa envio pelo Evolution; salvar os campos não ativa o bot." }
+        ? { title:"Como funciona o Evolution Gateway?", body:"O Evolution envia e recebe mensagens e consulta grupos pela instância pareada. Salvar credenciais não comprova conexão: confira o estado real da sessão. Códigos de autenticação oficiais da Meta continuam separados." }
         : { title:"O que acontece ao desativar?", body:"As automações externas ficam pausadas, mas nenhuma configuração, usuário, grupo, fila ou histórico é apagado. O dashboard continua disponível para administração manual e você pode reativar outro modo quando quiser." };
 
   async function save(event:FormEvent) {
@@ -84,6 +101,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
         businessAccountId:form.businessAccountId || undefined,
         phoneNumberId:form.phoneNumberId || undefined,
         businessPhone:form.businessPhone,
+        humanSupportPhone:form.humanSupportPhone || undefined,
         graphVersion:form.graphVersion,
         otpTemplate:form.otpTemplate || undefined,
         ownerAlertTemplate:form.ownerAlertTemplate || undefined,
@@ -97,10 +115,12 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
         wppToken:form.wppToken || undefined,
         evolutionUrl:form.evolutionUrl || undefined,
         evolutionInstance:form.evolutionInstance || undefined,
+        evolutionPhone:form.evolutionPhone || undefined,
+        evolutionWebhookSecret:form.evolutionWebhookSecret || undefined,
         evolutionApiKey:form.evolutionApiKey || undefined
       });
       setState(saved);
-      setForm((current)=>({...current,businessPhone:saved.businessPhone?`+${saved.businessPhone}`:"",accessToken:"",appSecret:"",verifyToken:"",wppToken:"",evolutionApiKey:""}));
+      setForm((current)=>({...current,businessPhone:saved.businessPhone?`+${saved.businessPhone}`:"",humanSupportPhone:saved.humanSupportPhone?`+${saved.humanSupportPhone}`:"",evolutionPhone:saved.evolutionPhone?`+${saved.evolutionPhone}`:"",accessToken:"",appSecret:"",verifyToken:"",wppToken:"",evolutionWebhookSecret:"",evolutionApiKey:""}));
       setNotice(saved.mode==="EVOLUTION"
         ? (saved.evolutionApiKeyConfigured ? "Evolution Gateway salvo no servidor." : "Evolution Gateway salvo. Ainda falta a API key.")
         : saved.mode==="DISABLED"
@@ -109,6 +129,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
             ? "Configuração salva no servidor. Agora você pode validar a conexão com a Meta."
             : "Configuração salva. Para ativar o canal Meta ainda falta a credencial de acesso.");
       onSaved(saved,"Configuração WhatsApp salva.");
+      await refreshRuntime();
     } catch(cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar a integração."); }
     finally { setBusy(false); }
   }
@@ -150,9 +171,20 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
       </div>
 
       <div className="astra-status-grid">
-        <article><span>Canal selecionado</span><strong>{form.mode==="HYBRID_PLUS" ? "HÍBRIDO+" : form.mode==="META_GROUPS" ? "META + GRUPOS" : form.mode==="EVOLUTION" ? "EVOLUTION" : form.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{form.mode==="HYBRID_PLUS" ? "Meta + Evolution" : form.mode==="META_GROUPS" ? "Meta + WPPConnect para grupos" : form.mode==="EVOLUTION" ? "Gateway independente Evolution API" : form.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>
-        <article><span>{form.mode==="EVOLUTION" ? "Gateway Evolution" : form.mode==="DISABLED" ? "Automação externa" : "Conexão Meta"}</span><strong>{form.mode==="EVOLUTION" ? (evolutionReady ? "CONFIGURADO" : "PENDENTE") : form.mode==="DISABLED" ? "PAUSADA" : state.tokenValidatedAt ? "VALIDADA" : "PENDENTE"}</strong><small>{form.mode==="EVOLUTION" ? (evolutionReady ? "Dados salvos; envio ainda não implementado." : "Preencha endpoint, instância e API key.") : form.mode==="DISABLED" ? "Nenhum provedor externo será usado." : state.tokenValidatedAt ? `Validada em ${new Date(state.tokenValidatedAt).toLocaleString("pt-BR")}` : "A Meta ainda não confirmou a credencial."}</small></article>
+        <article><span>Modo em edição</span><strong>{form.mode==="HYBRID_PLUS" ? "HÍBRIDO+" : form.mode==="META_GROUPS" ? "META + GRUPOS" : form.mode==="EVOLUTION" ? "EVOLUTION" : form.mode==="DISABLED" ? "DESATIVADO" : "OFICIAL"}</strong><small>{form.mode==="HYBRID_PLUS" ? "Meta + Evolution" : form.mode==="META_GROUPS" ? "Meta + WPPConnect para grupos" : form.mode==="EVOLUTION" ? "Gateway independente Evolution API" : form.mode==="DISABLED" ? "Automação externa pausada" : "Meta WhatsApp Business"}</small></article>
+        <article><span>{form.mode==="EVOLUTION" ? "Gateway Evolution" : form.mode==="DISABLED" ? "Automação externa" : "Conexão Meta"}</span><strong>{form.mode==="EVOLUTION" ? (evolutionReady ? "CONFIGURADO" : "PENDENTE") : form.mode==="DISABLED" ? "PAUSADA" : state.tokenValidatedAt ? "VALIDADA" : "PENDENTE"}</strong><small>{form.mode==="EVOLUTION" ? (evolutionReady ? "Dados preenchidos. Consulte abaixo a sessão real." : "Preencha URL, instância, número, API key e segredo de retorno.") : form.mode==="DISABLED" ? "Nenhum provedor externo será usado." : state.tokenValidatedAt ? `Validada em ${new Date(state.tokenValidatedAt).toLocaleString("pt-BR")}` : "A Meta ainda não confirmou a credencial."}</small></article>
       </div>
+
+      <section className="integration-section" aria-label="Estado real da conexão">
+        <div className="integration-section-title"><div><p className="eyebrow dark">CONEXÃO NO SERVIDOR</p><h3>Sessão do WhatsApp</h3></div><button type="button" className="secondary compact" disabled={runtimeBusy} onClick={()=>void refreshRuntime()}>{runtimeBusy ? <LoaderCircle className="spin" size={16}/> : "Atualizar estado"}</button></div>
+        {runtime ? <div role="status">
+          <p><strong>{runtime.connected === true ? "Conectada" : runtime.connected === false ? "Desconectada" : "Conexão ainda não confirmada"}</strong> · Modo salvo: {runtime.mode}</p>
+          {(runtime.mode==="EVOLUTION" || runtime.mode==="HYBRID_PLUS") && <p>Evolution: {runtime.evolution.connected ? "pareada e conectada" : runtime.evolution.state || "sem conexão confirmada"} · Instância {runtime.evolution.instance || "não configurada"}{runtime.evolution.phone ? ` · +${runtime.evolution.phone}` : ""}</p>}
+          <small>Consulta em {new Date(runtime.checkedAt).toLocaleString("pt-BR")}. Este estado confirma a sessão, sem simular entrega de mensagens ou aprovação em grupos.</small>
+          {runtime.otpBlockedReason && <p className="muted">{runtime.otpBlockedReason}</p>}
+        </div> : !runtimeBusy && !runtimeError ? <p>Estado ainda não consultado.</p> : runtimeBusy ? <p>Consultando a conexão salva…</p> : null}
+        {runtimeError && <p className="error" role="alert">{runtimeError}</p>}
+      </section>
 
       {metaMode && !state.accessTokenConfigured && <div className="soft-token-message">
         <MessageCircleMore size={22}/>
@@ -173,7 +205,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
               <span className="mode-symbol hybrid-fusion" aria-hidden="true"><span>∞</span><span>E</span></span><span><strong>Híbrido+</strong><small>Meta para mensagens + Evolution para grupos.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="EVOLUTION"} className={`mode-choice evolution ${form.mode==="EVOLUTION" ? "selected":""}`} onClick={()=>setForm({...form,mode:"EVOLUTION"})}>
-              <span className="mode-symbol evolution" aria-hidden="true">E</span><span><strong>Evolution Gateway</strong><small>Configuração reservada · envio ainda não implementado.</small></span>
+              <span className="mode-symbol evolution" aria-hidden="true">E</span><span><strong>Evolution Gateway</strong><small>Mensagens, atendimento e grupos pela sessão pareada.</small></span>
             </button>
             <button type="button" role="radio" aria-checked={form.mode==="DISABLED"} className={`mode-choice disabled ${form.mode==="DISABLED" ? "selected":""}`} onClick={()=>setForm({...form,mode:"DISABLED"})}>
               <span className="mode-symbol off">—</span><span><strong>Desativado</strong><small>Pausa automações sem apagar a configuração salva.</small></span>
@@ -183,6 +215,8 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
         </section>
 
         <section className="integration-section"><div className="integration-section-title"><div><p className="eyebrow dark">CONTATO DA COMUNIDADE</p><h3>WhatsApp do projeto</h3></div></div><label><span className="label-with-help"><MessageCircleMore size={15}/>Número do WhatsApp Business <HelpButton topic="businessPhone" label="Explicar número Business e atualização dos links"/></span><input aria-label="Número do WhatsApp Business" type="tel" inputMode="tel" autoComplete="tel" value={form.businessPhone} onChange={(e)=>setForm({...form,businessPhone:e.target.value})} placeholder="DDI, DDD e número"/><small>Salvo no servidor e compartilhado pelos links de participação. Pode ser alterado aqui.</small></label></section>
+
+        <section className="integration-section"><div className="integration-section-title"><div><p className="eyebrow dark">ATENDIMENTO HUMANO</p><h3>Quem recebe o pedido de ajuda?</h3></div></div><label><span className="label-with-help">Número da pessoa que assume o atendimento <HelpButton topic="humanSupportPhone" label="Explicar destinatário do atendimento humano"/></span><input aria-label="Número da pessoa que assume o atendimento" type="tel" inputMode="tel" value={form.humanSupportPhone} onChange={e=>setForm({...form,humanSupportPhone:e.target.value})} placeholder="DDI, DDD e número"/><small>Recebe o aviso de pedido de ajuda. Este telefone é independente do número que atende automaticamente.</small></label></section>
 
         {metaMode && <section className="integration-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">CONTA META</p><h3>Identificação da conta Business</h3></div><button className="help-text-button" type="button" onClick={()=>setHelp("meta")}><CircleHelp size={16}/>Onde encontro?</button></div>
@@ -194,7 +228,7 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
           </div>
         </section>}
 
-        {state.senderValidationRequired&&<p className="notice" role="status">O número ou as credenciais mudaram. Valide a integração com a Meta para liberar os envios pelo número correto.</p>}
+        {metaMode&&state.senderValidationRequired&&<p className="notice" role="status">O número ou as credenciais mudaram. Valide a integração com a Meta para liberar os envios pelo número correto.</p>}
         {metaMode && <section className="integration-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">CREDENCIAIS</p><h3>Autorizar a comunicação com a Meta</h3></div><KeyRound size={20}/></div>
           <label><span className="label-with-help">Credencial de acesso da Meta <HelpButton topic="token" label="Explicar credencial de acesso da Meta"/></span><input aria-label="Credencial de acesso da Meta" type="password" value={form.accessToken} onChange={(e)=>setForm({...form,accessToken:e.target.value})} placeholder={state.accessTokenConfigured ? "Já configurada · deixe vazio para manter" : "Cole aqui a credencial quando estiver disponível"}/></label>
@@ -220,11 +254,14 @@ export function WhatsAppIntegrationModal({ initial, onClose, onSaved }: {
 
         {(form.mode==="EVOLUTION" || form.mode==="HYBRID_PLUS") && <section className="integration-section evolution-section">
           <div className="integration-section-title"><div><p className="eyebrow dark">EVOLUTION GATEWAY</p><h3>{form.mode==="HYBRID_PLUS"?"Evolution · motor de grupos":"Instância independente"}</h3></div><Settings2 size={20}/></div>
-          <p className="mode-explanation">URL, instância e chave ficam salvas no servidor. A conexão de grupos ainda está em preparação; salvar não confirma presença no WhatsApp.</p>
+          <p className="mode-explanation">URL, instância e chave ficam salvas no servidor. Salvar configura a conexão; o estado real depende do pareamento da instância com o número do bot.</p>
           <div className="integration-grid">
             <label><span className="label-with-help">URL do servidor Evolution <HelpButton topic="evolutionUrl" label="Explicar URL da Evolution API"/></span><input value={form.evolutionUrl} onChange={(e)=>setForm({...form,evolutionUrl:e.target.value})} placeholder="https://evolution.seudominio.com"/></label>
             <label><span className="label-with-help">Nome da instância <HelpButton topic="evolutionInstance" label="Explicar instância Evolution"/></span><input value={form.evolutionInstance} onChange={(e)=>setForm({...form,evolutionInstance:e.target.value.replace(/[^A-Za-z0-9_-]/g,"")})} placeholder="sos-youtuber"/></label>
           </div>
+          <label><span className="label-with-help">Número que atende automaticamente <HelpButton topic="evolutionPhone" label="Explicar número do bot Evolution"/></span><input aria-label="Número que atende automaticamente" type="tel" inputMode="tel" value={form.evolutionPhone} onChange={e=>setForm({...form,evolutionPhone:e.target.value})} placeholder="DDI, DDD e número"/><small>Deve ser a conta pareada à instância acima. No modo Evolution, este é o contato público do bot.</small></label>
+          <label><span className="label-with-help">Segredo de proteção do webhook Evolution <HelpButton topic="evolutionWebhookSecret" label="Explicar proteção do webhook Evolution"/></span><input type="password" autoComplete="new-password" minLength={24} maxLength={256} value={form.evolutionWebhookSecret} onChange={e=>setForm({...form,evolutionWebhookSecret:e.target.value})} placeholder={state.evolutionWebhookSecretConfigured ? "Já configurado · deixe vazio para manter" : "Informe o segredo do webhook"}/></label>
+          <div className="webhook-line"><div><span>Endereço de retorno do Evolution</span><code>{state.evolutionWebhookUrl || state.webhookUrl.replace(/\/webhooks\/whatsapp$/, "/webhooks/whatsapp/evolution")}</code><small>Este endereço pertence ao backend e recebe os eventos da instância.</small></div></div>
           <label><span className="label-with-help">API key do Evolution <HelpButton topic="evolutionApiKey" label="Explicar API key Evolution"/></span><input type="password" value={form.evolutionApiKey} onChange={(e)=>setForm({...form,evolutionApiKey:e.target.value})} placeholder={state.evolutionApiKeyConfigured ? "Já configurada · deixe vazio para manter" : "Cole a API key do servidor"}/></label>
         </section>}
 

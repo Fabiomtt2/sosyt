@@ -13,6 +13,8 @@ test("Business central: edição Owner propaga ao contato público e sobrevive a
  await page.getByRole("button",{name:"Integrações",exact:true}).click();
  await page.getByRole("button",{name:"Configurar integração",exact:true}).click();
  const modal=page.getByRole("dialog",{name:"Configurar integração WhatsApp"});
+ // This test edits the official/public contact. Other tests may leave Evolution selected.
+ await modal.getByRole("radio",{name:/^∞ Meta Oficial/}).check();
  const number=page.getByLabel("Número do WhatsApp Business",{exact:true});
  await expect(number).toHaveValue("+5571993978956");
  await number.scrollIntoViewIfNeeded();

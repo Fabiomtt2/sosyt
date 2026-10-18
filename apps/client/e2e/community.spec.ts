@@ -60,12 +60,12 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.keyboard.press("Escape");
   await expect(countryPopover).toHaveCount(0);
 
-  const helperIsSingleLine = await page.locator(".login-helper").evaluate((element) => {
-    const style = getComputedStyle(element);
-    const lineHeight = Number.parseFloat(style.lineHeight);
-    return element.getBoundingClientRect().height <= lineHeight * 1.25;
-  });
-  expect(helperIsSingleLine).toBe(true);
+  const helper = page.locator(".login-helper");
+  await expect(helper).toContainText("WhatsApp e a senha enviados pelo bot");
+  await expect(helper).toContainText("entrada no grupo é acompanhada separadamente");
+  // The current explanation may wrap; it must remain readable without clipping.
+  expect(await helper.evaluate(element => element.scrollWidth <= element.clientWidth + 1 &&
+    element.scrollHeight <= element.clientHeight + 1)).toBe(true);
 
   const lockupAligned = await page.locator(".brand-lockup").evaluate((element) => {
     const mark = element.querySelector(".brand-mark")!.getBoundingClientRect();
@@ -241,7 +241,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await ownerEnter.click();
   await expect(page.getByRole("heading", { name: "Sua conexão, em números." })).toBeVisible();
   const approvedRequest = page.locator(".request-card").filter({ has: page.getByText("Pessoa E2E", { exact: true }) });
-  await expect(approvedRequest.getByText("🟢 Usuário aprovado!", { exact: true })).toBeVisible();
+  await expect(approvedRequest.getByText("🟢 Vínculo com grupo registrado", { exact: true })).toBeVisible();
   await expect(approvedRequest.getByText("Pessoa E2E", { exact: true })).toBeVisible();
   await expect(approvedRequest.getByText(/Aprovado em .* por Fabio0/)).toBeVisible();
   await expect(page.getByText("Novo Usuário!", { exact: true })).toBeVisible();
@@ -506,6 +506,8 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await postOwnerLogoutMenu.getByRole("button",{name:"Sair da minha conta"}).click();
   await expect(page.getByRole("heading",{name:"Entre na sua conexão"})).toBeVisible();
 
+  // This section exercises the legacy DEV identity path explicitly; production defaults to bot password.
+  await page.getByRole("button", { name: "Prefiro a chave no WhatsApp", exact: true }).click();
   await page.getByLabel("Seu nome ou como prefere ser chamado").fill("Pessoa E2E"); await fillBrazilPhone(page, "900000001");
   await expect(page.getByLabel("Digite o número correspondente ao seu grupo")).toHaveCount(0); await page.getByRole("button", { name: "Continuar", exact: true }).click();
   await expect(page.getByLabel("Credencial", { exact: true })).toHaveCount(0);
@@ -530,6 +532,12 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
 
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-inicio-desktop.png"),fullPage:true});
   const banners=page.getByRole("region",{name:"Boas-vindas ao SOS YouTuber"});
+  // Previous pauses rotation; select the first frame explicitly after the long account flow.
+  await banners.getByRole("button",{name:"Banner anterior"}).click();
+  for(let step=0;step<2&&!await banners.getByText("10 vídeos. Uma playlist em comum.",{exact:true}).isVisible();step++){
+    await banners.getByRole("button",{name:"Banner anterior"}).click();
+  }
+  await expect(banners.getByText("10 vídeos. Uma playlist em comum.",{exact:true})).toBeVisible();
   await banners.getByRole("button",{name:"Próximo banner"}).click();
   await expect(banners.getByText("Seu tempo continua com você.",{exact:true})).toBeVisible();
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});

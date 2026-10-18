@@ -20,9 +20,9 @@ export function CommunityModal({onClose,targetId,currentUserId,wallet,onChanged}
  const load=useCallback(async()=>{
   try{
    const [mail,inventory,superInfo,journey]=await Promise.all([api.mailInbox(),api.queuesMine(),api.superMe(),api.gamification()]);
-   setThreads(mail.threads);setItems(inventory.inventory);setSubscription(superInfo);setRewardBalance(journey.progress.rewardCoins);
+   setThreads(mail.threads);setItems(inventory.inventory);setSubscription(superInfo);setRewardBalance(journey.progress?.rewardCoins ?? wallet?.reward ?? 0);
   }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível atualizar seus dados.");}
- },[]);
+ },[wallet?.reward]);
  useEffect(()=>{void load();const timer=setInterval(()=>void load(),10000);return()=>clearInterval(timer);},[load]);
  useEffect(()=>{
   if(!selected){setMessages([]);return;}

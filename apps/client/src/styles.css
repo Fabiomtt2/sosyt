@@ -2242,7 +2242,7 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 
 /* AUDITORIA / avatares de catálogo no seletor: imagem (cover) + cadeado nos
    bloqueados por tier + moldura de destaque nos liberados. */
-.avatar-choice-img{display:block;width:100%;height:100%;border-radius:50%;background-size:cover;background-position:center;background-repeat:no-repeat}
+.avatar-choice-img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover;background-size:cover;background-position:center;background-repeat:no-repeat}
 .avatar-choice.catalog{background:#f6f1f8}
 .avatar-choice.locked{opacity:.6;filter:grayscale(.3)}
 .avatar-choice.locked:hover{border-color:transparent;box-shadow:none;cursor:not-allowed}
@@ -2320,3 +2320,15 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .automation-audit li{display:grid;gap:2px;padding-bottom:9px;border-bottom:1px solid #efe9e0}
 .automation-audit small{color:#6d6457;font-size:.73rem}
 .automation-audit-diff{margin:3px 0 0;font-size:.8rem;color:#4a443c;white-space:pre-wrap}
+
+/* Bot management: keep controls and operational labels within their cards. */
+.automations-panel .automation-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))}
+.automations-panel .comms-block,.automations-panel .automation-card,.automations-panel .owner-panel-head>div{min-width:0}
+.automations-panel .automation-card header,.automations-panel .owner-panel-actions{display:flex;flex-wrap:wrap;gap:8px}
+.automations-panel .automation-card header .automation-toggle{flex:1 1 180px}
+.automations-panel .automation-tag{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.automations-panel input[type="checkbox"]{width:18px;height:18px;min-width:18px;flex:0 0 18px;padding:0;margin:2px 0 0;accent-color:var(--red)}
+.automations-panel fieldset{min-width:0;display:flex;flex-wrap:wrap;gap:10px 16px;border:1px solid var(--line);border-radius:12px;margin:16px 0;padding:12px}
+.automations-panel fieldset label{display:inline-flex;align-items:center;gap:8px}
+.automations-panel fieldset legend{max-width:100%;padding:0 5px}
+.automations-panel .automation-preview p,.automations-panel .automation-audit-diff{overflow-wrap:anywhere}

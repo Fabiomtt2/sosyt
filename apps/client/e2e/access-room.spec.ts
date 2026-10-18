@@ -59,7 +59,8 @@ test("Acesso e sala comunitária preservam identidade e controles administrativo
   expect((await request.post(api + "/payments/" + (await purchase.json()).id + "/demo-approve", { headers: supHeaders })).ok()).toBe(true);
   expect((await request.post(api + "/chat/global", { headers: supHeaders, data: { body: "Um olá de quem cria junto com vocês." } })).ok()).toBe(true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(room.getByText("Um olá de quem cria junto com vocês.", { exact: true })).toBeVisible();
+  // Another session posts through the API; allow one 5s polling cycle plus transport.
+  await expect(room.getByText("Um olá de quem cria junto com vocês.", { exact: true })).toBeVisible({timeout:12_000});
   await room.getByRole("button", { name: "Administrar sala" }).click();
   const superMessage = room.locator(".gc-msg-super").filter({ hasText: "Um olá de quem cria junto com vocês." });
   await superMessage.getByLabel("Ações da mensagem de Criadora SUPER").click();

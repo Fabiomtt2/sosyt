@@ -175,7 +175,7 @@ export function AvatarModal({
             return <button key={item.slug} className={"avatar-choice catalog"+(sel?" selected":"")+(item.locked?" locked":"")} disabled={busy||item.locked}
               title={item.locked?`${item.label} — exclusivo ${item.tier==="OWNER"?"de administradores":"de assinantes SUPER"}`:item.label}
               aria-label={item.locked?`${item.label}, exclusivo ${item.tier}`:`Escolher ${item.label}`} onClick={()=>void chooseCatalog(item)}>
-              <span className={"avatar-choice-img "+tierClass} style={{backgroundImage:`url(${catalogAvatarUrl(item.slug)})`}}/>
+              <img className={"avatar-choice-img "+tierClass} src={catalogAvatarUrl(item.slug)} alt="" loading="lazy" decoding="async"/>
               {item.locked&&<em className={"avatar-lock "+(item.tier==="OWNER"?"owner":"super")}><Lock size={11}/>{item.tier==="OWNER"?"ADMIN":"SUPER"}</em>}
               {sel&&<i><Check size={13}/></i>}
             </button>;

@@ -66,7 +66,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [authRole, setAuthRole] = useState<"user" | "owner">();
   const [joinMode, setJoinMode] = useState(false);
   const [credential, setCredential] = useState("");
-  const [passwordMode,setPasswordMode]=useState(false);
+  const [passwordMode,setPasswordMode]=useState(true);
+  const [authOptions,setAuthOptions]=useState<Awaited<ReturnType<typeof api.authOptions>>>();
+  const authOptionsPromise=useRef<ReturnType<typeof api.authOptions>|undefined>(undefined);
+  const [botRegistrationUrl,setBotRegistrationUrl]=useState("");
   const [phoneCode,setPhoneCode]=useState("");
   const [keyExpiresAt,setKeyExpiresAt]=useState(0);
   const [resendAt,setResendAt]=useState(0);
@@ -79,6 +82,12 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [cooldownUntil, setCooldownUntil] = useState(storedCooldownUntil);
   const [nowMs, setNowMs] = useState(Date.now());
   const suppressPendingResume = useRef(false);
+
+  const loadAuthOptions=useCallback(()=>{
+    authOptionsPromise.current??=api.authOptions().then(options=>{setAuthOptions(options);return options;}).catch(cause=>{authOptionsPromise.current=undefined;throw cause;});
+    return authOptionsPromise.current;
+  },[]);
+  useEffect(()=>{void loadAuthOptions().catch(()=>{});},[loadAuthOptions]);
 
   useEffect(() => {
     if (!cooldownUntil && !keyExpiresAt) return;
@@ -201,7 +210,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   }
 
   function returnToProfile() {
-    setPasswordMode(false);setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");
+    setBotRegistrationUrl("");setPasswordMode(true);setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");
   }
 
   async function sendPhoneKey(registration:boolean) {
@@ -227,7 +236,9 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       }
       if (joinMode) {
         if (!consent) throw new Error("Autorize o uso do nome e número para enviar a solicitação.");
-        if((await api.authOptions()).proofRequired){await sendPhoneKey(true);return;}
+        const options=await loadAuthOptions();
+        if(options.botRegistrationUrl){setBotRegistrationUrl(options.botRegistrationUrl);return;}
+        if(options.proofRequired){await sendPhoneKey(true);return;}
         try {
           const result = await participationApi.join({ name, phone: form.phone, consent: true });
           keepParticipation(result);
@@ -249,20 +260,25 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           setStep("credential");
         } else {
           try {
-            if(passwordMode){
+            if(passwordMode && credential.trim()){
               const result=await api.passwordLogin(form.phone,credential);
               localStorage.removeItem("conexao_owner_token");localStorage.setItem("conexao_token",result.token);
               localStorage.setItem("sos-password-change-required",result.mustChangePassword?"true":"false");
+              localStorage.removeItem(PENDING_REQUEST_KEY);sessionStorage.setItem(PENDING_REQUEST_SUPPRESS_KEY,"1");
               onDone("user");return;
             }
-            if((await api.authOptions()).proofRequired){await sendPhoneKey(false);return;}
+            if((await loadAuthOptions()).proofRequired){
+              if(passwordMode)throw new Error("Digite a senha enviada pelo bot. Se ainda não recebeu, fale com o bot no WhatsApp e escolha participar ou trocar senha.");
+              await sendPhoneKey(false);return;
+            }
             const result = await api.login({ name, phone: form.phone });
             localStorage.removeItem("conexao_owner_token");
             localStorage.setItem("conexao_token", result.token);
             onDone("user");
           } catch (cause) {
             if (cause instanceof ApiError && cause.status === 423 && activateCooldown(cause.data.cooldownUntil)) return;
-            if (!(cause instanceof ApiError) || cause.status !== 403) throw cause;
+            // A rejected password must never create an unrelated approval request.
+            if ((passwordMode && credential.trim()) || !(cause instanceof ApiError) || cause.status !== 403) throw cause;
             try {
               const pending = await participationApi.join({ name, phone: form.phone, consent: true });
               keepParticipation(pending);
@@ -316,7 +332,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
       <div>
         <p className="eyebrow dark">BOM TER VOCÊ POR AQUI</p>
         <h2>{step==="phone-code" ? "Confira seu WhatsApp" : ownerCredentialMode ? "Credencial" : cooldownActive ? "Intervalo após concluir uma Fila" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
-        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{step==="phone-code" ? "Use a chave de seis números enviada ao seu WhatsApp. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Comece pelo seu nome e WhatsApp. Você poderá acompanhar seu cadastro por aqui." : "Use o WhatsApp cadastrado para encontrar sua conta." : "Digite sua credencial para abrir o painel administrativo."}</p>
+        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{step==="phone-code" ? "Use a chave de seis números enviada ao seu WhatsApp. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Comece pelo seu nome e WhatsApp. Você poderá acompanhar seu cadastro por aqui." : "Entre com o WhatsApp e a senha enviados pelo bot. Sua entrada no grupo é acompanhada separadamente." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
       {!ownerCredentialMode && cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Seu acesso de participante será liberado em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Este intervalo de 30 minutos existe somente após concluir uma tarefa de Fila. Seu cadastro, saldo, URLs e progresso continuam salvos.</p><button className="secondary" type="button" onClick={accessWithAnotherIdentity}>Acessar outra conta</button></div> : !ownerCredentialMode && joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
         <div className="join-success-heading"><strong>{joined.message}</strong></div>
@@ -324,7 +340,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <p><strong>{joined.name ?? form.name.trim()}</strong>, seu pedido está protegido e continua aguardando os Owners.</p>
           {requestBlockActive && <><div className="request-block-clock"><Clock3 size={18} /><span>Proteção contra cadastro repetido</span><strong>{countdownLabel(requestBlockRemaining)}</strong></div><p className="muted request-block-explanation">Este prazo de 120 minutos existe porque este WhatsApp já enviou uma solicitação. Ele evita duplicações e nunca é acionado por senha ou credencial incorreta.</p></>}
           <p className="muted">Pode fechar esta página. Para reencontrar este acompanhamento automaticamente neste aparelho, evite apagar os dados do site. Mesmo se os dados locais forem apagados, seu pedido não desaparece do servidor.</p>
-          <div className="ready-actions"><button className="secondary" disabled={busy} onClick={() => void refreshParticipation()}>{busy ? <LoaderCircle className="spin" /> : <RefreshCw size={17} />}Verificar situação</button><button className="text-button" type="button" onClick={accessWithAnotherIdentity}>Acessar com outro número</button></div>
+          <div className="ready-actions"><button className="primary" type="button" onClick={leaveParticipationStatus}>Já recebi a senha — entrar na minha conta</button><button className="secondary" disabled={busy} onClick={() => void refreshParticipation()}>{busy ? <LoaderCircle className="spin" /> : <RefreshCw size={17} />}Verificar situação</button><button className="text-button" type="button" onClick={accessWithAnotherIdentity}>Acessar com outro número</button></div>
         </>}
         {joined.status === "APPROVED" && <>
           <p><strong>{joined.name ?? form.name.trim()}</strong>, seu acesso foi liberado{joined.approvedGroup ? ` no SOS YOUTUBER ${joined.approvedGroup}` : ""}.</p>
@@ -348,7 +364,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           </> : step === "profile" ? <>
             <label>Seu nome ou como prefere ser chamado<input autoComplete="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Como você será identificado" required /></label>
             <div className="field-block"><label htmlFor="whatsapp">WhatsApp</label><PhoneField id="whatsapp" value={form.phone} onChange={(phone)=>setForm({...form,phone})} required /></div>
-            <div className="group-auto-note"><ShieldCheck size={17}/><div><strong>Seu grupo será identificado pelo WhatsApp</strong><span>Usamos o vínculo aprovado pela equipe ou a integração do WhatsApp, quando disponível. Você não precisa digitar o grupo.</span></div></div>
+            <div className="group-auto-note"><ShieldCheck size={17}/><div><strong>Seu grupo será identificado pelo WhatsApp</strong><span>A senha recebida do bot permite entrar na sua conta. A entrada no grupo é acompanhada separadamente, sem precisar digitar o grupo.</span></div></div>
             {!joinMode&&passwordMode&&<label>Senha recebida ou criada por você<input type="password" autoComplete="current-password" value={credential} onChange={e=>setCredential(e.target.value)} placeholder="Digite sua senha"/></label>}
             {joinMode && <label className="consent-row"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} required /><span>Autorizo o SOS YouTube a usar meu nome e número para analisar esta solicitação e entrar em contato sobre o grupo.</span></label>}
           </> : <>
@@ -361,9 +377,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : step==="phone-code" ? "Confirmar chave e continuar" : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
         </div>
       </form>}
-      {!joinMode&&!joined&&step==="profile"&&!cooldownActive&&<button type="button" className="text-button" onClick={()=>{setPasswordMode(value=>!value);setCredential("");setError("");}}>{passwordMode?"Prefiro a chave no WhatsApp":"Entrar com senha"}</button>}
+      {botRegistrationUrl&&joinMode&&<section className="notice" style={{display:"block"}} role="status" aria-label="Cadastro com o bot"><strong>Continue seu cadastro com o bot</strong><p>O bot vai confirmar como você quer ser chamado e enviar sua senha nesta conversa.</p><a className="primary" href={botRegistrationUrl} target="_blank" rel="noreferrer">Abrir conversa para cadastro no WhatsApp</a><p className="muted">O link abre a conversa. Toque em enviar no WhatsApp para iniciar; nenhuma mensagem é enviada automaticamente.</p></section>}
+      {!joinMode&&!joined&&step==="profile"&&!cooldownActive&&authOptions?.whatsappMode!=="EVOLUTION"&&<button type="button" className="text-button" onClick={()=>{setPasswordMode(value=>!value);setCredential("");setError("");}}>{passwordMode?"Prefiro a chave no WhatsApp":"Entrar com senha"}</button>}
       {joinMode&&<ProjectWhatsAppContact/>}
-      {step==="profile" && !cooldownActive && <GoogleAccess name={form.name} phone={form.phone} onDone={()=>onDone("user")}/>}
+      {step==="profile" && !cooldownActive && <GoogleAccess name={form.name} phone={form.phone} loadOptions={loadAuthOptions} onDone={()=>onDone("user")}/>}
       {!cooldownActive && step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
     </section>
 
@@ -489,7 +506,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
   const nextSlot = filled + 1;
   const hasPendingTask = data.readyRounds.length > 0 && data.viewer.contributionBlockedByPendingTask!==false;
   const administrativeParticipant=Boolean(data.viewer.adminRole);
-  const eligible = (!hasPendingTask || administrativeParticipant) && !data.wallet.paymentHold && (administrativeParticipant || data.viewer.contributionsInOpenRound < (data.viewer.contributionAllowance??1) || data.wallet.extraPasses > 0) && data.wallet.total>=1;
+  const eligible = data.groupAccess?.ready!==false && (!hasPendingTask || administrativeParticipant) && !data.wallet.paymentHold && (administrativeParticipant || data.viewer.contributionsInOpenRound < (data.viewer.contributionAllowance??1) || data.wallet.extraPasses > 0) && data.wallet.total>=1;
 
   async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await api.submit(url,openRoundId); setUrl(""); await load(); } catch (cause) { if(cause instanceof ApiError && cause.status===409 && cause.data.code==="QUEUE_CHANGED"){await load();setError(cause.message+" Nenhuma moeda foi cobrada. Confira a nova fila e envie novamente.");} else setError(cause instanceof Error ? cause.message : "Falha ao salvar."); } finally { setBusy(false); } }
   async function connectYoutube(roundId?: string) { setBusy(true); try { const native = Capacitor.isNativePlatform(); const result = await api.youtubeConnect(native ? "app" : "web", roundId); if (native) await Browser.open({ url: result.url }); else window.location.href = result.url; } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao conectar."); } finally { setBusy(false); } }
@@ -511,13 +528,18 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
 
   const included = creationRound ? data.readyRounds.find((r) => r.id === creationRound.id)?.export?.addedCount ?? 0 : 0;
   return <div className="app-shell">
-    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} title="Atualizar"><RefreshCw size={18} /></button><button className="icon-button" data-purchase-anchor="inventory" aria-label="Mensagens e inventário" title="Mensagens e inventário" onClick={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}><MessagesSquare size={18}/></button><button className="icon-button" onClick={()=>setShowAccountMenu(true)} aria-label="Abrir menu da minha conta" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowAvatar(true)} aria-label={`Trocar avatar de ${data.user.name}`} title="Trocar avatar"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="header-avatar"/>{data.viewer.adminRole&&<span className="header-admin-badge">ADMIN</span>}</button><button className="profile profile-text-only" onClick={()=>setShowAccountMenu(true)} aria-label={`Abrir menu da conta de ${data.user.name}`}><div><strong>{data.user.name}</strong><small>{data.user.youtubeChannel?.title ?? (data.viewer.adminRole ? "Acesso administrativo" : `Grupo SOS YOUTUBER ${data.user.groupCode}`)}</small></div></button></div></header>
+    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} title="Atualizar"><RefreshCw size={18} /></button><button className="icon-button" data-purchase-anchor="inventory" aria-label="Mensagens e inventário" title="Mensagens e inventário" onClick={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}><MessagesSquare size={18}/></button><button className="icon-button" onClick={()=>setShowAccountMenu(true)} aria-label="Abrir menu da minha conta" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowAvatar(true)} aria-label={`Trocar avatar de ${data.user.name}`} title="Trocar avatar"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="header-avatar"/>{data.viewer.adminRole&&<span className="header-admin-badge">ADMIN</span>}</button><button className="profile profile-text-only" onClick={()=>setShowAccountMenu(true)} aria-label={`Abrir menu da conta de ${data.user.name}`}><div><strong>{data.user.name}</strong><small>{data.user.youtubeChannel?.title ?? (data.viewer.adminRole ? "Acesso administrativo" : data.groupAccess?.ready===false?"Entrada no grupo em andamento":`Grupo SOS YOUTUBER ${data.user.groupCode}`)}</small></div></button></div></header>
     <main className="dashboard">
-      <QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>
+      {data.groupAccess?.ready===false&&<section className="notice group-access-status" style={{display:"block"}} role="status" aria-label="Entrada no grupo">
+        <strong>{data.groupAccess.state==="INVITED"?"Confira seu convite no WhatsApp":data.groupAccess.state==="NEEDS_SUPPORT"?"Sua entrada no grupo precisa de atenção":"Estamos preparando sua entrada no grupo"}</strong>
+        <p>{data.groupAccess.state==="INVITED"?"Sua conta já está acessível. Aceite o convite enviado pelo WhatsApp; a confirmação de presença será atualizada automaticamente.":data.groupAccess.state==="NEEDS_SUPPORT"?"Sua conta e senha continuam funcionando. A entrada automática no grupo encontrou uma dificuldade; fale com o atendimento para a equipe responsável conferir.":"Sua conta e senha já funcionam. A entrada automática no grupo está em andamento; esta página acompanha a confirmação. As filas ficam disponíveis quando sua presença no grupo for confirmada."}</p>
+        {data.groupAccess.state==="NEEDS_SUPPORT"&&<ProjectWhatsAppContact/>}
+      </section>}
+      {data.groupAccess?.ready!==false&&<QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>}
       {(!hasPendingTask || administrativeParticipant) ? <>
         <UserWelcomeCarousel onOpenStore={()=>setShowStore(true)} onOpenCommunity={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>
         {data.gamification?.enabled&&<button type="button" className="journey-launcher" onClick={()=>setShowJourney(true)}>
-          <LevelBadge progress={data.gamification.progress}/><span><strong>Minha jornada</strong><small>{data.gamification.progress.xp} XP · veja seu próximo nível</small></span>
+          {data.gamification.progress&&<LevelBadge progress={data.gamification.progress}/>}<span><strong>{data.gamification.administrative?"Comunidade":"Minha jornada"}</strong><small>{data.gamification.administrative?"XP administrativo ∞ · fora da competição":data.gamification.progress?data.gamification.progress.xp+" XP · veja seu próximo nível":"Acompanhe sua jornada"}</small></span>
           {data.gamification.booster.available&&<b className="journey-booster-nudge">Você tem um Booster! ✨</b>}
         </button>}
         <SuperPanel snapshot={data.subscription} onOpenStore={()=>setShowStore(true)}/>
@@ -527,7 +549,7 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
         </section>
         <section className="progress-card"><div className="progress-copy"><strong>{filled} de 10 vídeos</strong><span>{10 - filled} espaços restantes</span></div><div className="progress-track"><i style={{ width: `${filled * 10}%` }} /></div></section>
         {data.openRound.number > 1 && <div className="queue-context" role="status"><div className="queue-pill">FILA {data.openRound.number}</div><div><strong>Você está na Fila {data.openRound.number}.</strong><span>Contribua quando houver espaço. Se participar de outras filas, use o seletor para alternar: cada uma mantém seus vídeos, autores e progresso.</span></div></div>}
-        {!eligible && !data.wallet.paymentHold && <div className="notice"><LockKeyhole size={19} /><span>{data.wallet.total<1 ? "Você precisa de pelo menos 1 moeda para salvar uma URL." : "Você usou suas contribuições nesta fila. Acompanhe a seleção ou confira outra fila pelo seletor."}</span></div>}
+        {!eligible && data.groupAccess?.ready!==false && !data.wallet.paymentHold && <div className="notice"><LockKeyhole size={19} /><span>{data.wallet.total<1 ? "Você precisa de pelo menos 1 moeda para salvar uma URL." : "Você usou suas contribuições nesta fila. Acompanhe a seleção ou confira outra fila pelo seletor."}</span></div>}
         {administrativeParticipant && <div className="admin-participant-note"><ShieldCheck size={18}/><div><strong>Modo ADMIN ativo</strong><span>Você pode contribuir novamente nesta fila sem consumir passe. Cada URL continua usando 1 moeda e vídeos duplicados continuam bloqueados.</span></div></div>}
         {data.wallet.paymentHold && <div className="notice" role="status"><ShieldCheck size={19} /><span>Carteira em revisão por atualização de um pagamento. Novas contribuições ficam suspensas até a conciliação.</span></div>}
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}

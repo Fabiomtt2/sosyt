@@ -46,7 +46,7 @@ export const api = {
   googleStart:(body:{name:string;phone:string;browserVerifier:string})=>request<{url:string}>("/auth/google/start",{method:"POST",body:JSON.stringify(body)}),
   googleComplete:(body:{ticket:string;browserVerifier:string})=>request<{token?:string;claim?:GoogleIdentityClaim}>("/auth/google/complete",{method:"POST",body:JSON.stringify(body)}),
   googleStatus:(token:string)=>request<GoogleIdentityClaim>("/auth/google/status",{method:"POST",body:JSON.stringify({token})}),
-  authOptions: () => request<{proofRequired:boolean;googleRequired:false;googleConfigured:boolean;whatsappConfigured:boolean}>("/auth/options"),
+  authOptions: () => request<{proofRequired:boolean;googleRequired:false;googleConfigured:boolean;whatsappConfigured:boolean;whatsappMode?:"OFFICIAL"|"META_GROUPS"|"HYBRID_PLUS"|"EVOLUTION"|"DISABLED";botRegistrationUrl?:string}>("/auth/options"),
   resolveRole: (body: { name: string; phone: string }) => request<{ role: "user" | "owner" }>("/auth/role", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { name: string; phone: string }) => request<{ token: string }>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
   requestCode: (body: { name: string; phone: string; registration?:boolean; consent?:true }) => request<{ devCode?: string; expiresInSeconds:number }>("/auth/request-code", { method: "POST", body: JSON.stringify(body) }),
@@ -92,7 +92,7 @@ export const api = {
 };
 
 export type AvatarTier = "COMMON" | "SUPER" | "OWNER";
-export type UserPresentation={badge:"ADMIN"|"SUPER"|null;superActive:boolean;superExpiresAt?:string;progress?:{level:number;xp:number;nextLevelXp:number;levelStartXp:number}};
+export type UserPresentation={administrative?:boolean;unlimitedXp?:boolean;badge:"ADMIN"|"SUPER"|null;superActive:boolean;superExpiresAt?:string;progress?:{level:number;xp:number;nextLevelXp:number;levelStartXp:number}};
 export type PurchaseReceipt={userId:string;paymentId:string;productCode:string;amountCents:number;approvedAt:string;credits:number;extraPasses:number;items:Array<{itemCode:string;quantity:number}>;subscriptionDays:number};
 export type PaymentState={id:string;status:string;receipt?:PurchaseReceipt};
 export type UserAvatar =
@@ -150,6 +150,7 @@ export type UserProfileSummary = {
   };
 };
 export type Dashboard = {
+  groupAccess?:{ready:boolean;state:"MEMBER"|"JOINING"|"INVITED"|"NEEDS_SUPPORT";groupCode?:string};
   user: { id: string; name: string; phone: string; groupCode: string; presentation?:UserPresentation; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
   subscription:SuperState;
@@ -189,9 +190,23 @@ export type WhatsAppIntegrationState = {
   wppTokenConfigured: boolean;
   evolutionUrl: string;
   evolutionInstance: string;
+  evolutionPhone?: string;
+  humanSupportPhone?: string;
+  evolutionWebhookSecretConfigured?: boolean;
+  evolutionWebhookUrl?: string;
   evolutionApiKeyConfigured: boolean;
   officialReady: boolean;
   webhookUrl: string;
+};
+export type WhatsAppRuntimeState = {
+  mode: WhatsAppIntegrationState["mode"];
+  configured: boolean;
+  otpConfigured: boolean;
+  otpBlockedReason: string | null;
+  connected: boolean | null;
+  checkedAt: string;
+  evolution: { configured: boolean; connected: boolean; state: string; number?: string; instance: string; phone: string };
+  official: { configured: boolean; connected: null };
 };
 export type PaymentIntegrationState = {
   provider: "MERCADO_PAGO" | "ASAAS" | "PAGBANK" | "DISABLED";
@@ -319,8 +334,24 @@ export type AutomationAuditEntry = {
   actorName:string|null; createdAt:string;
 };
 
+export type SupportAvailability = {enabled:boolean;days:number[];startHour:number;endHour:number};
+export type SupportAvailabilityState = SupportAvailability & {timeZone:"America/Bahia";availableNow:boolean};
+
+export type BotAutomationRuntime = {
+ wired:boolean;
+ capabilities:Array<{event:string;status:string}>;
+ deliveries:Array<{event:string;sourceId:string;target:string;status:string;reason?:string|null;outboxId?:string|null;createdAt:string}>;
+ events:Array<{event:string;status:string;reason?:string|null;total:number}>;
+};
+
 export const ownerApi = {
+  sendBotTestMessage:(referenceId:string)=>ownerRequest<{queued:true;outboxId:string}>("/admin/bot/test-message",{method:"POST",body:JSON.stringify({referenceId})}),
+  botTestMessageStatus:(outboxId:string)=>ownerRequest<{status:string;reason?:string|null;providerConfirmed:boolean}>(`/admin/bot/test-message/${encodeURIComponent(outboxId)}`),
+  supportAvailability:()=>ownerRequest<SupportAvailabilityState>("/admin/bot/support-availability"),
+  saveSupportAvailability:(settings:SupportAvailability)=>ownerRequest<SupportAvailabilityState>("/admin/bot/support-availability",{method:"POST",body:JSON.stringify(settings)}),
   botAutomations:()=>ownerRequest<AutomationsState>("/admin/bot/automations"),
+  botAutomationsRuntime:()=>ownerRequest<BotAutomationRuntime>("/admin/bot/automations/runtime"),
+  dispatchGlobalBroadcast:(message:string,referenceId:string)=>ownerRequest<{eventId:string;queued?:number;waiting?:number}>("/admin/bot/automations/BROADCAST_GLOBAL/dispatch",{method:"POST",body:JSON.stringify({message,referenceId})}),
   saveBotAutomation:(event:string,patch:Partial<Pick<AutomationSettings,"enabled"|"text"|"channel"|"target"|"intervalMinutes">>)=>
     ownerRequest<{ok:true;automation:AutomationSettings}>(`/admin/bot/automations/${event}`,{method:"PATCH",body:JSON.stringify(patch)}),
   resetBotAutomation:(event:string)=>
@@ -346,6 +377,7 @@ export const ownerApi = {
   retryWhatsApp: () => ownerRequest("/admin/whatsapp/retry", { method: "POST" }),
   syncWhatsAppGroups: () => ownerRequest<{ discovered: number; linked: number; memberships: number }>("/admin/whatsapp/groups/sync", { method: "POST" }),
   whatsappIntegration: () => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp"),
+  whatsappRuntime: () => ownerRequest<WhatsAppRuntimeState>("/admin/integrations/whatsapp/runtime"),
   paymentIntegration: () => ownerRequest<PaymentIntegrationState>("/admin/integrations/payments"),
   savePaymentIntegration: (body: {
     provider: PaymentIntegrationState["provider"]; environment: PaymentIntegrationState["environment"];
@@ -353,9 +385,9 @@ export const ownerApi = {
     asaasApiKey?: string; asaasWebhookToken?: string; pagBankToken?: string;
   }) => ownerRequest<PaymentIntegrationState>("/admin/integrations/payments", { method:"POST", body:JSON.stringify(body) }),
   saveWhatsAppIntegration: (body: Partial<{
-    mode: "OFFICIAL" | "META_GROUPS" | "HYBRID_PLUS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; graphVersion: string;
+    mode: "OFFICIAL" | "META_GROUPS" | "HYBRID_PLUS" | "EVOLUTION" | "DISABLED"; businessAccountId: string; phoneNumberId: string; businessPhone: string; humanSupportPhone: string; graphVersion: string;
     otpTemplate: string; ownerAlertTemplate: string; decisionTemplate: string; templateLanguage: string;
-    accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string; evolutionUrl: string; evolutionInstance: string; evolutionApiKey: string;
+    accessToken: string; appSecret: string; verifyToken: string; wppUrl: string; wppSession: string; wppToken: string; evolutionUrl: string; evolutionInstance: string; evolutionPhone: string; evolutionWebhookSecret: string; evolutionApiKey: string;
   }>) => ownerRequest<WhatsAppIntegrationState>("/admin/integrations/whatsapp", { method: "POST", body: JSON.stringify(body) }),
   generateWhatsAppVerifyToken: () => ownerRequest<{ ok: true; verifyToken: string; state: WhatsAppIntegrationState }>("/admin/integrations/whatsapp/verify-token", { method: "POST" }),
   validateWhatsApp: () => ownerRequest<{ ok: true; validatedAt: string; phone: { id?: string; display_phone_number?: string; verified_name?: string; quality_rating?: string } }>("/admin/integrations/whatsapp/validate", { method: "POST" }),

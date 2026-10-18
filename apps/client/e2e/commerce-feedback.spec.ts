@@ -30,13 +30,16 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  async function buy(code:string){
   await page.locator(".wallet-store-link").click();
   const store=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
-  await store.locator('[data-product-code="'+code+'"]').getByRole("button",{name:"Quero este item"}).click();
+  await store.locator('[data-product-code="'+code+'"]').getByRole("button",{name:"Quero este item"}).click({timeout:30_000});
   const modal=page.getByRole("dialog",{name:/Comprar /});
   await modal.getByLabel("E-mail do pagador").fill("lia@example.test");
   await modal.getByLabel("CPF do pagador").fill("52998224725");
-  const response=page.waitForResponse(r=>r.url()===server+"/payments/pix"&&r.request().method()==="POST");
-  await modal.getByRole("button",{name:/Gerar Pix de/}).click();
-  const pix=await (await response).json();
+  // On the low-memory desktop, the trace showed 11 s for action stability before a successful 201 response.
+  const response=page.waitForResponse(r=>r.url()===server+"/payments/pix"&&r.request().method()==="POST",{timeout:30_000});
+  await modal.getByRole("button",{name:/Gerar Pix de/}).click({timeout:30_000});
+  const created=await response;
+  expect(created.status()).toBe(201);
+  const pix=await created.json();
   await expect(modal.getByRole("button",{name:"Simular confirmação"})).toBeVisible();
   expect(pix.status).toBe("PENDING");
   return {modal,pix};
@@ -57,7 +60,15 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await expect(celebration).toContainText("10 moedas");
  await expect(wallet).toContainText("20");
  await expect(page.locator(".purchase-arrival b")).toHaveText("+10");
- await expect.poll(()=>page.locator(".purchase-arrival b").evaluate(el=>getComputedStyle(el).opacity)).toBe("1");
+ // Inspect the visible phase deterministically: the intentional two-second animation ends at opacity 0.
+ const arrival = page.locator(".purchase-arrival b");
+ expect(await arrival.evaluate(el => {
+  const animation = el.getAnimations().find(item => (item as CSSAnimation).animationName === "sos-balance-plus");
+  if (!animation) return false;
+  animation.pause(); animation.currentTime = 800;
+  return true;
+ })).toBe(true);
+ await expect(arrival).toHaveCSS("opacity","1");
  await page.screenshot({path:resolve(evidence,"commerce-coins-confirmed-1440.png")});
  await page.reload();await expect(wallet).toContainText("20");await expect(celebration).toHaveCount(0);
  await request.post(server+"/payments/"+coins.pix.id+"/demo-approve",{headers:auth});
