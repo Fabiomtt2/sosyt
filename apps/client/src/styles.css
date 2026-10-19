@@ -1383,7 +1383,6 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .store-balance{min-width:210px;padding:14px 16px;border-radius:17px;background:#fff;border:1px solid #eadfe6;box-shadow:0 12px 28px #61405b10}
 .store-balance>span{display:block;font-size:.65rem;color:#8b8088;margin-bottom:8px}
 .store-balance>div{display:flex;gap:10px}
-.store-balance strong{display:flex;align-items:center;gap:5px;font:900 1.05rem Manrope,sans-serif;color:#44353f;background:#faf6f9;padding:8px 10px;border-radius:11px}
 
 .store-rules{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:22px 34px 0}
 .store-rules article{display:grid;grid-template-columns:auto 1fr;gap:10px;padding:13px 14px;border-radius:15px;background:#fff;border:1px solid #eee5e8}
@@ -1526,7 +1525,6 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .store-head-v2 .eyebrow{margin:0 0 5px;color:#9c3c63}
 .store-head-v2 h2{margin:0 0 8px;font-size:clamp(1.8rem,3.6vw,2.75rem);line-height:1.03;letter-spacing:-.045em}
 .store-head-v2 p:last-child{margin:0;max-width:600px;color:#71666e;font-size:.8rem;line-height:1.5}
-.store-balance strong small{font:700 .58rem Manrope,sans-serif;color:#8b7f87;margin-left:1px}
 
 .store-products-v2{padding:22px 34px 15px;gap:22px;align-items:stretch}
 .store-product-v2{
