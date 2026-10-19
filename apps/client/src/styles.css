@@ -2330,30 +2330,3 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .automations-panel fieldset label{display:inline-flex;align-items:center;gap:8px}
 .automations-panel fieldset legend{max-width:100%;padding:0 5px}
 .automations-panel .automation-preview p,.automations-panel .automation-audit-diff{overflow-wrap:anywhere}
-
-/* Queue overview stays a compact grid on phones; only the contribution form spans both columns. */
-@media(max-width:600px){
-  .board{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
-  .board>.slot{min-width:0;padding:12px;gap:8px;border-radius:16px}
-  .board>.entry-slot{grid-column:1/-1}
-  .board>.empty{grid-template-columns:22px minmax(0,1fr);min-height:78px}
-  .board>.empty .slot-main{gap:5px}
-  .board>.empty .slot-main>svg{display:none}
-  .board>.empty strong{font-size:.75rem}
-  .board>.empty .slot-main span{font-size:.65rem;line-height:1.3}
-  .board>.rich-slot{position:relative;display:block;min-height:0;padding-top:30px}
-  .board>.rich-slot>.slot-number{position:absolute;top:9px;left:12px;font-size:.7rem}
-  .board .slot-rich-body{min-width:0;gap:8px}
-  .board .slot-contributor{gap:6px;align-items:center}
-  .board .slot-contributor .user-avatar{width:30px;height:30px;flex-shrink:0}
-  .board .slot-contributor strong{font-size:.72rem;white-space:normal;overflow-wrap:anywhere;line-height:1.3}
-  .board .slot-contributor small{font-size:.6rem;flex-wrap:wrap}
-  .board .slot-contributor>div>span{font-size:.6rem;line-height:1.25}
-  .board .slot-video{grid-template-columns:minmax(0,1fr);padding:6px;gap:7px}
-  .board .slot-video-thumb-wrap{width:100%;height:auto;aspect-ratio:16/9}
-  .board .slot-video-thumb-image,.board .slot-video-thumb-wrap>.video-thumb{width:100%!important;height:100%!important;object-fit:cover}
-  .board .slot-video strong{font-size:.73rem;line-height:1.35}
-  .board .slot-video span{font-size:.6rem;line-height:1.3}
-  .board .slot-video a{min-height:40px;max-width:100%;font-size:.66rem;white-space:normal}
-  .board .slot-own-note{font-size:.62rem;line-height:1.3}
-}
