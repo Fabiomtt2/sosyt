@@ -233,7 +233,7 @@ export function CommunityModal({ onClose, targetId, currentUserId, wallet, onCha
             {selected ? <>
               <header className="social-conversation-heading"><button type="button" className="social-mobile-back" aria-label="Voltar às conversas" onClick={() => setSelected(undefined)}><ArrowLeft size={20}/></button>
                 {who && !interactionBlocked ? <Person user={who} compact/> : <div className="social-system-title"><MessageCircle size={23}/><strong>{selected === "broadcast" ? "Avisos da equipe" : selected === "system" ? "Suas conquistas" : "Participante"}</strong></div>}
-                {canInteract && <button type="button" className="social-gift-toggle" aria-expanded={giftOpen} onClick={() => setGiftOpen(value => !value)} disabled={busy}><Gift size={18}/><span>Enviar um presente</span></button>}
+                {canInteract && <button type="button" className="social-gift-toggle" aria-label="Enviar um presente" aria-expanded={giftOpen} onClick={() => setGiftOpen(value => !value)} disabled={busy}><Gift size={18}/><span>Enviar um presente</span></button>}
               </header>
               {profile?.user && canInteract && <div className="social-profile-actions">{friendActions(profile)}<button type="button" className="social-block-link" disabled={busy} onClick={()=>setBlockPerson({id:profile.user!.id,name:profile.user!.name})}><ShieldBan size={15}/>Bloquear</button>
                 {activeFriend && <button type="button" className="social-remove-link" disabled={busy} onClick={() => setRemoveFriend({ id: activeFriend.id, name: activeFriend.user!.name })}>Remover amizade</button>}
