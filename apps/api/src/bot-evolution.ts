@@ -1,3 +1,4 @@
+import {groupCodeFromSubject} from "./group-name.js";
 // AUDITORIA / HYBRID+ — motor de GRUPOS (Evolution), com freios de segurança.
 //
 // A Cloud API oficial não gerencia grupo real: ler membros, adicionar e remover só
@@ -258,7 +259,7 @@ export function createEvolutionClient(opts: {
         if (!Array.isArray(data)) throw new EvolutionSafetyError("INVALID_GROUP_LIST", "O motor não retornou uma lista completa de grupos.");
         // Sequential reads avoid turning one provider failure into a request burst.
         for (const group of data) {
-          if (!/^SOS\s*YOUTUBER?\s*\d+$/i.test(String(group.subject ?? "").trim())) continue;
+          if (!groupCodeFromSubject(String(group.subject ?? ""))) continue;
           const members = await call(`/group/participants/${encodeURIComponent(config.instance)}?groupJid=${encodeURIComponent(group.id)}`);
           if (!Array.isArray(members.participants)) throw new EvolutionSafetyError("INVALID_PARTICIPANT_LIST", "O motor não confirmou a lista de participantes.");
           group.participants = members.participants;

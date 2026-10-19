@@ -3,6 +3,7 @@
 // (React escapa por padrão; aqui barramos na entrada também, defesa em profundidade).
 // Camadas: sanitização de controle/HTML, anti-link (membros), anti-injeção,
 // anti-xingamento, limite de tamanho, cooldown, mute e banimento ("remover da sala").
+import { socialVisibilitySql } from "./social-blocks.js";
 import { randomUUID } from "node:crypto";
 import type { Config } from "./config.js";
 import { effectiveOwnerAccounts } from "./owners.js";
@@ -138,10 +139,10 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
   if (opts.afterId) {
     const after = db.prepare("SELECT rowid AS cursor FROM global_chat_messages WHERE id=?").get(opts.afterId) as { cursor:number } | undefined;
     rows = db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
-      WHERE deleted_at IS NULL AND rowid > ? ORDER BY rowid ASC LIMIT ?`).all(after?.cursor ?? 0, limit) as Array<Record<string, unknown>>;
+      WHERE deleted_at IS NULL AND ${socialVisibilitySql("?","user_id")} AND rowid > ? ORDER BY rowid ASC LIMIT ?`).all(viewerId,viewerId,after?.cursor ?? 0, limit) as Array<Record<string, unknown>>;
   } else {
     rows = (db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
-      WHERE deleted_at IS NULL ORDER BY rowid DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>).reverse();
+      WHERE deleted_at IS NULL AND ${socialVisibilitySql("?","user_id")} ORDER BY rowid DESC LIMIT ?`).all(viewerId,viewerId,limit) as Array<Record<string, unknown>>).reverse();
   }
   const decorate = (r: Record<string, unknown>) => {
     const id = identityOf(db, String(r.userId));
@@ -151,7 +152,7 @@ export function listGlobalMessages(db: AppDatabase, viewerId: string, opts: { af
     };
   };
   const pinned = (db.prepare(`SELECT id,user_id AS userId,sender_role AS role,body,created_at AS createdAt,pinned FROM global_chat_messages
-    WHERE deleted_at IS NULL AND pinned=1 ORDER BY created_at DESC LIMIT 3`).all() as Array<Record<string, unknown>>).map(decorate);
+    WHERE deleted_at IS NULL AND pinned=1 AND ${socialVisibilitySql("?","user_id")} ORDER BY created_at DESC LIMIT 3`).all(viewerId,viewerId) as Array<Record<string, unknown>>).map(decorate);
   // O cooldown informado ao cliente ja considera o privilegio SUPER.
   const viewerSuper = effectiveSuper(db, viewerId);
   const viewerRole = chatRoleOf(db, viewerId, config);

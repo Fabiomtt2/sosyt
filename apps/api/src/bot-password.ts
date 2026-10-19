@@ -1,3 +1,4 @@
+import {isParticipantBlocked} from "./participant-access.js";
 import {effectiveOwnerAccounts} from "./owners.js";
 import {sameWhatsAppNumber} from "./bot-evolution.js";
 import { z } from "zod";
@@ -43,6 +44,7 @@ export function saveBotPasswordSettings(db:AppDatabase,raw:unknown,actorId:strin
 /** Only trusted proof callbacks may call this. No plaintext password is returned, logged or mailed internally. */
 export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,proofVerified:boolean):{created:boolean;queued:boolean;reason?:string} {
   if(!proofVerified)return {created:false,queued:false,reason:"PHONE_PROOF_REQUIRED"};
+  if(isParticipantBlocked(db,userId))return {created:false,queued:false,reason:"ACCOUNT_ACCESS_REVOKED"};
   const settings=readBotPasswordSettings(db);
   if(!settings.enabled)return {created:false,queued:false,reason:"PASSWORD_BOT_DISABLED"};
   const wa=readWhatsAppIntegration(db,config);
@@ -91,6 +93,7 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
  */
 export function reissueBotPassword(db:AppDatabase,config:Config,userId:string,proofVerified:boolean):{created:boolean;queued:boolean;reason?:string} {
   if(!proofVerified)return {created:false,queued:false,reason:"PHONE_PROOF_REQUIRED"};
+  if(isParticipantBlocked(db,userId))return {created:false,queued:false,reason:"ACCOUNT_ACCESS_REVOKED"};
   // Contas administrativas entram pela credencial do painel: nada a reemitir.
   if(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1").get(userId))return {created:false,queued:false,reason:"ADMIN_ACCOUNT"};
   type Result = ReturnType<typeof ensureBotPassword>;

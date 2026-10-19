@@ -12,6 +12,7 @@
 // Privacidade do WhatsApp: muita gente bloqueia "ser adicionado a grupos". Nesse caso o
 // add falha e o bot manda o LINK DE CONVITE, que depende de um toque da pessoa (e não
 // expõe ninguém). Só depois de esgotar as duas vias é que o Owner é chamado.
+import {botPhoneAccessBlocked} from "./bot-account-access.js";
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -46,6 +47,7 @@ export function enqueueGroupJoin(db: AppDatabase, phone: string, name?: string):
   ensureGroupJoinQueue(db);
   const digits = String(phone).replace(/\D/g, "");
   if (!/^[1-9]\d{7,14}$/.test(digits)) return { queued: false, reason: "INVALID_PHONE" };
+  if(botPhoneAccessBlocked(db,digits))return {queued:false,reason:"ACCOUNT_ACCESS_REVOKED"};
   const stamp = new Date().toISOString();
   const existing = db.prepare("SELECT status FROM group_join_requests WHERE phone=?").get(digits) as { status: string } | undefined;
   if (existing && existing.status !== "FAILED") return { queued: true, reason: "ALREADY_QUEUED" };
@@ -61,8 +63,8 @@ export function enqueueGroupJoin(db: AppDatabase, phone: string, name?: string):
 export function groupSlots(db: AppDatabase): GroupSlot[] {
   const rows = db.prepare(
     `SELECT g.code AS code, g.whatsapp_group_id AS gid, g.enabled AS enabled,
-       (SELECT COUNT(*) FROM group_memberships m WHERE m.group_code=g.code AND m.revoked_at IS NULL) AS members
-     FROM groups g WHERE g.whatsapp_group_id IS NOT NULL ORDER BY g.code`,
+       (SELECT COUNT(DISTINCT v.phone) FROM whatsapp_member_verifications v WHERE v.group_code=g.code AND v.external_group_id=g.whatsapp_group_id AND v.revoked_at IS NULL) AS members
+     FROM groups g WHERE g.whatsapp_group_id IS NOT NULL AND g.enabled=1 ORDER BY CAST(g.code AS INTEGER)`,
   ).all() as Array<{ code: string; gid: string; enabled: number; members: number }>;
   return rows.map((r) => ({ code: r.code, memberCount: r.members, capacity: GROUP_CAPACITY, enabled: r.enabled !== 0 }));
 }
@@ -91,60 +93,77 @@ export async function processGroupJoin(
   const stamp = new Date().toISOString();
   const claimed = db.prepare("UPDATE group_join_requests SET status='PROCESSING',updated_at=? WHERE id=? AND status='PENDING'").run(stamp, job.id);
   if (!claimed.changes) return undefined;
+  if(botPhoneAccessBlocked(db,job.phone)){
+    db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='ACCOUNT_ACCESS_REVOKED',updated_at=? WHERE id=?").run(stamp,job.id);
+    return {phone:job.phone,reason:"ACCOUNT_ACCESS_REVOKED"};
+  }
   if (db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(job.phone)) {
     db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='MEMBERSHIP_REVOKED_REQUIRES_REVIEW',updated_at=? WHERE id=?").run(stamp, job.id);
     deps.escalate?.(job.phone, job.name, "MEMBERSHIP_REVOKED_REQUIRES_REVIEW");
     return { phone: job.phone, escalated: true, reason: "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" };
   }
-  const target = pickGroupWithRoom(groupSlots(db));
-  if (!target) {
-    db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='NO_GROUP_WITH_ROOM',attempts=attempts+1,updated_at=? WHERE id=?").run(stamp, job.id);
-    deps.escalate?.(job.phone, job.name, "NO_GROUP_WITH_ROOM");
-    return { phone: job.phone, escalated: true, reason: "NO_GROUP_WITH_ROOM" };
+  // Validate each mapping against the live group, instead of getting stuck on a
+  // stale/unavailable group 1 while a real group 2 is accepting participants.
+  const candidates=groupSlots(db).filter(slot=>/^[1-9]\d{0,2}$/.test(slot.code));
+  let target:GroupSlot|undefined,groupJid:string|undefined,initialPhones:string[]=[];
+  while(candidates.length){
+    const candidateCode=pickGroupWithRoom(candidates.map(slot=>({...slot,memberCount:0})))?.code;
+    const candidate=candidates.find(slot=>slot.code===candidateCode);
+    if(!candidate)break;
+    candidates.splice(candidates.indexOf(candidate),1);
+    const gid=(db.prepare("SELECT whatsapp_group_id AS gid FROM groups WHERE code=?").get(candidate.code) as {gid:string}).gid;
+    if(!/^\d+(?:-\d+)?@g\.us$/.test(gid))continue;
+    try{
+      const phones=await client.groupParticipants(gid);
+      if(phones.length>=GROUP_CAPACITY)continue;
+      target=candidate;groupJid=gid;initialPhones=phones;break;
+    }catch{ /* Unknown or unavailable mapping cannot be used as an admission target. */ }
   }
-  const groupJid = (db.prepare("SELECT whatsapp_group_id AS gid FROM groups WHERE code=?").get(target.code) as { gid: string } | undefined)?.gid;
-  if (!groupJid) {
-    db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='GROUP_NOT_PAIRED',attempts=attempts+1,updated_at=? WHERE id=?").run(stamp, job.id);
-    deps.escalate?.(job.phone, job.name, "GROUP_NOT_PAIRED");
-    return { phone: job.phone, groupCode: target.code, escalated: true, reason: "GROUP_NOT_PAIRED" };
+  if(!target||!groupJid){
+    db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='NO_VERIFIED_GROUP_WITH_ROOM',attempts=attempts+1,updated_at=? WHERE id=?").run(stamp,job.id);
+    deps.escalate?.(job.phone,job.name,"NO_VERIFIED_GROUP_WITH_ROOM");
+    return {phone:job.phone,escalated:true,reason:"NO_VERIFIED_GROUP_WITH_ROOM"};
   }
 
+  const targetCode=target.code,verifiedGroupJid=groupJid;
   try {
     const containsPhone = (phones: string[]) => phones.some(phone => sameWhatsAppNumber(phone, job.phone));
-    if (!containsPhone(await client.groupParticipants(groupJid))) await client.addParticipant(groupJid, job.phone);
-    if (!containsPhone(await client.groupParticipants(groupJid))) throw new Error("EVOLUTION_MEMBERSHIP_NOT_CONFIRMED");
+    if (!containsPhone(initialPhones)) await client.addParticipant(verifiedGroupJid, job.phone);
+    if (!containsPhone(await client.groupParticipants(verifiedGroupJid))) throw new Error("EVOLUTION_MEMBERSHIP_NOT_CONFIRMED");
     db.transaction(() => {
+      if(botPhoneAccessBlocked(db,job.phone))throw new Error("ACCOUNT_ACCESS_REVOKED");
       const revoked = db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(job.phone);
       if (revoked) throw new Error("MEMBERSHIP_REVOKED_REQUIRES_REVIEW");
-      recordGroupVerification(db, "EVOLUTION", target.code, groupJid, `SOS YOUTUBER ${target.code}`, 0, stamp);
-      recordMemberVerification(db, "EVOLUTION", target.code, job.phone, groupJid, true, stamp);
-      const approved = materializeApprovedMembership(db, job.phone, target.code, stamp);
+      recordGroupVerification(db, "EVOLUTION", targetCode, verifiedGroupJid, `SOS YOUTUBER ${targetCode}`, 0, stamp);
+      recordMemberVerification(db, "EVOLUTION", targetCode, job.phone, verifiedGroupJid, true, stamp);
+      const approved = materializeApprovedMembership(db, job.phone, targetCode, stamp);
       if (!approved.accessGranted) throw new Error("MEMBERSHIP_APPROVAL_NOT_CONFIRMED");
-      db.prepare("UPDATE users SET group_code=?,updated_at=? WHERE phone=? AND deleted_at IS NULL").run(target.code, stamp, job.phone);
-      db.prepare("UPDATE group_join_requests SET status='DONE',group_code=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?").run(target.code, stamp, job.id);
+      const primary=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(job.phone) as {code:string};
+      db.prepare("UPDATE users SET group_code=?,updated_at=? WHERE phone=? AND deleted_at IS NULL").run(primary.code, stamp, job.phone);
+      db.prepare("UPDATE group_join_requests SET status='DONE',group_code=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?").run(targetCode, stamp, job.id);
     })();
-    return { phone: job.phone, groupCode: target.code, added: true };
+    return { phone: job.phone, groupCode: targetCode, added: true };
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message.slice(0, 120) : "ADD_FAILED";
-    if (reason === "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" || reason === "MEMBERSHIP_APPROVAL_NOT_CONFIRMED") {
+    if (reason === "ACCOUNT_ACCESS_REVOKED" || reason === "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" || reason === "MEMBERSHIP_APPROVAL_NOT_CONFIRMED") {
       db.prepare("UPDATE group_join_requests SET status='FAILED',group_code=?,attempts=attempts+1,last_error=?,updated_at=? WHERE id=?")
-        .run(target.code, reason, stamp, job.id);
+        .run(targetCode, reason, stamp, job.id);
       deps.escalate?.(job.phone, job.name, reason);
-      return { phone: job.phone, groupCode: target.code, escalated: true, reason };
+      return { phone: job.phone, groupCode: targetCode, escalated: true, reason };
     }
     // Privacidade: a pessoa pode bloquear "ser adicionada". O convite resolve sem
     // expor ninguém — ela entra com um toque.
     let inviteUrl: string | undefined;
-    try { inviteUrl = await client.groupInviteUrl?.(groupJid); } catch { /* sem convite disponível */ }
+    try { inviteUrl = await client.groupInviteUrl?.(verifiedGroupJid); } catch { /* sem convite disponível */ }
     const attempts = job.attempts + 1;
     if (inviteUrl || attempts >= 3) {
       db.prepare("UPDATE group_join_requests SET status=?,group_code=?,attempts=?,last_error=?,updated_at=? WHERE id=?")
-        .run(inviteUrl ? "INVITED" : "FAILED", target.code, attempts, reason, stamp, job.id);
-      if (inviteUrl) deps.sendInvite?.(job.phone, target.code, inviteUrl);
+        .run(inviteUrl ? "INVITED" : "FAILED", targetCode, attempts, reason, stamp, job.id);
+      if (inviteUrl) deps.sendInvite?.(job.phone, targetCode, inviteUrl);
       else deps.escalate?.(job.phone, job.name, reason);
-      return { phone: job.phone, groupCode: target.code, invited: Boolean(inviteUrl), escalated: !inviteUrl, reason };
+      return { phone: job.phone, groupCode: targetCode, invited: Boolean(inviteUrl), escalated: !inviteUrl, reason };
     }
     db.prepare("UPDATE group_join_requests SET status='PENDING',attempts=?,last_error=?,updated_at=? WHERE id=?").run(attempts, reason, stamp, job.id);
-    return { phone: job.phone, groupCode: target.code, reason };
+    return { phone: job.phone, groupCode: targetCode, reason };
   }
 }

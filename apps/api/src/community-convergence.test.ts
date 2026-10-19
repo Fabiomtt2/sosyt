@@ -1,7 +1,7 @@
 import {beforeEach,afterEach,it,expect,describe} from "vitest";
 import {randomUUID} from "node:crypto";
 import {grantItem,ITEM_SKIP} from "./inventory.js";
-import {currentRoundFor} from "./queues.js";
+import {currentRoundFor,joinRound} from "./queues.js";
 import {readFileSync} from "node:fs";
 import {buildApp} from "./app.js";
 import {loadConfig,type Config} from "./config.js";
@@ -112,6 +112,7 @@ describe("convergência de identidade, comunidade e transportes",()=>{
  it("Pular entra em outra fila e a seleção é respeitada no alvo de contribuição",async()=>{
   const user=await member("5571999990209","Gabi");
   const before=(await app.inject({method:"GET",url:"/dashboard",headers:auth(user.token)})).json().openRound.id;
+  joinRound(db,before,user.id,"FREE");
   grantItem(db,{userId:user.id,itemCode:ITEM_SKIP,delta:1,kind:"OWNER_ADJUST"});
   const next=await app.inject({method:"POST",url:"/queues/skip",headers:auth(user.token)});
   expect(next.statusCode).toBe(200);expect(next.json().queue.id).not.toBe(before);

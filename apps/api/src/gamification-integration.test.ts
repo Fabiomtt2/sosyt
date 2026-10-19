@@ -1,3 +1,4 @@
+import { requestDirectConversation,respondDirectConversation } from "./social.js";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "./app.js";
@@ -41,6 +42,7 @@ describe("gamificação integrada: guards, carteira, identidade e expiração",(
   expect((await app.inject({method:"GET",url:"/dashboard",headers:h(a.token)})).json().user.presentation.progress.level).toBe(2);
   expect((await app.inject({method:"POST",url:"/chat/global",headers:h(a.token),payload:{body:"Meu primeiro nível!"}})).statusCode).toBe(200);
   expect((await app.inject({method:"GET",url:"/chat/global",headers:h(b.token)})).json().messages[0].sender.presentation.progress).toMatchObject({level:2,xp:100});
+  const consent=requestDirectConversation(db,a.user.id,b.user.id);respondDirectConversation(db,b.user.id,requestId(consent),true);
   await app.inject({method:"POST",url:"/mail/dm",headers:h(a.token),payload:{toUserId:b.user.id,body:"Vamos criar juntos."}});
   expect((await app.inject({method:"GET",url:"/mail/thread/"+a.user.id,headers:h(b.token)})).json().messages[0].sender.presentation.progress.level).toBe(2);
   const ranks=await app.inject({method:"GET",url:"/gamification/rankings",headers:h(b.token)});
@@ -56,3 +58,9 @@ describe("gamificação integrada: guards, carteira, identidade e expiração",(
   revokeSuper(db,a.user.id,"root");expect(superState(db,a.user.id).active).toBe(false);
  });
 });
+
+function requestId(request:{id?:string}):string {
+  expect(typeof request.id).toBe("string");
+  if(typeof request.id!=="string")throw new Error("Fixture expected a persisted conversation request");
+  return request.id;
+}

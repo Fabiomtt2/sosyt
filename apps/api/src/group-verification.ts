@@ -1,4 +1,6 @@
+import {botPhoneAccessBlocked} from "./bot-account-access.js";
 import type { AppDatabase } from "./db.js";
+import {brazilMobileAliases} from "./phone-identity.js";
 
 export type GroupVerificationState = {
   required: boolean;
@@ -29,15 +31,33 @@ export function groupVerificationState(db: AppDatabase, phone: string, groupCode
   return { required:true,accessReady:false,memberVerified:anyMember,ownerAdminVerified:anyAdmin,provider:proofs[0]?.provider };
 }
 
+/** All current external proofs; the primary admission row is intentionally separate. */
+export function verifiedGroupCodes(db:AppDatabase,phone:string):string[]{
+  const phones=brazilMobileAliases(phone);
+  const rows=db.prepare(`SELECT DISTINCT v.group_code AS code FROM whatsapp_member_verifications v
+    JOIN groups g ON g.code=v.group_code AND g.enabled=1 AND g.whatsapp_group_id=v.external_group_id
+    JOIN whatsapp_group_verifications p ON p.provider=v.provider AND p.group_code=v.group_code AND p.external_group_id=v.external_group_id
+    WHERE v.revoked_at IS NULL AND v.phone IN (${phones.map(()=>"?").join(",")})
+    ORDER BY CAST(v.group_code AS INTEGER),v.group_code`).all(...phones) as {code:string}[];
+  return rows.map(r=>r.code);
+}
+
 export function materializeApprovedMembership(db: AppDatabase, phone: string, groupCode: string, stamp = new Date().toISOString(), approvedBy?: { id: string; name: string }) {
   const request=db.prepare("SELECT id,status,approved_by_owner_id AS ownerId,approved_by_owner_name AS ownerName FROM participation_requests WHERE phone=?").get(phone) as
     | { id:string; status:string; ownerId?: string; ownerName?: string }
     | undefined;
   const state=groupVerificationState(db,phone,groupCode);
+  if(botPhoneAccessBlocked(db,phone))return {accessGranted:false,state};
   const ownerApproved=Boolean(approvedBy || request?.status==="APPROVED");
   if (!ownerApproved) return { accessGranted:false,state };
   if (request && request.status!=="APPROVED") return { accessGranted:false,state };
   if (!state.accessReady) return { accessGranted:false,state };
+
+  // A person may belong to several groups. Synchronizing another proof must not
+  // repeatedly move the login's primary group while that admission remains valid.
+  // An explicit Owner decision must still replace it and invalidate older sessions.
+  const primary=db.prepare("SELECT m.group_code AS code FROM group_memberships m JOIN groups g ON g.code=m.group_code WHERE m.phone=? AND m.revoked_at IS NULL AND g.enabled=1").get(phone) as {code:string}|undefined;
+  if(!approvedBy&&primary&&primary.code!==groupCode&&groupVerificationState(db,phone,primary.code).accessReady)return {accessGranted:true,state};
 
   const ownerId=approvedBy?.id ?? request?.ownerId ?? null;
   const ownerName=approvedBy?.name ?? request?.ownerName ?? null;

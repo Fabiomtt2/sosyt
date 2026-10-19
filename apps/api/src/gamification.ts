@@ -1,3 +1,4 @@
+import { assertSocialInteractionAllowed } from "./social-blocks.js";
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AppDatabase } from "./db.js";
@@ -137,7 +138,7 @@ function coverageOf(raw:string|undefined,index:number,duration:number) {
   return coverage;
 }
 /** Called inside the verified-observation transaction; supplied client totals are intentionally ignored. */
-export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,videoIndex:number,_coverageSeconds?:number,_duration?:number) {
+export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,videoIndex:number,_coverageSeconds?:number,_duration?:number,allowCoinRewards=true) {
   if(!Number.isInteger(videoIndex)||videoIndex<0||videoIndex>9)fail(400,"Vídeo inválido.","INVALID_VIDEO");
   const c=gamificationConfig(db);
   if(!c.enabled||!c.xpEnabled)return {xpDelta:0,levelRewards:[] as Array<{level:number;coins:number;trialDays:number}>};
@@ -167,7 +168,7 @@ export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,vid
     const level=levelAt(totalXp(db,userId),JSON.parse(profile.curveJson)).level;
     const levelRewards:Array<{level:number;coins:number;trialDays:number}>=[];
     for(let next=profile.level+1;next<=level;next++){
-      const coins=c.levelCoins+(next%c.milestoneEvery===0?c.milestoneCoins:0),days=next%c.trialEvery===0?c.trialDays:0;
+      const coins=allowCoinRewards?c.levelCoins+(next%c.milestoneEvery===0?c.milestoneCoins:0):0,days=next%c.trialEvery===0?c.trialDays:0;
       const reference="level:"+next,event=emit(db,userId,"LEVEL_UP",reference,{level:next,coins,trialDays:days,config:c});
       if(event){rewardCoins(db,userId,coins,reference);if(days)trial(db,userId,days,reference+":"+userId,"LEVEL_MILESTONE");botEvent(db,"LEVEL_UP",userId,event,{level:next,coins,trialDays:days});levelRewards.push({level:next,coins,trialDays:days});}
     }
@@ -289,6 +290,9 @@ export function giftRewardCoins(db:AppDatabase,fromUserId:string,toUserId:string
       if(data.toUserId!==toUserId||data.coins!==coins)fail(409,"Este presente já foi registrado com outros dados.","REFERENCE_CONFLICT");
       return {toUserId,coins,replayed:true};
     }
+    assertSocialInteractionAllowed(db,fromUserId,toUserId);
+    const hold=db.prepare("SELECT payment_hold AS hold FROM wallets WHERE user_id=?").get(fromUserId) as {hold:number}|undefined;
+    if(hold?.hold)fail(409,"Sua carteira está em revisão.","PAYMENT_HOLD");
     const now=stamp(),amount=coins*1000;
     const debit=db.prepare("UPDATE wallets SET reward_millis=reward_millis-?,updated_at=? WHERE user_id=? AND reward_millis>=?").run(amount,now,fromUserId,amount);
     if(!debit.changes)fail(409,"Você precisa de mais moedas de recompensa para presentear.","REWARD_COINS_INSUFFICIENT");

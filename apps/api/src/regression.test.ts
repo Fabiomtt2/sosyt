@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrivatePlaylist, encryptToken } from "./youtube.js";
 import { normalizePhone } from "./phone.js";
+import { joinRound } from "./queues.js";
 
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 describe("regressões de domínio e segurança", () => {
@@ -74,6 +75,7 @@ describe("regressões de domínio e segurança", () => {
       db.prepare("INSERT INTO submissions (id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES (?,?,?,?,?,?,?,?)")
         .run(randomUUID(), row.id, slot, userId, `https://youtu.be/vid${String(slot).padStart(8, "0")}`, `vid${String(slot).padStart(8, "0")}`, new Date().toISOString(), 600);
     }
+    joinRound(db,row.id,userId,"FREE");
     db.prepare("UPDATE rounds SET status = 'READY' WHERE id = ?").run(row.id);
     db.prepare("INSERT INTO youtube_connections (user_id,refresh_token_cipher,scope,updated_at) VALUES (?,?,?,?)").run(userId,encryptToken("test-refresh",config),"youtube",new Date().toISOString());
     return row.id;
@@ -137,7 +139,7 @@ describe("regressões de domínio e segurança", () => {
     expect((await dashboard(users[0].token)).wallet.reward).toBe(1);
     const blocked = await submit(users[0].token, "next0000001");
     expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().message).toContain("Fila 1");
+    expect(blocked.json().code).toBe("ACTIVE_TASK_PENDING");
     const newcomer = await register("71999999011");
     const repeated = await submit(newcomer.token, "vid00000001");
     expect(repeated.statusCode).toBe(409);
@@ -246,7 +248,7 @@ describe("regressões de domínio e segurança", () => {
     expect(relogin.statusCode).toBe(200);
     const blockedNext=await submit(user.token,"legNEXT0001");
     expect(blockedNext.statusCode).toBe(409);
-    expect(blockedNext.json().message).toContain("Finalize sua tarefa");
+    expect(blockedNext.json().code).toBe("ACTIVE_TASK_PENDING");
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
 
     const outsider = await register("71999999002");
@@ -280,21 +282,22 @@ describe("regressões de domínio e segurança", () => {
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
 
     const during = await app.inject({ method:"POST",url:"/auth/login",payload:{ name:"Pessoa Teste",phone:"71999999012",groupCode:"12" } });
-    expect(during.statusCode).toBe(423);
+    expect(during.statusCode).toBe(200);
+    expect((await submit(during.json().token,"coolNEXT001")).statusCode).toBe(423);
     db.prepare("UPDATE users SET cooldown_until=? WHERE id=?").run(new Date(Date.now()-1000).toISOString(),user.userId);
     const after = await app.inject({ method:"POST",url:"/auth/login",payload:{ name:"Pessoa Teste",phone:"71999999012",groupCode:"12" } });
     expect(after.statusCode).toBe(200);
   });
 
-  it("abandonar tarefa preserva percentual e moedas, não cria cooldown e libera a fila seguinte", async () => {
+  it("abandonar tarefa preserva percentual e moedas e aplica60min sem apagar outras filas", async () => {
     const user=await register("71999999013");
     const roundId=await readyRound(user.userId);
     const stamp=new Date().toISOString();
     db.prepare("INSERT INTO playlist_exports (id,round_id,user_id,youtube_playlist_id,status,added_count,created_at,updated_at) VALUES (?,?,?,?, 'SUCCESS',10,?,?)")
       .run(randomUUID(),roundId,user.userId,"playlist-abandon-test",stamp,stamp);
-    // O dashboard garante uma nova fila aberta após a anterior ter sido marcada READY.
+    // A leitura continua na tarefa READY do participante até ele abandoná-la.
     const before=await dashboard(user.token);
-    expect(before.openRound.sequence).toBe(2);
+    expect(before.openRound.id).toBe(roundId);
     const progress=await app.inject({
       method:"PUT",url:`/rounds/${roundId}/watch-progress`,headers:headers(user.token),
       payload:{watchedSeconds:[10,10,10,7,0,0,0,0,0,0],durations:Array(10).fill(10)}
@@ -303,17 +306,22 @@ describe("regressões de domínio e segurança", () => {
     const abandoned=await app.inject({method:"POST",url:`/rounds/${roundId}/watch-progress/abandon`,headers:headers(user.token)});
     expect(abandoned.statusCode).toBe(200);
     expect(abandoned.json()).toMatchObject({percent:37,abandoned:true,nextOpenRound:{sequence:2}});
-    expect(abandoned.json().cooldownUntil).toBeUndefined();
+    expect(Date.parse(abandoned.json().cooldownUntil)-Date.now()).toBeGreaterThan(3_590_000);
     const saved=db.prepare("SELECT percent,finalized_at AS finalizedAt,finalize_reason AS reason FROM playlist_watch_progress WHERE round_id=? AND user_id=?")
       .get(roundId,user.userId) as {percent:number;finalizedAt:string;reason:string};
     expect(saved).toMatchObject({percent:37,reason:"ABANDONED"});
     expect(saved.finalizedAt).toBeTruthy();
     const userRow=db.prepare("SELECT cooldown_until AS cooldownUntil FROM users WHERE id=?").get(user.userId) as {cooldownUntil?:string};
-    expect(userRow.cooldownUntil ?? null).toBeNull();
+    expect(userRow.cooldownUntil).toBe(abandoned.json().cooldownUntil);
     expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
     const after=await dashboard(user.token);
     expect(after.readyRounds).toHaveLength(0);
     expect(after.openRound.sequence).toBe(2);
+    const locked=await app.inject({method:"POST",url:`/queues/${roundId}/resume`,headers:headers(user.token)});expect(locked.statusCode).toBe(423);
+    db.prepare("UPDATE users SET cooldown_until=? WHERE id=?").run(new Date(Date.now()-1).toISOString(),user.userId);
+    const resumed=await app.inject({method:"POST",url:`/queues/${roundId}/resume`,headers:headers(user.token)});expect(resumed.statusCode,resumed.body).toBe(200);
+    const restored=await dashboard(user.token);expect(restored.readyRounds.find((r:{id:string})=>r.id===roundId).export.watchProgress.percent).toBe(37);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE user_id=? AND kind='WATCH_PROGRESS'").get(user.userId) as {n:number}).n).toBe(0);
   });
 
   it("avatar preset fica persistido no servidor e volta no dashboard", async () => {
@@ -484,6 +492,7 @@ describe("regressões de domínio e segurança", () => {
     const user=await register(), other=await register("71999999002"); const roundId=await readyRound(user.userId);
     expect((await app.inject({url:`/youtube/connect?roundId=${roundId}`,headers:headers(other.token)})).statusCode).toBe(403);
     const result=await app.inject({url:`/youtube/connect?roundId=${roundId}`,headers:headers(user.token)});
+    expect(result.statusCode,result.body).toBe(200);
     const state=new URL(result.json().url).searchParams.get("state")!;
     expect((db.prepare("SELECT round_id FROM oauth_states").get() as {round_id:string}).round_id).toBe(roundId);
     fetchMock.mockResolvedValue(response({refresh_token:"refresh",scope:"youtube"}));

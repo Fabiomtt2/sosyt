@@ -1,3 +1,6 @@
+import {groupCodeFromSubject} from "./group-name.js";
+import {botPhoneAccessBlocked} from "./bot-account-access.js";
+import {currentQueueEventBody,type QueueEventSnapshot} from "./bot-queue-snapshot.js";
 import { botProgressReply } from "./bot-progress-replies.js";
 import { encryptToken, decryptToken } from "./youtube.js";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
@@ -72,7 +75,7 @@ function queue(db: AppDatabase, recipient: string, payload: Payload, dedupeKey: 
 function template(config: Config, name: string, parameters: string[]): Payload {
   return { type: "template", template: { name, language: { code: config.WHATSAPP_TEMPLATE_LANGUAGE }, components: [{ type: "body", parameters: parameters.map((text) => ({ type: "text", text })) }] } };
 }
-export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:string,body:string,dedupeKey:string,options?:{event:string;deliveryClass:"QUEUE"|"ENGAGEMENT";availableAt?:string;expiresAt?:string}){
+export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:string,body:string,dedupeKey:string,options?:{event:string;deliveryClass:"QUEUE"|"ENGAGEMENT";availableAt?:string;expiresAt?:string;queueSnapshot?:QueueEventSnapshot}){
   const runtime=effectiveWhatsAppConfig(db,config);
   if(!["EVOLUTION","HYBRID_PLUS"].includes(runtime.WHATSAPP_MODE)||!evolutionConfigured(runtime))return {queued:false,reason:"PROVIDER_NOT_READY"};
   if(!/^\d+(?:-\d+)?@g\.us$/.test(groupJid)||!body.trim())return {queued:false,reason:"INVALID_RECIPIENT"};
@@ -80,7 +83,7 @@ export function queueGroupAutomation(db:AppDatabase,config:Config,groupJid:strin
   const prior=db.prepare("SELECT id FROM whatsapp_outbox WHERE dedupe_key=?").get(dedupeKey) as {id:string}|undefined;
   if(prior)return {queued:true,outboxId:prior.id};
   const payload={_transport:"EVOLUTION_GROUP",_instance:runtime.EVOLUTION_INSTANCE,_phone:runtime.EVOLUTION_PHONE,
-    _deliveryClass:options?.deliveryClass??"ENGAGEMENT",_event:options?.event??dedupeKey,text:{body:body.slice(0,4096)}};
+    _deliveryClass:options?.deliveryClass??"ENGAGEMENT",_event:options?.event??dedupeKey,...(options?.queueSnapshot?{_queueSnapshot:options.queueSnapshot}:{}),text:{body:body.slice(0,4096)}};
   const id=randomUUID(),stamp=now(),availableAt=options?.availableAt??stamp;
   if(!Number.isFinite(Date.parse(availableAt)))return {queued:false,reason:"INVALID_SCHEDULE"};
   // AUDITORIA / Teo M1: anuncio de grupo pode carregar validade. Se o backlog de warmup
@@ -187,9 +190,7 @@ export function queueParticipationDecision(
 type MetaGroupSummary = { id: string; subject: string };
 type MetaGroupInfo = { id?: string; subject?: string; participants?: Array<{ wa_id?: string }>; total_participant_count?: number };
 
-function groupCodeFromSubject(subject: string): string | undefined {
-  return /^SOS\s+YOUTUBER\s+([1-9]\d{0,2})$/iu.exec(subject.trim())?.[1];
-}
+
 
 async function graphJson<T>(config: Config, path: string): Promise<T> {
   if (!config.WHATSAPP_ACCESS_TOKEN) throw new Error("WHATSAPP_NOT_CONFIGURED");
@@ -460,7 +461,7 @@ function tripEvolutionBreaker(db:AppDatabase,config:Config,until:string){
   db.prepare("INSERT OR IGNORE INTO evolution_attempt_state(identity,first_seen_at,next_attempt_at) VALUES(?,?,?)").run(identity,stamp,stamp);
   db.prepare("UPDATE evolution_attempt_state SET breaker_until=MAX(COALESCE(breaker_until,''),?) WHERE identity=?").run(until,identity);
 }
-function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;recipient:string},group:boolean,at:Date){
+function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;recipient:string;event?:string},group:boolean,at:Date){
   const identity=evolutionIdentity(config),stamp=at.toISOString();
   // AUDITORIA / Teo A1: silencio noturno TAMBEM nos grupos. Envio em grupo de
   // madrugada e a assinatura que mais vira ban no numero nao-oficial. Mensagem de
@@ -492,6 +493,22 @@ function reserveEvolutionAttempt(db:AppDatabase,config:Config,job:{id:string;rec
   // comportamento mais seguro que existe no WhatsApp — nunca pode ser bloqueado.
   if(group && (counts.groupSent>=groupCap || counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup))
     return {allowed:false,nextAt:nextEvolutionBusinessDay(at),reason:counts.groupTotal>=DEFAULT_CADENCE.dailyCapPerGroup?"EVOLUTION_GROUP_DAILY_CAP":"EVOLUTION_WARMUP_DAILY_CAP"};
+  // Keep greeting capacity inside the SAME hard caps; uploads must not consume
+  // the last slots before all linked groups receive their morning/night cycle.
+  if(group&&!['GOOD_MORNING','GOOD_NIGHT'].includes(job.event??'')){
+    const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Bahia',hour:'2-digit',hourCycle:'h23'}).format(at));
+    const events=([['GOOD_MORNING',12],['GOOD_NIGHT',23]] as const).filter(([event,end])=>hour<end&&automationSettings(db,event).enabled).map(([event])=>event);
+    if(events.length){
+      const linked=db.prepare("SELECT DISTINCT whatsapp_group_id AS id FROM groups WHERE enabled=1 AND whatsapp_group_id IS NOT NULL").all() as {id:string}[];
+      let globalReserved=0,groupReserved=0;
+      for(const target of linked)for(const event of events){
+        const attempted=db.prepare("SELECT 1 FROM evolution_delivery_attempts a JOIN whatsapp_outbox o ON o.id=a.outbox_id WHERE a.identity=? AND a.business_day=? AND a.recipient=? AND json_extract(o.payload,'$._event')=? LIMIT 1").get(identity,day,target.id,event);
+        if(!attempted){globalReserved++;if(target.id===job.recipient)groupReserved++;}
+      }
+      if(counts.groupSent>=Math.max(0,groupCap-globalReserved)||counts.groupTotal>=Math.max(0,DEFAULT_CADENCE.dailyCapPerGroup-groupReserved))
+        return {allowed:false as const,nextAt:nextEvolutionBusinessDay(at),reason:'EVOLUTION_GREETING_CAPACITY_RESERVED'};
+    }
+  }
   db.prepare("INSERT INTO evolution_delivery_attempts(id,identity,outbox_id,recipient,is_group,attempted_at,business_day) VALUES(?,?,?,?,?,?,?)").run(randomUUID(),identity,job.id,job.recipient,group?1:0,stamp,day);
   db.prepare("UPDATE evolution_attempt_state SET next_attempt_at=?,breaker_until=NULL WHERE identity=?").run(new Date(at.getTime()+nextSendDelayMs()).toISOString(),identity);
   return {allowed:true,nextAt:stamp,reason:null};
@@ -529,9 +546,14 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
     const job = db.transaction(() => {
       const stamp = now();
       db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error='SERVICE_WINDOW_EXPIRED' WHERE status IN ('PENDING','SENDING') AND expires_at IS NOT NULL AND expires_at <= ?").run(stamp);
-      const row = db.prepare("SELECT * FROM whatsapp_outbox WHERE ((status='PENDING' AND available_at<=?) OR (status='SENDING' AND lease_until<=?)) AND (? OR COALESCE(json_extract(payload,'$._transport'),'META')!='EVOLUTION_GROUP') AND (? OR json_extract(payload,'$._transport')='EVOLUTION_GROUP') ORDER BY created_at,rowid LIMIT 1").get(stamp,stamp,evoOnline?1:0,whatsappConfigured(config)?1:0) as { id: string; recipient: string; payload: string; attempts: number } | undefined;
+      const row = db.prepare("SELECT * FROM whatsapp_outbox WHERE ((status='PENDING' AND available_at<=?) OR (status='SENDING' AND lease_until<=?)) AND (? OR COALESCE(json_extract(payload,'$._transport'),'META')!='EVOLUTION_GROUP') AND (? OR json_extract(payload,'$._transport')='EVOLUTION_GROUP') ORDER BY CASE WHEN json_extract(payload,'$._transport')='EVOLUTION_GROUP' THEN CASE WHEN json_extract(payload,'$._event') IN ('GOOD_MORNING','GOOD_NIGHT') THEN 3 ELSE 4 END WHEN json_extract(payload,'$._deliveryClass')='ENGAGEMENT' THEN 2 WHEN json_extract(payload,'$._deliveryClass')='REWARD' THEN 1 ELSE 0 END,created_at,rowid LIMIT 1").get(stamp,stamp,evoOnline?1:0,whatsappConfigured(config)?1:0) as { id: string; recipient: string; payload: string; attempts: number } | undefined;
       if (row){
         const stored=JSON.parse(row.payload) as Payload;
+        const passwordDelivery=db.prepare("SELECT u.phone FROM bot_password_deliveries d JOIN users u ON u.id=d.user_id WHERE d.outbox_id=?").get(row.id) as {phone:string}|undefined;
+        if(passwordDelivery&&botPhoneAccessBlocked(db,passwordDelivery.phone)){
+          db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error='ACCOUNT_ACCESS_REVOKED',lease_until=NULL WHERE id=?").run(row.id);
+          return {deferred:true as const};
+        }
         const group=stored._transport==="EVOLUTION_GROUP";
         const groupState=group?db.prepare("SELECT enabled FROM groups WHERE whatsapp_group_id=?").get(row.recipient) as {enabled:number}|undefined:undefined;
         if(queuedAutomationDisabled(db,stored)||(groupState&&groupState.enabled!==1)){
@@ -549,7 +571,7 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
             db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error='SENDER_IDENTITY_CHANGED',lease_until=NULL WHERE id=?").run(row.id);
             return {deferred:true as const};
           }
-          const gate=reserveEvolutionAttempt(db,config,row,stored._transport==="EVOLUTION_GROUP",new Date(stamp));
+          const gate=reserveEvolutionAttempt(db,config,{...row,event:typeof stored._event==="string"?stored._event:undefined},stored._transport==="EVOLUTION_GROUP",new Date(stamp));
           if(!gate.allowed){
             db.prepare("UPDATE whatsapp_outbox SET status='PENDING',available_at=?,last_error=?,lease_until=NULL WHERE id=?").run(gate.nextAt,gate.reason,row.id);
             return {deferred:true as const};
@@ -571,7 +593,10 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
       let id:string;
       if(stored._transport==="EVOLUTION_GROUP"){
         if(!groupMode||stored._instance!==config.EVOLUTION_INSTANCE||stored._phone!==config.EVOLUTION_PHONE)throw new Error("SENDER_IDENTITY_CHANGED");
-        id=await evolutionClient(config).sendText(job.recipient,String((stored.text as {body?:string})?.body??""));
+        const original=String((stored.text as {body?:string})?.body??"");
+        const snapshot=stored._queueSnapshot as QueueEventSnapshot|undefined;
+        const body=snapshot?currentQueueEventBody(db,original,snapshot):original;
+        id=await evolutionClient(config).sendText(job.recipient,body);
       }else id = await send(config,job.recipient,{...payload,_transport:stored._transport,_instance:stored._instance,_phone:stored._phone,_phoneNumberId:stored._phoneNumberId});
       db.prepare("UPDATE whatsapp_outbox SET status='SENT',provider_message_id=?,last_error=NULL,lease_until=NULL WHERE id=?").run(id,job.id);
     } catch (cause) {
@@ -610,6 +635,7 @@ export function whatsappStatus(db: AppDatabase, config: Config) {
  * Nao exige vinculo de grupo previo nem aprovacao manual.
  */
 export function ensureSelfServiceAccount(db:AppDatabase,config:Config,phone:string,name:string):{userId:string;created:boolean;passwordSent:boolean}{
+  if(botPhoneAccessBlocked(db,phone))throw Object.assign(new Error("Acesso pausado pela administração."),{statusCode:403,code:"ACCOUNT_ACCESS_REVOKED"});
   const stamp=now();
   let user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
   let created=false;
@@ -732,6 +758,10 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                 : "Este número é o atendimento humano configurado. Os chamados recebidos trazem instruções para RESPONDER e ENCERRAR."}},`${msg.id}:human`,expires,runtimeConfig);
               continue;
             }
+            if(botPhoneAccessBlocked(db,msg.from)){
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:"Seu acesso foi pausado pela administração. Sua conta e seu histórico continuam preservados. O bot não pode liberar o acesso nem gerar outra senha. Se quiser falar com a equipe, escreva Tenho dúvidas."}},`${msg.id}:access-blocked`,expires,runtimeConfig);
+              continue;
+            }
             // A historical declined conversation is not an account lock: commands,
             // password recovery and human support must remain reachable.
             if(!featureEnabled(db,"SUPPORT_CHAT"))continue;
@@ -815,6 +845,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                   ? `Oi de novo, ${text}! 😊 Você já tem conta aqui — é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e sua senha. Esqueceu a senha? Responda *3* que eu providencio uma nova. 💛`
                   : `Oi, ${text}! Sua conta já existe e estou preparando sua senha — ela chega aqui em instantes. Depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`}},`${msg.id}:ja-cadastrado`,expires,runtimeConfig);
                 if (!temSenha) ensureBotPassword(db,runtimeConfig,jaTemConta.id,true);
+                if(!hasActiveMembership)enqueueGroupJoin(db,msg.from,text);
                 continue;
               }
               let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
@@ -828,13 +859,9 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                     .run(stamp,stamp,existing.id);
                   responseBody = `Olá, ${text}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
                 } else {
-                  // AUDITORIA / CADASTRO AUTOMATICO — o fluxo que o dono desenhou:
-                  //   bot cria a conta -> manda a SENHA -> a pessoa ENTRA NO SITE com
-                  //   ela (isso E a validacao, melhor que aprovacao manual) -> so entao
-                  //   o bot a adiciona num grupo com vaga (SOS Youtuber 1, 2, 3...).
-                  // Entrar no grupo exige ter provado posse do numero logando, entao
-                  // ninguem e jogado em grupo por engano. O Owner deixa de ser etapa
-                  // obrigatoria: e acionado so quando a automacao falha de verdade.
+                  // The inbound WhatsApp number is already proved by transport.
+                  // After a valid name, queue real group admission immediately;
+                  // only confirmed external presence grants membership access.
                   const id = existing?.id ?? randomUUID();
                   db.prepare(`INSERT INTO participation_requests (id,phone,name,status,source,whatsapp_verified_at,approved_at,duplicate_attempts,created_at,updated_at)
                     VALUES (?,?,?,'APPROVED','WHATSAPP',?,?,0,?,?)
@@ -844,8 +871,9 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                       duplicate_attempts=0,updated_at=excluded.updated_at`)
                     .run(id,msg.from,text,stamp,stamp,stamp,stamp);
                   const conta=ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
+                  enqueueGroupJoin(db,msg.from,text);
                   responseBody = conta.passwordSent
-                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui nesta conversa.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Assim que você entrar, eu já te coloco num grupo do SOS YOUTUBER com vaga. 💛`
+                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui nesta conversa.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Já encaminhei sua entrada em um grupo SOS YOUTUBER com vaga. Se a privacidade do WhatsApp impedir a inclusão, envio um convite por aqui. O acesso às filas é liberado após confirmar sua presença. 💛`
                     : `Pronto, ${text}! 🎉 Criei sua conta. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
                   // Owner INFORMADO, nunca bloqueando: ele acompanha e pode intervir.
                   queueOwnerAlerts(db,runtimeConfig,id,msg.from,text,msg.id);
@@ -871,7 +899,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires,runtimeConfig);
-              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Entre no aplicativo com este WhatsApp e a senha enviada pelo bot. O grupo é reconhecido automaticamente; se você ainda não estiver em um, sua entrada será encaminhada após o login."}},`${msg.id}:project-info`,expires,runtimeConfig);
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:"Enquanto isso: o SOS YouTube organiza contribuições em Filas de 10 links. Entre no aplicativo com este WhatsApp e a senha enviada pelo bot. O grupo é reconhecido automaticamente; se você ainda não estiver em um, sua entrada já foi encaminhada. Se não for possível adicionar automaticamente, você receberá um convite por aqui."}},`${msg.id}:project-info`,expires,runtimeConfig);
             } else if (conversation?.stage === "WAITING_NAME" && intent === "UNKNOWN") {
               // Nome com link, vazio ou longo demais caia num else-if mudo: a pessoa
               // nao sabia que errou nem como consertar. Agora explicamos com carinho

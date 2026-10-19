@@ -4,6 +4,7 @@
 // do WhatsApp. Renderiza o texto da automação (com variantes, se o Owner não
 // customizou) e enfileira para o(s) grupo(s)-alvo via queueGroupAutomation, que passa
 // pelo flushWhatsAppOutbox com cadência/warmup. Respeita enabled e canal do catálogo.
+import {captureQueueEvent} from "./bot-queue-snapshot.js";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { renderAutomation, targetGroups, type AutomationContext } from "./bot-dispatch.js";
@@ -33,20 +34,21 @@ export function announceToGroups(
   const rendered = renderAutomation(db, event, vars);
   if ("skipped" in rendered) return { queued: 0, skipped: rendered.skipped };
   if (rendered.channel !== "EVOLUTION") return { queued: 0, skipped: "not-group-channel" };
-  const groups = targetGroups(db, rendered.target as "GROUP" | "ALL_GROUPS", opts.ctx ?? {});
+  const groups = targetGroups(db, ["GOOD_MORNING","GOOD_NIGHT"].includes(event)?"ALL_GROUPS":rendered.target as "GROUP" | "ALL_GROUPS", opts.ctx ?? {});
   // AUDITORIA / Teo M1: anuncio de evento tem validade (padrao 12h). Se o backlog de
   // warmup/silencio adiar alem disso, descarta em vez de postar "fulano fez upload" de
   // um video velho. 0 = sem validade.
   const minutes = opts.expiresMinutes ?? 720;
   const at=opts.now ?? new Date();
   const delays=spreadFanOut(groups.length);
+  const queueSnapshot=captureQueueEvent(db,event,opts.dedupeKey,vars,at.toISOString());
   const expiresAt = minutes > 0 ? new Date(at.getTime() + minutes * 60_000).toISOString() : undefined;
   let queued = 0;
   for (const [index,group] of groups.entries()) {
     const result = queueGroupAutomation(
       db, config, group.groupId, rendered.text,
       `${event}:${group.groupId}:${opts.dedupeKey}`,
-      { event, deliveryClass: rendered.deliveryClass==="QUEUE" ? "QUEUE" : "ENGAGEMENT", availableAt:new Date(at.getTime()+(delays[index]??0)).toISOString(), expiresAt },
+      { event, queueSnapshot, deliveryClass: rendered.deliveryClass==="QUEUE" ? "QUEUE" : "ENGAGEMENT", availableAt:new Date(at.getTime()+(delays[index]??0)).toISOString(), expiresAt },
     );
     if (result.queued) queued += 1;
   }

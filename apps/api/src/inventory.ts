@@ -1,3 +1,4 @@
+import { assertSocialInteractionAllowed } from "./social-blocks.js";
 // AUDITORIA / inventário: itens do usuário. Base do item "Pular" e dos presentes
 // entre participantes. Toda mudança passa por item_grants (trilha auditável e
 // idempotente por reference_id — mesmo princípio do wallet_ledger, que o motor
@@ -88,6 +89,7 @@ export function giftItem(db: AppDatabase, fromUserId: string, toUserId: string, 
       if(previous.itemCode!==itemCode||previous.delta!==-quantity||!previous.note.endsWith("para "+toUserId)) throw err(409,"Este presente já foi registrado com outros dados.");
       return {reference,itemCode,quantity};
     }
+    assertSocialInteractionAllowed(db,fromUserId,toUserId);
     if(!unlimited) grantItem(db, { userId: fromUserId, itemCode, delta: -quantity, kind: "GIFT_OUT", referenceId: reference, note: `Presente para ${toUserId}` });
     if(unlimited) db.prepare("INSERT INTO item_grants (id,user_id,item_code,delta,kind,reference_id,note,created_at) VALUES (?,?,?,?,?,?,?,?)").run(randomUUID(),fromUserId,itemCode,-quantity,"GIFT_OUT",reference,"Presente ROOT_OWNER para "+toUserId,new Date().toISOString());
     grantItem(db, { userId: toUserId, itemCode, delta: quantity, kind: "GIFT_IN", referenceId: reference, note: `Presente de ${fromUserId}` });

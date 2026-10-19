@@ -42,6 +42,15 @@ describe("disparo das diárias", () => {
     expect(rows.every((x) => x.payload.includes("Bom dia") || x.payload.toLowerCase().includes("dia"))).toBe(true);
   });
 
+  it("the same daily cycle reaches every existing group1through4 once",()=>{
+    db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id) VALUES('3',1,'333@g.us'),('4',1,'444@g.us')").run();
+    saveAutomationSettings(db,"GOOD_MORNING",{target:"GROUP"},{id:"root",name:"Root"});
+    expect(runDailyAutomations(db,config,MORNING).queued).toEqual([{event:"GOOD_MORNING",groups:4}]);
+    runDailyAutomations(db,config,MORNING);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:4});
+    expect(db.prepare("SELECT COUNT(DISTINCT recipient) AS n FROM whatsapp_outbox").get()).toEqual({n:4});
+  });
+
   it("às 21h enfileira Boa noite", () => {
     const r = runDailyAutomations(db, config, NIGHT);
     expect(r.queued).toEqual([{ event: "GOOD_NIGHT", groups: 2 }]);

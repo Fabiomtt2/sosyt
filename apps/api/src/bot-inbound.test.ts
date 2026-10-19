@@ -198,3 +198,13 @@ describe("número do menu só vale como mensagem inteira (bug: cadastro sem esco
     expect(classifyInbound("5")).toBe("HELP");
   });
 });
+
+describe("pedidos humanos em linguagem cotidiana",()=>{
+ it.each(['TENHO DÚVIDAS','tenho duvidas','Tenho 1 dúvida sobre a senha','preciso de suporte','quero falar com o suporte','falar com a equipe','falar com um admin','falar com Rafael','falar com Fábio','atendimento pessoal'])("encaminha %s mesmo aguardando nome",(text)=>{
+   expect(classifyInbound(text,{awaitingName:true})).toBe('HUMAN');
+ });
+ it("mantém dúvidas genéricas no menu automatizado",()=>{
+   expect(classifyInbound('como funciona a fila')).toBe('QUEUE_INFO');
+   expect(classifyInbound('preciso de ajuda')).toBe('HELP');
+ });
+});

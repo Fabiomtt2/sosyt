@@ -211,8 +211,10 @@ export async function createPrivatePlaylist(
   title: string,
   videoIds: string[],
   existing?: { playlistId?: string; addedCount: number; exportId?: string },
-  onProgress?: (playlistId: string, addedCount: number) => void
+  onProgress?: (playlistId: string, addedCount: number) => void,
+  beforeRequest?: () => void
 ): Promise<string> {
+  beforeRequest?.();
   const token = await accessToken(config, refreshToken);
   let playlistId = existing?.playlistId;
   const marker = existing?.exportId ? `Referência Conexão: ${existing.exportId}` : undefined;
@@ -222,6 +224,7 @@ export async function createPrivatePlaylist(
     for (let page = 0; page < 10; page += 1) {
       const params = new URLSearchParams({ part: "snippet", mine: "true", maxResults: "50" });
       if (pageToken) params.set("pageToken", pageToken);
+      beforeRequest?.();
       const result = await youtubeGet<{ items?: Array<{ id: string; snippet?: { description?: string } }>; nextPageToken?: string }>(`playlists?${params}`, token);
       const found = result.items?.find((item) => item.snippet?.description?.split("\n").includes(marker));
       if (found) { playlistId = found.id; break; }
@@ -233,6 +236,7 @@ export async function createPrivatePlaylist(
   let addedCount = 0;
   if (playlistId) {
     const params = new URLSearchParams({ part: "snippet", playlistId, maxResults: "50" });
+    beforeRequest?.();
     const result = await youtubeGet<{ items?: Array<{ snippet?: { position?: number; resourceId?: { videoId?: string } } }>; nextPageToken?: string }>(`playlistItems?${params}`, token);
     const items = [...(result.items ?? [])].sort((a, b) => (a.snippet?.position ?? 0) - (b.snippet?.position ?? 0));
     if (result.nextPageToken || items.length > videoIds.length || items.some((item, index) => item.snippet?.resourceId?.videoId !== videoIds[index])) {
@@ -241,6 +245,7 @@ export async function createPrivatePlaylist(
     addedCount = items.length;
     onProgress?.(playlistId, addedCount);
   } else {
+    beforeRequest?.();
     const playlist = await youtubeRequest<{ id: string }>("playlists?part=snippet,status", token, {
       snippet: { title, description: ["Curadoria colaborativa criada pelo Conexão Youtube.", marker].filter(Boolean).join("\n") },
       status: { privacyStatus: "private" }
@@ -249,10 +254,12 @@ export async function createPrivatePlaylist(
     onProgress?.(playlistId, 0);
   }
   for (let index = addedCount; index < videoIds.length; index += 1) {
+    beforeRequest?.();
     await youtubeRequest("playlistItems?part=snippet", token, {
       snippet: { playlistId, position: index, resourceId: { kind: "youtube#video", videoId: videoIds[index] } }
     });
     onProgress?.(playlistId, index + 1);
   }
+  beforeRequest?.();
   return playlistId;
 }

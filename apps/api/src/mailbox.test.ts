@@ -1,3 +1,4 @@
+import { requestDirectConversation,respondDirectConversation } from "./social.js";
 // AUDITORIA / correio interno: DMs, avisos globais do Owner e moderação.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -34,6 +35,7 @@ describe("correio interno", () => {
 
   it("DM chega na caixa do destinatário com identidade e conta como não-lido", async () => {
     const a = await register("71990000001", "Ana"); const b = await register("71990000002", "Bia");
+    const consent=requestDirectConversation(db,a.id,b.id);respondDirectConversation(db,b.id,requestId(consent),true);
     const sent = await app.inject({ method: "POST", url: "/mail/dm", headers: auth(a.token), payload: { toUserId: b.id, body: "Oi Bia!" } });
     expect(sent.statusCode).toBe(200);
     const inbox = await app.inject({ method: "GET", url: "/mail/inbox", headers: auth(b.token) });
@@ -44,6 +46,7 @@ describe("correio interno", () => {
 
   it("abrir o thread marca como lido e mostra as duas pontas em ordem", async () => {
     const a = await register("71990000003", "Ana"); const b = await register("71990000004", "Bia");
+    const consent=requestDirectConversation(db,a.id,b.id);respondDirectConversation(db,b.id,requestId(consent),true);
     await app.inject({ method: "POST", url: "/mail/dm", headers: auth(a.token), payload: { toUserId: b.id, body: "1" } });
     await app.inject({ method: "POST", url: "/mail/dm", headers: auth(b.token), payload: { toUserId: a.id, body: "2" } });
     const thread = await app.inject({ method: "GET", url: `/mail/thread/${a.id}`, headers: auth(b.token) });
@@ -75,6 +78,7 @@ describe("correio interno", () => {
 
   it("Owner modera: lista e remove (soft) uma mensagem", async () => {
     const a = await register("71990000009", "Ana"); const b = await register("71990000010", "Bia");
+    const consent=requestDirectConversation(db,a.id,b.id);respondDirectConversation(db,b.id,requestId(consent),true);
     const sent = await app.inject({ method: "POST", url: "/mail/dm", headers: auth(a.token), payload: { toUserId: b.id, body: "indevida" } });
     const token = await ownerToken();
     const listed = await app.inject({ method: "GET", url: "/admin/mail", headers: auth(token) });
@@ -85,3 +89,9 @@ describe("correio interno", () => {
     expect((await app.inject({ method: "GET", url: "/mail/inbox", headers: auth(b.token) })).json().unread).toBe(0);
   });
 });
+
+function requestId(request:{id?:string}):string {
+  expect(typeof request.id).toBe("string");
+  if(typeof request.id!=="string")throw new Error("Fixture expected a persisted conversation request");
+  return request.id;
+}

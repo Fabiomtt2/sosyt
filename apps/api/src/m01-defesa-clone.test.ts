@@ -16,6 +16,7 @@ import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { encryptToken } from "./youtube.js";
 import { normalizePhone } from "./phone.js";
+import { joinRound } from "./queues.js";
 
 describe("DEFESA M-01: a rota legada do clone NAO premia nem finaliza por numeros do cliente", () => {
   let db: AppDatabase; let app: Awaited<ReturnType<typeof buildApp>>; let config: Config;
@@ -58,6 +59,7 @@ describe("DEFESA M-01: a rota legada do clone NAO premia nem finaliza por numero
   /** Deixa uma fila pronta (READY) com export de playlist com sucesso para o usuario. */
   function filaProntaComPlaylist(userId: string) {
     const row = db.prepare("SELECT id FROM rounds WHERE status = 'OPEN'").get() as { id: string };
+    joinRound(db,row.id,userId,"FREE");
     for (let slot = 1; slot <= 10; slot++) {
       db.prepare("INSERT INTO submissions (id,round_id,slot,user_id,youtube_url,video_id,created_at) VALUES (?,?,?,?,?,?,?)")
         .run(randomUUID(), row.id, slot, userId, `https://youtu.be/vid${String(slot).padStart(8, "0")}`, `vid${String(slot).padStart(8, "0")}`, new Date().toISOString());

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
@@ -105,7 +105,7 @@ describe("Owner e acesso por grupo", () => {
     expect(overview.json().owner).toMatchObject({name:"Fábio",role:"ROOT_OWNER",permissions:{canConfigure:true,canManageOwners:true}});
   });
 
-  it("Administrador delegado vem de usuário Fabio/Fábio/Rafael verificado e não recebe configurações sensíveis", async () => {
+  it("Administrador delegado vem de participante verificado e não recebe configurações sensíveis", async () => {
     const adminPhone="5571999999014";
     await approve(adminPhone,"1","Rafael");
     const participantLogin=await app.inject({
@@ -128,7 +128,12 @@ describe("Owner e acesso por grupo", () => {
     db.prepare("UPDATE users SET cooldown_until=?,cooldown_reason=? WHERE id=?")
       .run(new Date(Date.now()+120*60_000).toISOString(),"Teste de retorno ao painel",adminUserId);
     expect((await app.inject({method:"GET",url:"/dashboard",headers:authorization(participantToken)})).statusCode).toBe(200);
-    expect((await app.inject({method:"POST",url:"/rounds/current/submissions",headers:authorization(participantToken),payload:{url:"https://youtu.be/abcdefghijk"}})).statusCode).toBe(423);
+    const external=vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response(JSON.stringify({title:"Vídeo sintético",author_name:"Canal sintético"}),{status:200,headers:{"content-type":"application/json"}}));
+    try {
+      const blocked=await app.inject({method:"POST",url:"/rounds/current/submissions",headers:authorization(participantToken),payload:{url:"https://youtu.be/abcdefghijk"}});
+      expect(blocked.statusCode,blocked.body).toBe(423);
+      expect(db.prepare("SELECT 1 FROM submissions WHERE user_id=?").get(adminUserId)).toBeUndefined();
+    } finally { external.mockRestore(); }
 
     const elevated=await app.inject({method:"POST",url:"/admin/elevate",headers:authorization(participantToken)});
     expect(elevated.statusCode).toBe(200);
@@ -161,11 +166,12 @@ describe("Owner e acesso por grupo", () => {
       payload:{name:"Pessoa",phone:otherPhone,groupCode:"1"}
     });
     expect(otherLogin.statusCode).toBe(200);
-    const forbiddenPromotion=await app.inject({
+    const participantPromotion=await app.inject({
       method:"POST",url:"/admin/owners",headers:authorization(ownerToken),
       payload:{userId:otherLogin.json().user.id}
     });
-    expect(forbiddenPromotion.statusCode).toBe(403);
+    expect(participantPromotion.statusCode).toBe(200);
+    expect(participantPromotion.json()).toMatchObject({name:"Pessoa",role:"ADMIN_OWNER",userId:otherLogin.json().user.id});
 
     const team=await app.inject({method:"GET",url:"/admin/owners",headers:authorization(ownerToken)});
     expect(team.statusCode).toBe(200);

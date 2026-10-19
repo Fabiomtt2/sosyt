@@ -44,15 +44,18 @@ describe("multi-fila", () => {
     expect(r3.sequence).toBe(3);
   });
 
-  it("caso (C): encerra a 1 (unica OPEN) -> nova nasce como 1 e a 2 continua 2", () => {
+  it("caso (C): encerra a 1 -> antiga 3 ocupa 1, 2 continua e nova OPEN ocupa 3", () => {
     openRound(db); openRound(db);                        // 1(OPEN),2,3
     db.prepare("UPDATE rounds SET status='READY' WHERE display_number IN (2,3)").run();
     const r1 = activeRounds(db).find((r) => r.displayNumber === 1)!;
     closeRound(db, r1.id);                               // sem OPEN -> cria nova no menor livre (1)
     expect(numbers()).toEqual([1, 2, 3]);
     const novaUm = activeRounds(db).find((r) => r.displayNumber === 1)!;
-    expect(novaUm.status).toBe("OPEN");
-    expect(novaUm.sequence).toBeGreaterThan(3);          // e mesmo a fila nova
+    expect(novaUm.status).toBe("READY");
+    expect(novaUm.sequence).toBe(3);
+    const novaTres=activeRounds(db).find(r=>r.displayNumber===3)!;
+    expect(novaTres.status).toBe("OPEN");
+    expect(novaTres.sequence).toBeGreaterThan(3);          // e mesmo a fila nova
     const dois = activeRounds(db).find((r) => r.displayNumber === 2)!;
     expect(dois.sequence).toBe(2);                       // a 2 MANTEVE o numero
   });

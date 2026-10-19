@@ -1,3 +1,4 @@
+import { assertParticipantAccess } from "./participant-access.js";
 import { ensureBotPassword } from "./bot-password.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
@@ -101,7 +102,8 @@ export function registerGoogleLogin(app:FastifyInstance,db:AppDatabase,config:Co
     const user=db.prepare("SELECT u.id,u.group_code AS groupCode,u.cooldown_until AS cooldownUntil FROM users u JOIN google_identities g ON g.user_id=u.id WHERE g.google_sub=? AND u.phone=? AND u.deleted_at IS NULL")
       .get(row.google_sub,row.phone) as {id:string;groupCode:string;cooldownUntil?:string}|undefined;
     if(!user||!hasMembership(db,row.phone,user.groupCode))return reply.code(403).send({message:"Sua identidade foi confirmada, mas o acesso ao grupo precisa da aprovação do Owner."});
-    if(user.cooldownUntil&&Date.parse(user.cooldownUntil)>Date.now())return reply.code(423).send({code:"COOLDOWN_ACTIVE",cooldownUntil:user.cooldownUntil,message:"Seu intervalo após concluir a fila ainda está em andamento."});
+
+    assertParticipantAccess(db,user.id);
     try{syncConfiguredRootOwners(db,config);ensureBotPassword(db,config,user.id,true);}catch(error){app.log.error(error,"Bot password preparation failed");}
     return {token:app.jwt.sign({sub:user.id,purpose:"session",aud:"conexao-session",authMethod:"google",authPhone:row.phone,googleSubject:row.google_sub})};
   });

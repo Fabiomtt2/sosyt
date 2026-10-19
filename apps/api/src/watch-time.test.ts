@@ -5,6 +5,7 @@ import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { encryptToken } from "./youtube.js";
 import { normalizePhone } from "./phone.js";
+import { joinRound } from "./queues.js";
 
 describe("tempo verificado de acompanhamento",()=>{
   let db:AppDatabase;
@@ -40,6 +41,7 @@ describe("tempo verificado de acompanhamento",()=>{
   async function readyRound(userId:string,durationSeconds=100){
     const round=db.prepare("SELECT id FROM rounds WHERE status='OPEN'").get() as {id:string};
     const stamp=new Date().toISOString();
+    joinRound(db,round.id,userId,"FREE");
     for(let slot=1;slot<=10;slot++) db.prepare(
       "INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES (?,?,?,?,?,?,?,?)"
     ).run(randomUUID(),round.id,slot,userId,`https://youtu.be/time${String(slot).padStart(7,"0")}`,`time${String(slot).padStart(7,"0")}`,stamp,durationSeconds);

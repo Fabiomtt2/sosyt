@@ -1,3 +1,4 @@
+import { isParticipantBlocked, setParticipantAccess } from "./participant-access.js";
 import { humanSupportNumber } from "./bot-human-handoff.js";
 import { openHumanRelay } from "./bot-human-relay.js";
 import { readSupportAvailability, saveSupportAvailability } from "./support-availability.js";
@@ -21,12 +22,12 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
 import type { AppDatabase } from "./db.js";
-import { effectiveOwnerAccounts, ownerPhoneKey, administrativeSessionValid, dynamicOwnerVersion, eligibleAdminName, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
+import { effectiveOwnerAccounts, ownerPhoneKey, administrativeSessionValid, dynamicOwnerVersion, normalizeOwnerName, ownerAccounts, ownerNameMatches, ownerCredentialVersion, type OwnerRole } from "./owners.js";
 import { publicWhatsAppNumber, whatsappJoinUrl, whatsappStatus, whatsappRuntimeStatus, queueOwnerAlerts, queueParticipationDecision } from "./whatsapp.js";
 import { normalizePhone } from "./phone.js";
 import { effectiveWhatsAppConfig, effectivePaymentConfig, generateAndSaveVerifyToken, gitVersionInfo, readYouTubeIntegration, saveYouTubeIntegration, readPaymentIntegration, readWhatsAppIntegration, savePaymentIntegration, saveWhatsAppIntegration, validateMetaWhatsApp } from "./integrations.js";
 import { ensureAsaasWebhook } from "./payments.js";
-import { groupVerificationState, materializeApprovedMembership } from "./group-verification.js";
+import { groupVerificationState, materializeApprovedMembership, verifiedGroupCodes } from "./group-verification.js";
 import { AUTOMATION_CATALOG, automationsByCategory } from "./bot-automations.js";
 import { importAvatarLibrary } from "./avatar-library-import.js";
 import { createPasswordReset, markResetDelivered, passwordResetHistory, passwordResetStatus, resetMessage } from "./password-reset.js";
@@ -166,7 +167,7 @@ export async function registerOwnerRoutes(
       WHERE oa.id=? AND oa.active=1 AND u.deleted_at IS NULL`).get(id) as
       | {id:string;userId:string;phone:string;normalizedName:string;role:OwnerRole;active:number;updatedAt:string;name:string}
       | undefined;
-    if (!row || request.user.jti!==dynamicOwnerVersion(row.id,row.userId,row.role,row.updatedAt)) return undefined;
+    if (!row || isParticipantBlocked(db,row.userId) || request.user.jti!==dynamicOwnerVersion(row.id,row.userId,row.role,row.updatedAt)) return undefined;
     return {id:row.id,name:row.name,canonicalName:row.name,phone:row.phone,role:row.role,userId:row.userId,dynamic:true};
   }
 
@@ -416,8 +417,8 @@ export async function registerOwnerRoutes(
         approved_at AS approvedAt,approved_by_owner_id AS approvedByOwnerId,approved_by_owner_name AS approvedByOwnerName,
         created_at AS createdAt,updated_at AS updatedAt
         FROM participation_requests ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END,updated_at DESC LIMIT 200`).all(),
-      users: db.prepare(`SELECT COALESCE(u.id,pr.id,gm.phone) AS id,u.id AS userId,COALESCE(u.name,pr.name,'Participante') AS name,gm.phone,
-        gm.group_code AS groupCode,COALESCE(u.created_at,pr.created_at,gm.approved_at) AS createdAt,u.last_seen_at AS lastSeenAt,
+      users: db.prepare(`SELECT COALESCE(u.id,pr.id,gm.phone) AS id,u.id AS userId,COALESCE(u.name,pr.name,'Participante') AS name,COALESCE(gm.phone,u.phone) AS phone,
+        COALESCE(gm.group_code,u.group_code) AS groupCode,COALESCE(u.created_at,pr.created_at,gm.approved_at) AS createdAt,u.last_seen_at AS lastSeenAt,
         u.cooldown_until AS cooldownUntil,u.cooldown_reason AS cooldownReason,u.deleted_at AS deletedAt,
         COALESCE(w.promo_millis,0)+COALESCE(w.reward_millis,0)+COALESCE(w.purchased_millis,0) AS balanceMillis,
         COALESCE(w.promo_millis,0) AS promoMillis,COALESCE(w.purchased_millis,0) AS purchasedMillis,COALESCE(w.reward_millis,0) AS rewardMillis,
@@ -425,12 +426,11 @@ export async function registerOwnerRoutes(
         gm.approved_at AS approvedAt,gm.approved_by_owner_id AS approvedByOwnerId,gm.approved_by_owner_name AS approvedByOwnerName,
         gm.revoked_at AS revokedAt,gm.source,pr.status AS requestStatus,pr.source AS requestSource,
         y.channel_id AS youtubeChannelId,y.channel_title AS youtubeChannelTitle,y.channel_thumbnail_url AS youtubeChannelThumbnailUrl
-        FROM group_memberships gm
-        LEFT JOIN users u ON u.phone=gm.phone
+        FROM users u FULL OUTER JOIN group_memberships gm ON u.phone=gm.phone
         LEFT JOIN wallets w ON w.user_id=u.id
         LEFT JOIN youtube_connections y ON y.user_id=u.id
         LEFT JOIN participation_requests pr ON pr.phone=gm.phone
-        ORDER BY gm.approved_at DESC LIMIT 200`).all(),
+        ORDER BY gm.approved_at DESC LIMIT 200`).all().map(row=>({...row as Record<string,unknown>,groupCodes:verifiedGroupCodes(db,String((row as {phone:string}).phone))})),
       members: db.prepare("SELECT phone, group_code AS groupCode, approved_at AS approvedAt, approved_by_owner_id AS approvedByOwnerId, approved_by_owner_name AS approvedByOwnerName, revoked_at AS revokedAt, source FROM group_memberships ORDER BY approved_at DESC LIMIT 200").all(),
       purchases: root ? db.prepare(`SELECT p.id,p.user_id AS userId,u.name,u.phone,u.deleted_at AS userDeletedAt,p.product_code AS productCode,
         p.provider,p.status,p.amount_cents AS amountCents,p.credits_millis AS creditsMillis,p.extra_passes AS extraPasses,
@@ -801,6 +801,7 @@ export async function registerOwnerRoutes(
         phone,
         groupCode: effectiveGroup,
         userId: user?.id,
+        accessBlocked:user ? isParticipantBlocked(db,user.id) : false,
         createdAt: user?.createdAt ?? (participantRequest as { createdAt?:string } | undefined)?.createdAt,
         lastSeenAt: user?.lastSeenAt,
         cooldownUntil: user?.cooldownUntil,
@@ -884,7 +885,7 @@ export async function registerOwnerRoutes(
 
   app.post("/admin/participants/:phone/action", { preHandler: ownerGuard }, async (request, reply) => {
     const phone = phoneSchema.parse((request.params as { phone: string }).phone);
-    const { action } = z.object({ action:z.enum(["REVOKE","RESTORE","CLEAR_COOLDOWN","REVIEW_ON","REVIEW_OFF"]) }).parse(request.body);
+    const { action,reason } = z.object({ action:z.enum(["REVOKE","RESTORE","CLEAR_COOLDOWN","REVIEW_ON","REVIEW_OFF"]),reason:z.string().trim().min(5).max(240).optional() }).parse(request.body);
     const membership = db.prepare("SELECT group_code AS groupCode FROM group_memberships WHERE phone=?").get(phone) as {groupCode:string}|undefined;
     const user = db.prepare("SELECT id FROM users WHERE phone=?").get(phone) as {id:string}|undefined;
     if (!membership && !user) return reply.code(404).send({ message:"Participante não encontrado." });
@@ -894,11 +895,18 @@ export async function registerOwnerRoutes(
     }
     const approvedBy = { id:account.id,name:request.user.displayName?.trim() || account.name };
     const stamp = new Date().toISOString();
-    if (action === "REVOKE") db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(stamp,phone);
+    const targetRoot=effectiveOwnerAccounts(db,config).some(owner=>owner.phone===phone)||(user&&Boolean(db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role='ROOT_OWNER' AND active=1").get(user.id)));
+    if(targetRoot&&(account.role!=="ROOT_OWNER"||action==="REVOKE"))return reply.code(403).send({message:"O acesso de um Owner principal não pode ser revogado por este controle."});
+    if (action === "REVOKE") db.transaction(()=>{
+      if(user)setParticipantAccess(db,user.id,true,account.id,reason??"Acesso pausado pelo painel administrativo");
+      db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(stamp,phone);
+    })();
     if (action === "RESTORE") {
-      if (!membership) return reply.code(409).send({ message:"Não existe grupo associado para restaurar." });
-      const result=materializeApprovedMembership(db,phone,membership.groupCode,stamp,approvedBy);
-      if (!result.accessGranted) return reply.code(409).send({ message:"A aprovação Owner está registrada, mas a verificação externa exigida pelo grupo ainda não foi concluída.",verification:result.state });
+      if(membership){
+        const result=materializeApprovedMembership(db,phone,membership.groupCode,stamp,approvedBy);
+        if (!result.accessGranted) return reply.code(409).send({ message:"A aprovação Owner está registrada, mas a verificação externa exigida pelo grupo ainda não foi concluída.",verification:result.state });
+      }
+      if(user)setParticipantAccess(db,user.id,false,account.id,reason??"Acesso restaurado pelo painel administrativo");
     }
     if (action === "CLEAR_COOLDOWN") {
       if (!user) return reply.code(409).send({ message:"Este participante ainda não criou uma conta de uso." });
@@ -988,9 +996,15 @@ export async function registerOwnerRoutes(
         : "Aprovação registrada. O acesso será liberado após a verificação necessária do grupo."
     };
   });
-  app.delete("/admin/members/:phone", { preHandler: ownerGuard }, async (request) => {
+  app.delete("/admin/members/:phone", { preHandler: ownerGuard }, async (request,reply) => {
     const phone = phoneSchema.parse((request.params as { phone: string }).phone);
-    db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(new Date().toISOString(),phone);
+    const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
+    if(effectiveOwnerAccounts(db,config).some(owner=>owner.phone===phone)||(user&&db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role='ROOT_OWNER' AND active=1").get(user.id)))return reply.code(403).send({message:"O acesso de um Owner principal não pode ser revogado por este controle."});
+    const account=resolveOwnerContext(request)!;
+    db.transaction(()=>{
+      if(user)setParticipantAccess(db,user.id,true,account.id,"Acesso removido pelo painel de membros");
+      db.prepare("UPDATE group_memberships SET revoked_at=? WHERE phone=?").run(new Date().toISOString(),phone);
+    })();
     return { ok: true };
   });
   // AUDITORIA C-01 / portão híbrido: Owner emite uma credencial de setup para um
@@ -1238,7 +1252,7 @@ export async function registerOwnerRoutes(
       FROM users u JOIN group_memberships gm ON gm.phone=u.phone AND gm.revoked_at IS NULL
       JOIN groups g ON g.code=gm.group_code AND g.enabled=1
       WHERE u.deleted_at IS NULL ORDER BY u.name`).all() as Array<{id:string;name:string;phone:string;groupCode:string}>;
-    const candidates=users.filter((user)=>eligibleAdminName(user.name)&&!dynamicByUser.has(user.id)&&!staticPhones.has(user.phone));
+    const candidates=users.filter((user)=>!dynamicByUser.has(user.id)&&!staticPhones.has(user.phone));
     return {owners:[...staticRows,...dynamicRows.filter(row=>!String(row.createdByOwnerId??"").startsWith("root:"))],candidates};
   });
 
@@ -1249,8 +1263,7 @@ export async function registerOwnerRoutes(
       | undefined;
     if (!user) return reply.code(404).send({message:"Usuário verificado não encontrado."});
     if(effectiveOwnerAccounts(db,config).some(owner=>owner.phone===user.phone)||db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role=\'ROOT_OWNER\' AND active=1").get(user.id))return reply.code(409).send({message:"Owner principal não pode ser rebaixado a administrador."});
-    if (!eligibleAdminName(user.name)) return reply.code(403).send({message:"Somente authids Fabio/Fábio ou Rafael podem receber acesso administrativo."});
-    if (!hasMembership(db,user.phone,user.groupCode)) return reply.code(409).send({message:"Este authid precisa manter um acesso de participante aprovado antes da promoção."});
+    if (isParticipantBlocked(db,user.id)||!hasMembership(db,user.phone,user.groupCode)) return reply.code(409).send({message:"Este participante precisa manter um acesso ativo e aprovado antes da promoção."});
     const actor=resolveOwnerContext(request)!;
     const now=new Date().toISOString();
     const existing=db.prepare("SELECT id,created_at AS createdAt FROM owner_access WHERE user_id=? OR phone=? LIMIT 1").get(user.id,user.phone) as {id:string;createdAt:string}|undefined;

@@ -1,9 +1,15 @@
+import { assertParticipantAccess } from "./participant-access.js";
+import { playlistSelection, preparePlaylistSelection } from "./partial-playlist.js";
+import { registerCommunityRoutes } from "./community-routes.js";
+import { giftCoins } from "./coin-transfers.js";
+import { joinNextQueueWithPass, queuePassBalance } from "./pass-queue.js";
+import { hasActiveRoundTask,assertFreeQueueEntryAllowed } from "./active-access.js";
 import { resolveStoredPhone } from "./phone-identity.js";
 import { scheduleBotAutomations, dispatchBotAutomations, recordBotAutomationEvent } from "./bot-automation-runtime.js";
 import { ensureBotPassword, readBotPasswordSettings, saveBotPasswordSettings } from "./bot-password.js";
 import { readGamificationBot, saveGamificationBot, dispatchGamificationEvents } from "./gamification-bot.js";
 import { gamificationData, gamificationRanks, dropLabel } from "./gamification-view.js";
-import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, giftRewardCoins, settleClosedMonths } from "./gamification.js";
+import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, settleClosedMonths } from "./gamification.js";
 import { presentationOf } from "./presentation.js";
 import { paymentReceipt } from "./payment-receipts.js";
 import { watchRewardView,WATCH_REWARD_INTERVAL_MILLIS } from "./watch-rewards.js";
@@ -14,7 +20,7 @@ import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
 import { ownerAccounts,effectiveOwnerAccounts } from "./owners.js";
 import { credentialState, setCredential } from "./admin-credentials.js";
-import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed } from "./queues.js";
+import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, leaveRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed, activeRounds, applyAbandonmentCooldown, resumeRound, expireRounds, QUEUE_LIFETIME_MS } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP, ROOT_ITEM_QUANTITY } from "./inventory.js";
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
 import { ensureBuiltinAvatars } from "./avatar-builtin-seed.js";
@@ -38,7 +44,7 @@ import { emblemCatalog, emblemImage } from "./level-emblems.js";
 import { enqueueGroupJoin } from "./bot-group-join.js";
 import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
-import { groupVerificationState } from "./group-verification.js";
+import { groupVerificationState, verifiedGroupCodes } from "./group-verification.js";
 import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
 import { effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, initializeWhatsAppIntegration } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
@@ -187,7 +193,7 @@ function getUser(db: AppDatabase, userId: string) {
     WHERE u.id=? AND u.deleted_at IS NULL`).get(userId) as Row | undefined;
   if (!row) return undefined;
   return {
-    id:row.id,name:row.name,phone:row.phone,groupCode:row.groupCode,
+    id:row.id,name:row.name,phone:row.phone,groupCode:row.groupCode,groupCodes:verifiedGroupCodes(db,String(row.phone)),
     avatar:avatarFromRow(db,row), presentation:presentationOf(db,userId),
     youtubeChannel:row.youtubeChannelTitle ? {id:row.youtubeChannelId,title:row.youtubeChannelTitle,thumbnailUrl:row.youtubeChannelThumbnailUrl} : undefined
   };
@@ -274,7 +280,8 @@ function pendingReadyRound(db: AppDatabase, userId: string) {
   return db.prepare(`SELECT r.id, r.sequence FROM rounds r
     JOIN submissions s ON s.round_id = r.id
     LEFT JOIN playlist_watch_progress p ON p.round_id = r.id AND p.user_id = ?
-    WHERE r.status = 'READY' AND s.user_id = ? AND p.finalized_at IS NULL
+    JOIN round_participants rp ON rp.round_id=r.id AND rp.user_id=s.user_id AND rp.left_at IS NULL
+    WHERE r.status = 'READY' AND r.closed_at IS NULL AND s.user_id = ? AND p.finalized_at IS NULL
     ORDER BY r.sequence ASC LIMIT 1`).get(userId, userId) as { id: string; sequence: number } | undefined;
 }
 
@@ -290,9 +297,10 @@ function finalizeRoundTask(db: AppDatabase, userId: string, roundId: string, rea
   const finalizedAt = stamp.toISOString();
   db.prepare("UPDATE playlist_watch_progress SET finalized_at=?, finalize_reason=? WHERE round_id=? AND user_id=?")
     .run(finalizedAt,reason,roundId,userId);
+  closeRoundIfFullyConsumed(db,roundId);
   if (reason==="ABANDONED") {
-    db.prepare("UPDATE users SET cooldown_until=NULL,cooldown_reason=NULL,updated_at=? WHERE id=?").run(finalizedAt,userId);
-    return { finalizedAt, percent: current.percent, abandoned:true as const };
+    applyAbandonmentCooldown(db,userId);
+    return { finalizedAt, percent: current.percent, abandoned:true as const,...cooldownState(db,userId) };
   }
   const cooldownUntil = new Date(stamp.getTime()+30*60_000).toISOString();
   db.prepare("UPDATE users SET cooldown_until=?, cooldown_reason=?, updated_at=? WHERE id=?")
@@ -325,7 +333,7 @@ function roundView(db: AppDatabase, roundId: string, includeAdminPrivate=false) 
     avatar:avatarFromRow(db,item), presentation:presentationOf(db,String(item.userId))
   }));
   const bySlot = new Map(submissions.map((item) => [item.slot, item]));
-  return { ...round, slots: Array.from({ length: 10 }, (_, index) => bySlot.get(index + 1) ?? { slot: index + 1 }) };
+  return { ...round,expiresAt:new Date(Date.parse(String(round.createdAt))+QUEUE_LIFETIME_MS).toISOString(), slots: Array.from({ length: 10 }, (_, index) => bySlot.get(index + 1) ?? { slot: index + 1 }) };
 }
 
 async function backfillActiveSubmissionMetadata(db:AppDatabase,apiKey?:string) {
@@ -425,6 +433,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   function establishUserSession(name: string, phone: string, groupCode: string) {
     const now = new Date().toISOString();
     let user = db.prepare("SELECT id,deleted_at AS deletedAt FROM users WHERE phone = ?").get(phone) as { id: string; deletedAt?:string } | undefined;
+    if(user)assertParticipantAccess(db,user.id);
     db.transaction(() => {
       if (!user) {
         user = { id: randomUUID() };
@@ -456,6 +465,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       if (!proof || request.user.authPhone!==user.phone) return reply.code(401).send({message:"Confirme seu acesso por código WhatsApp ou por uma identidade Google já vinculada."});
       if (proof==="google" && !db.prepare("SELECT 1 FROM google_identities WHERE user_id=? AND google_sub=?").get(request.user.sub,request.user.googleSubject??"")) return reply.code(401).send({message:"A identidade Google mudou. Entre novamente."});
     }
+    if(!request.user.adminRole)assertParticipantAccess(db,request.user.sub);
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(),request.user.sub);
   }
 
@@ -468,12 +478,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     if(membership&&user.groupCode&&membership.groupCode!==user.groupCode)return reply.code(403).send({code:"GROUP_CHANGED",message:"Seu grupo mudou. Entre novamente com a sua senha."});
   }
   async function authGuard(request: FastifyRequest, reply: FastifyReply) {
-    await participantIdentityGuard(request,reply);
+    await accountAccessGuard(request,reply);
     if(reply.sent)return;
     const user=getUser(db,request.user.sub)!;
     const administrativeParticipant=Boolean(request.user.adminRole);
-    const cooldown=cooldownState(db,request.user.sub);
-    if(!administrativeParticipant&&cooldown)return reply.code(423).send({code:"COOLDOWN_ACTIVE",message:"Seu intervalo após concluir uma fila ainda está em andamento.",...cooldown});
+
     if(!administrativeParticipant&&config.REQUIRE_GROUP_MEMBERSHIP&&!hasMembership(db,String(user.phone),String(user.groupCode)))return reply.code(403).send({code:"GROUP_MEMBERSHIP_PENDING",message:"Sua conta está ativa. Aguardamos confirmar sua entrada no grupo para liberar esta função."});
   }
   const {ownerGuard,rootOwnerGuard}=await registerOwnerRoutes(app,db,config,participantIdentityGuard);
@@ -526,7 +535,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       assertNotSelf(request.user.sub,b.toUserId);
       assertRecipientActive(db,b.toUserId);
       if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
-      const result=giftRewardCoins(db,request.user.sub,b.toUserId,b.coins,b.referenceId);notifyJourney();return result;
+      const result=giftCoins(db,request.user.sub,b.toUserId,b.coins,b.referenceId);notifyJourney();return result;
     } catch(error){ if(error instanceof WalletGuardError) return reply.code(error.statusCode).send({message:error.message,code:error.code}); throw error; }
   });
   app.get("/admin/gamification",{preHandler:rootOwnerGuard},async()=>({
@@ -543,13 +552,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/admin/gamification/settle",{preHandler:rootOwnerGuard},async()=>settleClosedMonths(db));
   const settle=()=>{try{settleClosedMonths(db);}catch(error){app.log.error(error,"Gamification month settlement failed");}};
   let gamificationTimer:ReturnType<typeof setInterval>|undefined;
-  if(config.NODE_ENV!=="test"){const tick=()=>{settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);scheduleBotAutomations(db,config);dispatchBotAutomations(db,config);}catch(error){app.log.error(error,"Bot automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
+  if(config.NODE_ENV!=="test"){const tick=()=>{expireRounds(db);settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);scheduleBotAutomations(db,config);dispatchBotAutomations(db,config);}catch(error){app.log.error(error,"Bot automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
   app.addHook("onClose",async()=>{if(gamificationTimer)clearInterval(gamificationTimer);});
 
   // AUDITORIA / decisão do Fábio: login é SÓ pela senha entregue pelo bot. O login
-  // pelo Google já fica inerte sem credenciais (googleRequired=false em /auth/options,
-  // nenhum botão funcional) — basta NÃO definir GOOGLE_CLIENT_ID/SECRET em produção.
+  // por senha é independente do OAuth do YouTube. GOOGLE_CLIENT_ID/SECRET são
+  // necessários para conectar o canal e criar playlists, sem substituir a senha do bot.
   // Mantemos o registro para não derrubar /auth/options e rotas vizinhas.
+  registerCommunityRoutes(app,db,config,{authGuard,rootOwnerGuard});
   registerGoogleLogin(app,db,config,rootOwnerGuard);
   registerCompanion(app,db,config,participantIdentityGuard,userId=>watchRewardView(db,userId));
   ensureAvatarCatalog(db);
@@ -563,14 +573,16 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const status = (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) app.log.error(error);
     const message = status >= 500 ? "Não foi possível concluir a operação. Tente novamente." : error instanceof Error ? error.message : "Dados inválidos.";
-    return reply.code(status).send({ message });
+    const detail=error as {code?:string;cooldownUntil?:string;secondsRemaining?:number};
+    return reply.code(status).send({ message:detail.code==="YOUTUBE_OAUTH_NOT_CONFIGURED"&&error instanceof Error?error.message:message,...((status<500||detail.code==="YOUTUBE_OAUTH_NOT_CONFIGURED")&&detail.code?{code:detail.code}:{}),...(status===423?{cooldownUntil:detail.cooldownUntil,secondsRemaining:detail.secondsRemaining}:{}) });
   });
 
   app.addHook("onSend", async (request, reply, payload) => {
     if (!request.url.startsWith("/health") && !request.url.startsWith("/public/")) reply.header("cache-control", "no-store");
     return payload;
   });
-  app.get("/health", async () => ({ ok: true,release:"bot-convergencia-20261018",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1"] }));
+  app.addHook("onRequest",async()=>{expireRounds(db);});
+  app.get("/health", async () => ({ ok: true,release:"filas-comunidade-20261018",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -585,11 +597,6 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           ? `Seu WhatsApp foi reconhecido no SOS YOUTUBER ${groupCode}, mas o acesso ainda aguarda aprovação.`
           : "Ainda não conseguimos confirmar em qual grupo SOS YOUTUBER este WhatsApp está. Use Quero participar para registrar a solicitação."
       });
-    }
-    const existing=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as {id:string}|undefined;
-    if (existing) {
-      const cooldown=cooldownState(db,existing.id);
-      if (cooldown) return reply.code(423).send({code:"COOLDOWN_ACTIVE",message:"Você concluiu uma fila recentemente. Seu novo acesso será liberado automaticamente ao fim deste intervalo.",...cooldown});
     }
     return reply.send(establishUserSession(body.name,body.phone,groupCode));
   });
@@ -634,6 +641,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare("UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?").run(row.id);
       return reply.code(401).send({ message: "Código inválido ou expirado." });
     }
+    const existingAccount=db.prepare("SELECT id FROM users WHERE phone=?").get(row.phone) as {id:string}|undefined;
+    if(existingAccount)assertParticipantAccess(db,existingAccount.id);
     const detected=resolveGroupForPhone(db,row.phone);
     const currentGroup=detected.groupCode;
     const approved=Boolean(currentGroup&&(!config.REQUIRE_GROUP_MEMBERSHIP||hasMembership(db,row.phone,currentGroup)));
@@ -702,11 +711,33 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const mine = myRounds(db, request.user.sub);
     const skips = request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP);
     return {
+      available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,vacancies:vacanciesIn(db,r.id),joined:mine.some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
       queues: mine.map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
       canSkip: skips > 0,
+      canUsePass: queuePassBalance(db,request.user.sub)>0,
+      passesAvailable: queuePassBalance(db,request.user.sub),
+      cooldownUntil: cooldownState(db,request.user.sub)?.cooldownUntil,
       skipsAvailable: skips,
       inventory: request.user.adminRole==="ROOT_OWNER" ? [...new Set([ITEM_SKIP,...listStoreProducts(db).flatMap(p=>p.grantsItem?[p.grantsItem]:[])])].map(itemCode=>({itemCode,quantity:ROOT_ITEM_QUANTITY})) : listInventory(db, request.user.sub)
     };
+  });
+
+  app.post("/queues/pass",{preHandler:authGuard,config:{rateLimit:{max:10,timeWindow:"10 minutes"}}},async(request,reply)=>{
+    const {referenceId}=z.object({referenceId:z.string().uuid()}).parse(request.body);
+    return reply.send(joinNextQueueWithPass(db,request.user.sub,referenceId));
+  });
+  app.post("/queues/:id/resume",{preHandler:authGuard},async(request)=>{
+    const roundId=z.string().uuid().parse((request.params as {id:string}).id);
+    return resumeRound(db,roundId,request.user.sub);
+  });
+  app.post("/queues/:id/leave",{preHandler:authGuard,config:{rateLimit:{max:20,timeWindow:"10 minutes"}}},async(request,reply)=>{
+    const roundId=z.string().uuid().parse((request.params as {id:string}).id);
+    if(!db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=?").get(roundId,request.user.sub))return reply.code(404).send({message:"Você não participa desta fila."});
+    db.transaction(()=>{
+      leaveRound(db,roundId,request.user.sub);
+      db.prepare("DELETE FROM watch_observation_state WHERE user_id=? AND round_id=?").run(request.user.sub,roundId);
+    })();
+    return {ok:true,...cooldownState(db,request.user.sub)};
   });
 
   // Usa um "Pular": entra na próxima fila livre em que ainda NÃO está; se não houver,
@@ -723,7 +754,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
         }
         const target = skipTargetFor(db, request.user.sub);
-        if(request.user.adminRole!=="ROOT_OWNER") consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${target.id}:${request.user.sub}`);
+        if(request.user.adminRole!=="ROOT_OWNER") consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${referenceId??randomUUID()}:${request.user.sub}`);
         joinRound(db, target.id, request.user.sub, "SKIP");
         const joined={ id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
         if(referenceId) db.prepare("INSERT INTO queue_skip_requests(user_id,reference_id,result_json,created_at) VALUES (?,?,?,?)").run(request.user.sub,referenceId,JSON.stringify(joined),new Date().toISOString());
@@ -834,11 +865,6 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare("UPDATE setup_codes SET attempts=attempts+1 WHERE phone=?").run(body.phone);
       return reply.code(401).send(invalid);
     }
-    const existing = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string } | undefined;
-    if (existing) {
-      const cooldown = cooldownState(db, existing.id);
-      if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
-    }
     establishUserSession(row.name ?? "Participante", body.phone, groupCode);
     const account = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(body.phone) as { id: string };
     // AUDITORIA / tomada de conta (red team C-01): este resgate SOBRESCREVIA a senha
@@ -931,8 +957,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       db.prepare("UPDATE user_passwords SET attempts=?, locked_until=? WHERE user_id=?").run(lockedUntil ? 0 : attempts, lockedUntil, user.id);
       return reply.code(401).send({ message: "Telefone ou senha inválidos." });
     }
-    const cooldown = cooldownState(db, user.id);
-    if (cooldown) return reply.code(423).send({ code: "COOLDOWN_ACTIVE", message: "Você concluiu uma fila recentemente. Aguarde o intervalo.", ...cooldown });
+
+    assertParticipantAccess(db,user.id);
     db.prepare("UPDATE user_passwords SET attempts=0, locked_until=NULL WHERE user_id=?").run(user.id);
     if(resolved.groupCode&&hasMembership(db,body.phone,resolved.groupCode))db.prepare("UPDATE users SET group_code=? WHERE id=?").run(resolved.groupCode,user.id);
     db.prepare("UPDATE users SET last_seen_at=? WHERE id=?").run(new Date().toISOString(), user.id);
@@ -1179,12 +1205,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const viewRound = currentRoundViewFor(db, request.user.sub, preferId);
     const open = viewRound ? { id: viewRound.id } : db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
     const ready = request.user.adminRole
-      ? db.prepare("SELECT id FROM rounds WHERE status='READY' ORDER BY sequence DESC LIMIT 8").all() as Array<{id:string}>
-      : db.prepare(`SELECT DISTINCT r.id FROM rounds r
-          JOIN submissions s ON s.round_id=r.id
-          LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=?
-          WHERE r.status='READY' AND s.user_id=? AND p.finalized_at IS NULL
-          ORDER BY r.sequence ASC`).all(request.user.sub,request.user.sub) as Array<{id:string}>;
+      ? db.prepare("SELECT r.id FROM rounds r LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=? WHERE r.status='READY' AND r.closed_at IS NULL AND p.finalized_at IS NULL ORDER BY r.sequence DESC LIMIT 8").all(request.user.sub) as Array<{id:string}>
+      : db.prepare("SELECT DISTINCT r.id FROM rounds r JOIN submissions s ON s.round_id=r.id JOIN round_participants rp ON rp.round_id=r.id AND rp.user_id=s.user_id AND rp.left_at IS NULL LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=? WHERE (r.status='READY' OR EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=s.user_id)) AND r.closed_at IS NULL AND s.user_id=? AND p.finalized_at IS NULL ORDER BY r.sequence ASC").all(request.user.sub,request.user.sub) as Array<{id:string}>;
     const contributionCount = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?")
       .get(open.id, request.user.sub) as { count: number };
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
@@ -1214,6 +1236,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       user: currentUser,
       groupAccess,
       wallet: walletView(db, request.user.sub), subscription:effectiveSuper(db,request.user.sub),
+      queueLifetimeDays:3,
       openRound: roundView(db, open.id,Boolean(request.user.adminRole)),
       readyRounds: ready.map(({ id }) => {
         const viewerContributed=Boolean(db.prepare("SELECT 1 FROM submissions WHERE round_id=? AND user_id=? LIMIT 1").get(id,request.user.sub));
@@ -1221,6 +1244,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         const watch = watchRows.find((entry) => entry.roundId === id);
         return {
           ...roundView(db,id,Boolean(request.user.adminRole)),
+          ...(playlistSelection(db,request.user.sub,id)?{slots:(roundView(db,id,Boolean(request.user.adminRole)).slots as unknown[]).slice(0,playlistSelection(db,request.user.sub,id)!.count)}:{}),
           viewerContributed,
           export:exportRow ? {
             ...exportRow,
@@ -1236,15 +1260,18 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           } : undefined
         };
       }),
-      viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND source='SKIP' AND left_at IS NULL").get(viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound, contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
+      viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&isParticipant(db,viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound, contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
       profile: profileSummary(db,request.user.sub),
       watchRewards: watchRewardView(db,request.user.sub),
       gamification:gamificationData(db,request.user.sub),
       // AUDITORIA / multi-fila: navegacao entre as filas do proprio usuario.
       queues: {
         current: viewRound ? { id: viewRound.id, number: viewRound.displayNumber, status: viewRound.status } : null,
+        available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,vacancies:vacanciesIn(db,r.id),joined:myRounds(db,request.user.sub).some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
         mine: myRounds(db, request.user.sub).map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
-        skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP)
+        skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP),
+        passesAvailable:queuePassBalance(db,request.user.sub),
+        cooldownUntil:cooldownState(db,request.user.sub)?.cooldownUntil
       },
       commerce
     };
@@ -1252,7 +1279,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/:id/watch-observation", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId=z.string().uuid().parse((request.params as {id:string}).id);
+    if(!hasActiveRoundTask(db,request.user.sub,roundId))return reply.code(409).send({code:"ROUND_ACCESS_ENDED",message:"Seu acesso ativo a esta tarefa terminou. O histórico e o progresso continuam salvos."});
     const body=watchObservationSchema.parse(request.body);
+    const selection=playlistSelection(db,request.user.sub,roundId);
+    if(selection&&body.videoIndex>=selection.count)return reply.code(409).send({message:"Este vídeo não faz parte da sua seleção salva."});
     const exported=db.prepare("SELECT 1 FROM playlist_exports WHERE round_id=? AND user_id=? AND status='SUCCESS' AND youtube_playlist_id IS NOT NULL")
       .get(roundId,request.user.sub);
     if(!exported) return reply.code(409).send({message:"Crie sua playlist desta fila antes de iniciar o acompanhamento."});
@@ -1326,7 +1356,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         }
       }
     }
-    const percent=Math.max(existing?.percent ?? 0,watchPercent(watchedSeconds,durations));
+    const percent=Math.max(existing?.percent ?? 0,Math.min(100,watchPercent(watchedSeconds,durations)*10/(selection?.count??10)));
 
     const result=db.transaction(()=>{
       db.prepare(`INSERT INTO playlist_watch_progress
@@ -1349,11 +1379,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         .run(request.user.sub,body.sessionId,roundId,body.videoIndex,body.playerSeconds,body.duration,body.playbackRate,now,body.playing&&body.visible?1:0);
       db.prepare(`INSERT OR IGNORE INTO watch_time_totals(user_id,verified_millis,rewarded_coins,updated_at) VALUES (?,0,0,?)`)
         .run(request.user.sub,now);
-      if(acceptedMillis>0) db.prepare("UPDATE watch_time_totals SET verified_millis=verified_millis+?,updated_at=? WHERE user_id=?")
+      if(acceptedMillis>0&&selection?.rewardEligible!==false) db.prepare("UPDATE watch_time_totals SET verified_millis=verified_millis+?,updated_at=? WHERE user_id=?")
         .run(acceptedMillis,now,request.user.sub);
       const total=db.prepare("SELECT verified_millis AS verifiedMillis,rewarded_coins AS rewardedCoins FROM watch_time_totals WHERE user_id=?")
         .get(request.user.sub) as {verifiedMillis:number;rewardedCoins:number};
-      const targetCoins=Math.floor(total.verifiedMillis/WATCH_REWARD_INTERVAL_MILLIS);
+      const targetCoins=selection?.rewardEligible===false?total.rewardedCoins:Math.floor(total.verifiedMillis/WATCH_REWARD_INTERVAL_MILLIS);
       let credited=0;
       for(let coin=total.rewardedCoins+1;coin<=targetCoins;coin++) {
         const inserted=db.prepare("INSERT OR IGNORE INTO wallet_ledger(id,user_id,kind,amount_millis,reference_id,created_at,note) VALUES (?,?,'WATCH_TIME',1000,?,?,?)")
@@ -1368,7 +1398,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       }
       if(targetCoins!==total.rewardedCoins) db.prepare("UPDATE watch_time_totals SET rewarded_coins=?,updated_at=? WHERE user_id=?")
         .run(targetCoins,now,request.user.sub);
-      const xp=acceptedMillis>0?recordVerifiedXp(db,request.user.sub,roundId,body.videoIndex):{xpDelta:0,levelRewards:[]};
+      const xp=acceptedMillis>0?recordVerifiedXp(db,request.user.sub,roundId,body.videoIndex,undefined,undefined,selection?.rewardEligible!==false):{xpDelta:0,levelRewards:[]};
       return {rewardDeltaCoins:credited,...xp};
     })();
 
@@ -1376,7 +1406,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const rewards=watchRewardView(db,request.user.sub);
     // AUDITORIA M-01: exige duração confirmada pelo YouTube nos dez slots. Antes, a
     // conclusão era forjável declarando duration:1 em cada vídeo.
-    const observedComplete=verifiedDurations.every((duration,index)=>
+    const observedComplete=verifiedDurations.slice(0,selection?.count??10).every((duration,index)=>
       typeof duration==="number" && duration>0 && intervalCoverage(intervals[String(index)]??[])>=duration);
     const finalization=observedComplete && acceptedMillis>0 ? db.transaction(()=>finalizeRoundTask(db,request.user.sub,roundId,"COMPLETE"))() : undefined;
     return {
@@ -1389,6 +1419,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.put("/rounds/:id/watch-progress", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId = z.string().uuid().parse((request.params as { id: string }).id);
+    if(!hasActiveRoundTask(db,request.user.sub,roundId))return reply.code(409).send({code:"ROUND_ACCESS_ENDED",message:"Seu acesso ativo a esta tarefa terminou. O histórico e o progresso continuam salvos."});
     const body = watchProgressSchema.parse(request.body);
     const exported = db.prepare("SELECT 1 FROM playlist_exports WHERE round_id = ? AND user_id = ? AND status = 'SUCCESS' AND youtube_playlist_id IS NOT NULL")
       .get(roundId, request.user.sub);
@@ -1430,9 +1461,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/:id/watch-progress/abandon", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId=z.string().uuid().parse((request.params as {id:string}).id);
-    const eligible=db.prepare(`SELECT 1 FROM submissions s JOIN rounds r ON r.id=s.round_id
-      JOIN playlist_exports e ON e.round_id=r.id AND e.user_id=? AND e.status='SUCCESS'
-      WHERE r.id=? AND r.status='READY' AND s.user_id=? LIMIT 1`).get(request.user.sub,roundId,request.user.sub);
+    const eligible=hasActiveRoundTask(db,request.user.sub,roundId)&&db.prepare("SELECT 1 FROM playlist_exports WHERE round_id=? AND user_id=? AND status='SUCCESS'").get(roundId,request.user.sub);
     if (!eligible) return reply.code(409).send({message:"Esta tarefa ainda não pode ser abandonada por esta conta."});
     const stamp=new Date().toISOString();
     db.prepare(`INSERT OR IGNORE INTO playlist_watch_progress
@@ -1445,9 +1474,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/:id/watch-progress/finalize", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const roundId = z.string().uuid().parse((request.params as { id: string }).id);
-    const eligible = db.prepare(`SELECT 1 FROM submissions s JOIN rounds r ON r.id=s.round_id
-      JOIN playlist_exports e ON e.round_id=r.id AND e.user_id=? AND e.status='SUCCESS'
-      WHERE r.id=? AND r.status='READY' AND s.user_id=? LIMIT 1`).get(request.user.sub,roundId,request.user.sub);
+    const eligible=hasActiveRoundTask(db,request.user.sub,roundId)&&db.prepare("SELECT 1 FROM playlist_exports WHERE round_id=? AND user_id=? AND status='SUCCESS'").get(roundId,request.user.sub);
     if (!eligible) return reply.code(409).send({ message:"Esta fila ainda não está pronta para ser concluída por esta conta." });
     const stamp = new Date().toISOString();
     db.prepare(`INSERT OR IGNORE INTO playlist_watch_progress
@@ -1458,6 +1485,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/current/submissions", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const body = submitSchema.parse(request.body);
+    const alreadyOpen=myRounds(db,request.user.sub).some(round=>round.status==="OPEN"&&(!body.expectedRoundId||round.id===body.expectedRoundId));
+    if(!request.user.adminRole&&!alreadyOpen)assertFreeQueueEntryAllowed(db,request.user.sub);
     let verified: Awaited<ReturnType<typeof verifyYouTubeVideo>>;
     try { verified = await verifyYouTubeVideo(body.url, effectiveYouTubeApiKey(db,config)); }
     catch { return reply.code(400).send({ message: "Informe um vídeo válido e acessível do YouTube." }); }
@@ -1469,11 +1498,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         if (duplicate) throw new Error("Este vídeo do YouTube já foi usado em uma fila anterior ou atual. Escolha outro vídeo.");
         // AUDITORIA / multi-fila: a contribuição vai para a fila DO USUÁRIO (aquela em
         // que ele já está), nunca para "a fila mais nova do sistema".
-        const mine = currentRoundFor(db, request.user.sub,body.expectedRoundId);
+        const priorOpen=myRounds(db,request.user.sub).some(round=>round.status==="OPEN"&&(!body.expectedRoundId||round.id===body.expectedRoundId));
+        if(pending&&!administrativeParticipant&&!priorOpen)throw Object.assign(new Error("Conclua sua tarefa atual ou use Passe/Pular para liberar outra fila."),{statusCode:409,code:"ACTIVE_TASK_PENDING"});
+        const mine = currentRoundFor(db, request.user.sub,body.expectedRoundId,administrativeParticipant);
         if (!mine) throw new Error("Nenhuma fila disponível no momento. Tente novamente em instantes.");
         const open = { id: mine.id, sequence: mine.displayNumber };
-        const enteredWithSkip=Boolean(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND source='SKIP' AND left_at IS NULL").get(open.id,request.user.sub));
-        if(pending&&!administrativeParticipant&&!enteredWithSkip) throw new Error("Finalize sua tarefa da Fila "+pending.sequence+" ou use Pular para contribuir em outra fila.");
+
 
         if(body.expectedRoundId && body.expectedRoundId!==open.id) throw Object.assign(new Error(`A fila mudou enquanto seu vídeo era conferido. Agora estamos na Fila ${open.sequence}.`),{code:"QUEUE_CHANGED",currentRoundId:open.id,currentRoundSequence:open.sequence});
         const next = db.prepare("SELECT COUNT(*) + 1 AS slot FROM submissions WHERE round_id = ?").get(open.id) as { slot: number };
@@ -1512,20 +1542,21 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         // AUDITORIA / anuncio "fulano fez upload" no grupo da pessoa, com a URL do video.
         // Dentro da transacao: so anuncia upload que de fato persistiu. Nunca derruba o
         // upload se a automacao estiver desligada ou o grupo nao pareado.
+        const queueNumber=(db.prepare("SELECT display_number AS n FROM rounds WHERE id=?").get(open.id) as {n:number}).n;
         try {
           announceToGroups(db, config, "UPLOAD_NOTICE", {
             nome: String(author.name), sala: String(author.groupCode),
-            posicao: next.slot, aba: open.sequence, fila: open.sequence,
+            posicao: next.slot, aba: queueNumber, fila: queueNumber,
             url: verified.canonicalUrl,
           }, { dedupeKey: submissionId, ctx: { groupCode: String(author.groupCode) } });
         } catch (error) { app.log.error(error, "UPLOAD_NOTICE announce failed"); }
 
-        const queueNumber=(db.prepare("SELECT display_number AS n FROM rounds WHERE id=?").get(open.id) as {n:number}).n;
+
         if(next.slot===8) recordBotAutomationEvent(db,{event:"QUEUE_FILLING",sourceId:open.id,vars:{fila:queueNumber,vagas:2,link:config.WEB_APP_URL}});
         if (next.slot === 10) {
           db.prepare("UPDATE rounds SET status = 'READY', completed_at = ? WHERE id = ?").run(now, open.id);
           recordBotAutomationEvent(db,{event:"QUEUE_COMPLETE",sourceId:open.id,vars:{fila:queueNumber}});
-          const contributors = db.prepare("SELECT DISTINCT user_id AS userId FROM submissions WHERE round_id = ?").all(open.id) as Array<{ userId: string }>;
+          const contributors = db.prepare("SELECT DISTINCT user_id AS userId FROM submissions WHERE round_id = ? AND NOT EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=submissions.round_id AND ps.user_id=submissions.user_id AND ps.reward_eligible=0)").all(open.id) as Array<{ userId: string }>;
           for (const contributor of contributors) {
             const inserted=db.prepare("INSERT OR IGNORE INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'CURATION_REWARD', 1000, ?, ?)")
               .run(randomUUID(), contributor.userId, open.id, now);
@@ -1551,7 +1582,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       return reply.code(201).send(result);
     } catch (error) {
       const queueError=error as {code?:string;currentRoundId?:string;currentRoundSequence?:number};
-      return reply.code(409).send({ message: error instanceof Error ? error.message : "Não foi possível salvar o link.", ...(queueError.code==="QUEUE_CHANGED"?{code:"QUEUE_CHANGED",currentRoundId:queueError.currentRoundId,currentRoundSequence:queueError.currentRoundSequence}:{}) });
+      const detail=error as {statusCode?:number;code?:string;cooldownUntil?:string;secondsRemaining?:number};
+      return reply.code(detail.statusCode??409).send({ message: error instanceof Error ? error.message : "Não foi possível salvar o link.",code:detail.code,...(detail.statusCode===423?{cooldownUntil:detail.cooldownUntil,secondsRemaining:detail.secondsRemaining}:{}), ...(queueError.code==="QUEUE_CHANGED"?{currentRoundId:queueError.currentRoundId,currentRoundSequence:queueError.currentRoundSequence}:{}) });
     }
   });
 
@@ -1705,26 +1737,61 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.get("/youtube/connect", { preHandler: authGuard, config: { rateLimit: { max: 20, timeWindow: "10 minutes" } } }, async (request) => {
     const query = z.object({ returnTo: z.enum(["app","web"]).default("web"), roundId: z.string().uuid().optional() }).parse(request.query);
-    const returnTo = query.returnTo;
-    if (query.roundId && !db.prepare("SELECT 1 FROM rounds r JOIN submissions s ON s.round_id=r.id WHERE r.id=? AND r.status='READY' AND s.user_id=?").get(query.roundId,request.user.sub)) throw Object.assign(new Error("Somente participantes de um ciclo completo podem criar sua playlist."),{statusCode:403});
-    const state = app.jwt.sign({ sub: request.user.sub, purpose: "youtube-oauth", aud: "conexao-oauth", returnTo, jti: randomUUID() }, { expiresIn: "10m" });
+    const account = db.prepare("SELECT phone,group_code AS groupCode FROM users WHERE id=? AND deleted_at IS NULL").get(request.user.sub) as {phone:string;groupCode:string} | undefined;
+    const access = { sub:request.user.sub, adminRole:request.user.adminRole, ownerId:request.user.ownerId,
+      authMethod:request.user.authMethod, authPhone:request.user.authPhone, googleSubject:request.user.googleSubject,
+      accessPhone:account?.phone, accessGroup:account?.groupCode, sessionJti:request.user.jti };
+    assertYouTubeAccess(access, query.roundId);
+    if(!config.GOOGLE_CLIENT_ID||!config.GOOGLE_CLIENT_SECRET)throw Object.assign(new Error("A conexão Google/YouTube ainda precisa ser ativada pelo Owner. Você pode enviar URLs sem conectar um canal. Para criar a playlist na sua conta, aguarde a configuração desta integração."),{statusCode:503,code:"YOUTUBE_OAUTH_NOT_CONFIGURED"});
+    const claims = { ...access, purpose: "youtube-oauth", aud: "conexao-oauth", returnTo: query.returnTo, jti: randomUUID() };
+    const state = app.jwt.sign(claims, { expiresIn: "10m" });
     const url = googleAuthorizationUrl(config, state);
     db.prepare("DELETE FROM oauth_states WHERE expires_at < ?").run(new Date().toISOString());
     db.prepare("INSERT INTO oauth_states (state_hash, user_id, expires_at, round_id) VALUES (?, ?, ?, ?)").run(createHash("sha256").update(state).digest("hex"), request.user.sub, new Date(Date.now() + 600_000).toISOString(), query.roundId ?? null);
     return { url };
   });
 
+  type YouTubeAccessClaims = {
+    sub:string;adminRole?:"ROOT_OWNER"|"ADMIN_OWNER";ownerId?:string;jti?:string;sessionJti?:string;
+    accessPhone?:string;accessGroup?:string;authPhone?:string;authMethod?:string;googleSubject?:string;
+  };
+  // This check is synchronous so callers can repeat it after each awaited remote step.
+  function assertYouTubeAccess(claims: YouTubeAccessClaims, roundId?:string | null): void {
+    expireRounds(db);
+    const user = db.prepare("SELECT phone,group_code AS groupCode FROM users WHERE id=? AND deleted_at IS NULL").get(claims.sub) as {phone:string;groupCode:string} | undefined;
+    const denied = (code:string,message:string,statusCode=403) => Object.assign(new Error(message),{code,statusCode});
+    if (!user || !claims.accessPhone || claims.accessPhone!==user.phone || claims.accessGroup!==user.groupCode) throw denied("YOUTUBE_ACCESS_CHANGED","Seu acesso mudou. Entre novamente antes de conectar ou exportar.",401);
+    if (claims.adminRole) {
+      if (!administrativeSessionValid(db,config,{sub:claims.sub,adminRole:claims.adminRole,ownerId:claims.ownerId,jti:claims.sessionJti})) throw denied("YOUTUBE_ADMIN_CHANGED","A permissão administrativa mudou. Entre novamente no painel Owner.",401);
+    } else {
+      if (!devAuthEnabled(config)) {
+        if (!claims.authMethod || claims.authPhone!==user.phone) throw denied("YOUTUBE_IDENTITY_CHANGED","Confirme novamente a sua identidade.",401);
+        if (claims.authMethod==="google" && !db.prepare("SELECT 1 FROM google_identities WHERE user_id=? AND google_sub=?").get(claims.sub,claims.googleSubject??"")) throw denied("YOUTUBE_IDENTITY_CHANGED","A identidade Google mudou. Entre novamente.",401);
+      }
+      const membership = db.prepare("SELECT m.group_code AS groupCode,m.revoked_at AS revokedAt,g.enabled FROM group_memberships m LEFT JOIN groups g ON g.code=m.group_code WHERE m.phone=?").get(user.phone) as {groupCode:string;revokedAt:string|null;enabled:number}|undefined;
+      if (membership && (membership.revokedAt || !membership.enabled)) throw denied("GROUP_ACCESS_REVOKED","Seu acesso ao grupo está pausado.");
+      if (membership && membership.groupCode!==user.groupCode) throw denied("GROUP_CHANGED","Seu grupo mudou. Entre novamente.");
+      if (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db,user.phone,user.groupCode)) throw denied("GROUP_MEMBERSHIP_PENDING","Aguardamos confirmar sua entrada no grupo para liberar esta função.");
+    }
+    if(!claims.adminRole)assertParticipantAccess(db,claims.sub);
+    if (roundId && !hasActiveRoundTask(db,claims.sub,roundId)) throw denied("ROUND_ACCESS_INACTIVE","Esta fila não está mais disponível para você. Atualize o quadro.");
+  }
+
   app.get("/youtube/callback", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const query = z.object({ code: z.string().optional(), state: z.string(), error: z.string().optional() }).parse(request.query);
-    const state = app.jwt.verify<{ sub: string; purpose?: string; returnTo?: string; aud?: string; jti?: string }>(query.state);
+    const state = app.jwt.verify<YouTubeAccessClaims & {purpose?:string;returnTo?:string;aud?:string}>(query.state);
     if (state.purpose !== "youtube-oauth" || state.aud !== "conexao-oauth") return reply.code(400).send("Estado OAuth inválido.");
-    const intent = db.prepare("SELECT round_id FROM oauth_states WHERE state_hash=? AND user_id=?").get(createHash("sha256").update(query.state).digest("hex"),state.sub) as { round_id?: string } | undefined;
-    const consumed = db.prepare("UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?").run(new Date().toISOString(), createHash("sha256").update(query.state).digest("hex"), state.sub, new Date().toISOString());
+    const stateHash = createHash("sha256").update(query.state).digest("hex");
+    const intent = db.prepare("SELECT round_id FROM oauth_states WHERE state_hash=? AND user_id=?").get(stateHash,state.sub) as { round_id?: string | null } | undefined;
+    const consumed = db.prepare("UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?").run(new Date().toISOString(), stateHash, state.sub, new Date().toISOString());
     if (!consumed.changes) return reply.code(400).send("Autorização expirada ou já utilizada. Conecte novamente.");
+    assertYouTubeAccess(state,intent?.round_id);
     if (query.error || !query.code) return reply.redirect(`${config.WEB_APP_URL}?youtube=cancelled`);
     const tokens = await exchangeGoogleCode(config, query.code);
+    assertYouTubeAccess(state,intent?.round_id);
     let channel:{id?:string;title?:string;thumbnailUrl?:string}={};
-    try { channel=await fetchOwnYouTubeChannel(config,tokens.refreshToken); } catch { /* OAuth connection remains valid even if channel enrichment is temporarily unavailable. */ }
+    try { channel=await fetchOwnYouTubeChannel(config,tokens.refreshToken); } catch { /* Optional enrichment must not prevent a valid connection. */ }
+    assertYouTubeAccess(state,intent?.round_id);
     db.prepare(`INSERT INTO youtube_connections (user_id, refresh_token_cipher, scope, channel_id, channel_title, channel_thumbnail_url, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET refresh_token_cipher=excluded.refresh_token_cipher,scope=excluded.scope,
@@ -1736,18 +1803,29 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return reply.redirect(state.returnTo === "app" ? "conexaoyoutube://oauth?status=connected" : `${config.WEB_APP_URL}?youtube=connected${intent?.round_id ? `&round=${encodeURIComponent(intent.round_id)}` : ""}`);
   });
 
+  app.post("/rounds/:id/prepare-playlist",{preHandler:authGuard},async(request)=>{
+    const roundId=z.string().uuid().parse((request.params as {id:string}).id);
+    const {acceptPartial}=z.object({acceptPartial:z.boolean().default(false)}).parse(request.body??{});
+    return preparePlaylistSelection(db,request.user.sub,roundId,acceptPartial);
+  });
+
   app.post("/rounds/:id/export", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const roundId = z.string().uuid().parse((request.params as { id: string }).id);
     const round = db.prepare("SELECT sequence, status FROM rounds WHERE id = ?").get(roundId) as { sequence: number; status: string } | undefined;
-    if (!round || round.status !== "READY") return reply.code(409).send({ message: "Este ciclo ainda não está pronto." });
-    const contributed = db.prepare("SELECT 1 FROM submissions WHERE round_id = ? AND user_id = ?").get(roundId, request.user.sub);
-    if (!contributed) return reply.code(403).send({ message: "A exportação é exclusiva para participantes deste ciclo." });
+    if (!round) return reply.code(404).send({ message: "Fila não encontrada." });
+    const account = db.prepare("SELECT phone,group_code AS groupCode FROM users WHERE id=? AND deleted_at IS NULL").get(request.user.sub) as {phone:string;groupCode:string} | undefined;
+    const access = { sub:request.user.sub, adminRole:request.user.adminRole, ownerId:request.user.ownerId,
+      authMethod:request.user.authMethod, authPhone:request.user.authPhone, googleSubject:request.user.googleSubject,
+      accessPhone:account?.phone, accessGroup:account?.groupCode, sessionJti:request.user.jti };
+    assertYouTubeAccess(access,roundId);
     const connection = db.prepare("SELECT refresh_token_cipher AS token FROM youtube_connections WHERE user_id = ?").get(request.user.sub) as { token: string } | undefined;
     if (!connection) return reply.code(409).send({ message: "Conecte sua conta do YouTube primeiro." });
-    const videos = db.prepare("SELECT video_id AS videoId FROM submissions WHERE round_id = ? ORDER BY slot").all(roundId) as Array<{ videoId: string }>;
-    if (videos.length !== 10) return reply.code(409).send({ message: "A playlist exige exatamente dez links salvos." });
+    const selected=playlistSelection(db,request.user.sub,roundId);
+    const videos = selected?selected.videos.map(videoId=>({videoId})):db.prepare("SELECT video_id AS videoId FROM submissions WHERE round_id = ? ORDER BY slot").all(roundId) as Array<{ videoId: string }>;
+    if (!selected&&videos.length!==10) return reply.code(409).send({ code:"PARTIAL_CONFIRMATION_REQUIRED",message:"Confirme primeiro a criação da playlist parcial, sem recompensa de moedas." });
     const now = new Date().toISOString();
     const lockOwner = randomUUID();
+    assertYouTubeAccess(access,roundId);
     const acquired = db.prepare(`INSERT INTO export_locks (round_id, user_id, owner, expires_at) VALUES (?, ?, ?, ?)
       ON CONFLICT(round_id, user_id) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at WHERE export_locks.expires_at < ?`)
       .run(roundId, request.user.sub, lockOwner, new Date(Date.now() + 600_000).toISOString(), now);
@@ -1762,15 +1840,21 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         .run(exportRow.id, roundId, request.user.sub, now, now);
     }
     try {
+      assertYouTubeAccess(access,roundId);
       const playlistId = await createPrivatePlaylist(
         config,
         decryptToken(connection.token, config),
         `Conexão Youtube — Ciclo ${round.sequence}`,
         videos.map((video) => video.videoId),
         { playlistId: exportRow.playlistId, addedCount: exportRow.addedCount, exportId: exportRow.id },
-        (id, count) => db.prepare("UPDATE playlist_exports SET youtube_playlist_id = ?, added_count = ?, status = 'PENDING', updated_at = ? WHERE id = ?")
-          .run(id, count, new Date().toISOString(), exportRow!.id)
+        (id, count) => {
+          assertYouTubeAccess(access,roundId);
+          db.prepare("UPDATE playlist_exports SET youtube_playlist_id = ?, added_count = ?, status = 'PENDING', updated_at = ? WHERE id = ?")
+            .run(id, count, new Date().toISOString(), exportRow!.id);
+        },
+        () => assertYouTubeAccess(access,roundId)
       );
+      assertYouTubeAccess(access,roundId);
       db.prepare("UPDATE playlist_exports SET status = 'SUCCESS', error = NULL, updated_at = ? WHERE id = ?").run(new Date().toISOString(), exportRow.id);
       return { ok: true, playlistId };
     } catch (error) {

@@ -9,6 +9,7 @@ import { createDatabase, type AppDatabase } from "./db.js";
 import { encryptToken, verifyYouTubeVideo, parseIsoDurationSeconds } from "./youtube.js";
 import { readYouTubeIntegration, saveYouTubeIntegration, effectiveYouTubeApiKey } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
+import { joinRound } from "./queues.js";
 
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
@@ -46,6 +47,7 @@ describe("auditoria externa — motor e verificação de vídeo", () => {
   async function readyRound(userId: string, durationSeconds: number | null) {
     const round = db.prepare("SELECT id FROM rounds WHERE status='OPEN'").get() as { id: string };
     const stamp = new Date().toISOString();
+    joinRound(db,round.id,userId,"FREE");
     for (let slot = 1; slot <= 10; slot++) {
       db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES (?,?,?,?,?,?,?,?)")
         .run(randomUUID(), round.id, slot, userId, `https://youtu.be/aud${String(slot).padStart(8, "0")}`, `aud${String(slot).padStart(8, "0")}`, stamp, durationSeconds);
@@ -92,6 +94,7 @@ describe("auditoria externa — motor e verificação de vídeo", () => {
       .run(JSON.stringify(intervals), JSON.stringify(Array(10).fill(5)), roundId, user.userId);
     ageState(user.userId, 2000);
     const end = await observe(user.token, roundId, { sessionId, videoIndex: 0, playerSeconds: 5, duration: 5, playbackRate: 1, playing: false, visible: true });
+    expect(end.statusCode).toBe(200);
     expect(end.json().finalizedAt).toBeUndefined();
   });
 
@@ -102,6 +105,7 @@ describe("auditoria externa — motor e verificação de vídeo", () => {
     ageState(user.userId, 2000);
     // Cliente afirma ter avançado 500s; só ~2s reais passaram.
     const tick = await observe(user.token, roundId, { sessionId, videoIndex: 0, playerSeconds: 500, duration: 600, playbackRate: 1, playing: true, visible: true });
+    expect(tick.statusCode).toBe(200);
     expect(tick.json().acceptedSeconds).toBeLessThanOrEqual(2);
   });
 

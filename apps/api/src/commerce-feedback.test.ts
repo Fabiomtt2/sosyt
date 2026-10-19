@@ -1,3 +1,4 @@
+import { requestDirectConversation,respondDirectConversation } from "./social.js";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {randomUUID} from "node:crypto";
 import {mkdtempSync,rmSync} from "node:fs";
@@ -53,6 +54,7 @@ describe("compras confirmadas e identidade SUPER",()=>{
   const round=currentRoundFor(db,a.id)!;
   db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at) VALUES (?,?,1,?,?,?,?)").run(randomUUID(),round.id,a.id,"https://youtu.be/dQw4w9WgXcQ","dQw4w9WgXcQ",new Date().toISOString());
   await app.inject({method:"POST",url:"/chat/global",headers:auth,payload:{body:"Olá, comunidade!"}});
+  const consent=requestDirectConversation(db,a.id,b.id);respondDirectConversation(db,b.id,requestId(consent),true);
   await app.inject({method:"POST",url:"/mail/dm",headers:auth,payload:{toUserId:b.id,body:"Olá, Bia!"}});
   createPin(db,a.id,"Conheça os vídeos do meu canal.");
   for(const active of [true,false]){
@@ -69,7 +71,7 @@ describe("compras confirmadas e identidade SUPER",()=>{
  });
  it("repetir uma intenção Pular consome somente uma unidade",async()=>{
   const user=await member(),auth=headers(user.token);
-  await app.inject({method:"GET",url:"/dashboard",headers:auth});
+  currentRoundFor(db,user.id); // Adesão FREE explícita antes de consumir Pular.
   grantItem(db,{userId:user.id,itemCode:ITEM_SKIP,delta:2,kind:"OWNER_ADJUST"});
   const payload={referenceId:randomUUID()};
   const first=(await app.inject({method:"POST",url:"/queues/skip",headers:auth,payload})).json();
@@ -109,3 +111,9 @@ it("atualização de banco antigo adiciona Pular/SUPER preservando produtos conf
   }
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
+
+function requestId(request:{id?:string}):string {
+  expect(typeof request.id).toBe("string");
+  if(typeof request.id!=="string")throw new Error("Fixture expected a persisted conversation request");
+  return request.id;
+}

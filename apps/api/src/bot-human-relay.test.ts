@@ -85,3 +85,43 @@ describe("atendimento humano pela conversa original",()=>{
  expect(routeHumanRelay(db,config,{phone:user,text:"oi"}).handled).toBe(false);
  });
 });
+
+describe("resposta humana simples e compatibilidade",()=>{
+ it("novo código curto é separado da mensagem e explicado com exemplo",()=>{
+   const a=openHumanRelay(db,config,{phone:user,message:"Tenho duvidas"});
+   expect(a.ticketId).toMatch(/^[A-F0-9]{6}$/);
+   expect(a.messages[0].body).toContain(`copie):\n${a.ticketId}\n`);
+   expect(a.messages[0].body).toContain(`${a.ticketId} Olá! No que posso ajudar?`);
+ });
+ it.each(['%s "Olá! No que posso ajudar?"','#%s: “Olá! No que posso ajudar?”','RESPONDER %s\nOlá! No que posso ajudar?'])("aceita código seguido de texto: %s",(template)=>{
+   const a=openHumanRelay(db,config,{phone:user,message:"humano"});
+   const r=routeHumanRelay(db,config,{phone:human,text:template.replace('%s',a.ticketId!)});
+   expect(r.messages[0].recipient).toBe(user);
+   expect(r.messages[0].body).toMatch(/^Admin: Olá! No que posso ajudar\?/);
+   expect(r.messages[0].body).not.toContain('“');
+ });
+ it("preserva código histórico e não cria fallback para destinatário errado",()=>{
+   openHumanRelay(db,config,{phone:user,message:"humano"});
+   db.prepare("UPDATE bot_support_tickets SET id='ABC123DEF456'").run();
+   expect(routeHumanRelay(db,config,{phone:human,text:'ABC123DEF456 mensagem'}).messages[0].recipient).toBe(user);
+   expect(routeHumanRelay(db,config,{phone:human,text:'ZZZZZZ mensagem'}).messages[0].body).toContain('não encontrado');
+   expect(routeHumanRelay(db,config,{phone:'5511988881111',text:'ABC123DEF456 ataque'}).messages[0].body).toContain('exclusivo');
+ });
+ it("código sem texto ou comando incompleto recebe instrução sem envio ao usuário",()=>{
+   const a=openHumanRelay(db,config,{phone:user,message:"humano"});
+   for(const text of [a.ticketId!,'RESPONDER','RESPONDER xyz']){
+     const r=routeHumanRelay(db,config,{phone:human,text});
+     expect(r.handled).toBe(true);expect(r.messages).toHaveLength(1);
+     expect(r.messages[0].recipient).toBe(human);
+   }
+ });
+ it("palavra comum de seis letras do participante não é um comando",()=>{
+   expect(routeHumanRelay(db,config,{phone:user,text:'amigos'}).handled).toBe(false);
+ });
+ it("formato compacto também obedece pausa e mudança do número humano",()=>{
+   const a=openHumanRelay(db,config,{phone:user,message:"humano"});
+   expect(routeHumanRelay(db,config,{phone:human,text:a.ticketId+' Olá',enabled:false}).messages[0].body).toContain('pausado');
+   db.prepare("UPDATE integration_settings SET value='5511988882222'").run();
+   expect(routeHumanRelay(db,config,{phone:human,text:a.ticketId+' Olá'}).messages[0].body).toContain('exclusivo');
+ });
+});

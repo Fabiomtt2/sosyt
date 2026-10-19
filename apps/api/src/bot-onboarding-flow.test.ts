@@ -1,3 +1,4 @@
+import {setParticipantAccess} from "./participant-access.js";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {buildApp} from "./app.js";
 import {createDatabase,type AppDatabase} from "./db.js";
@@ -48,9 +49,11 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   expect(user.phone).toBe(phone);
   expect(db.prepare("SELECT 1 FROM users WHERE phone LIKE '%@lid'").get()).toBeUndefined();
   expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone=?").get(phone)).toBeUndefined();
+  // WhatsApp transport already proved the number: admission is queued before any site login.
+  expect(db.prepare("SELECT phone,status FROM group_join_requests WHERE phone=?").get(phone)).toEqual({phone,status:"PENDING"});
   const wrong=await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:"SenhaErrada123"}});
   expect(wrong.statusCode).toBe(401);
-  expect(db.prepare("SELECT 1 FROM group_join_requests WHERE phone=?").get(phone)).toBeUndefined();
+  expect(db.prepare("SELECT status FROM group_join_requests WHERE phone=?").get(phone)).toEqual({status:"PENDING"});
   const login=await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:user.password}});
   expect(login.statusCode,login.body).toBe(200);
   expect(db.prepare("SELECT phone,status FROM group_join_requests WHERE phone=?").get(phone)).toEqual({phone,status:"PENDING"});
@@ -123,7 +126,7 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
  it("relay HTTP LID: humano autorizado responde na conversa original, com dedupe e encerramento",async()=>{
   await inbound("Tenho dúvidas");
   const ticket=db.prepare("SELECT id FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone) as {id:string};
-  expect(ticket.id).toMatch(/^[A-F0-9]{12}$/);
+  expect(ticket.id).toMatch(/^[A-F0-9]{6}$/);
   await inbound("Não consigo acessar a fila");
   const humanMessage=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-2:relay-user-message'").get() as {recipient:string;payload:string};
   expect(humanMessage.recipient).toBe("5571993978956");
@@ -136,12 +139,12 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   }
   expect((await fromHuman("relay-http-denied","RESPONDER "+ticket.id+" invasor","5511999990888")).statusCode).toBe(200);
   expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE recipient=? AND dedupe_key='evo:sos-primary:relay-http-denied:relay-response'").get(phone)).toBeUndefined();
-  const command="RESPONDER "+ticket.id+" Olá! Sou da equipe, vamos resolver.";
+  const command=ticket.id+' "Olá! Sou da equipe, vamos resolver."';
   expect((await fromHuman("relay-http-response",command)).statusCode).toBe(200);
   await fromHuman("relay-http-response",command);
   const replies=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:relay-http-response:relay-response'").all() as {recipient:string;payload:string}[];
   expect(replies).toHaveLength(1);expect(replies[0].recipient).toBe(phone);
-  expect(payloadBody(replies[0].payload)).toContain("Olá! Sou da equipe, vamos resolver.");
+  expect(payloadBody(replies[0].payload)).toContain("Admin: Olá! Sou da equipe, vamos resolver.");
   expect((await fromHuman("relay-http-close","ENCERRAR "+ticket.id)).statusCode).toBe(200);
   expect(db.prepare("SELECT status FROM bot_support_tickets WHERE id=?").get(ticket.id)).toEqual({status:"CLOSED"});
   await inbound("2");
@@ -197,4 +200,21 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   expect((db.prepare("SELECT promo_millis AS promo FROM wallets WHERE user_id=?").get(second.userId))).toEqual({promo:0});
   expect(db.prepare("SELECT COALESCE(SUM(amount_millis),0) AS total FROM wallet_ledger WHERE kind='WELCOME'").get()).toEqual({total:10000});
  });
+ it("Owner revocation without membership survives password requests and repeated bot onboarding",async()=>{
+  const user=await signup();
+  expect(db.prepare('SELECT 1 FROM group_memberships WHERE phone=?').get(phone)).toBeUndefined();
+  const previous=db.prepare('SELECT password_hash AS hash FROM user_passwords WHERE user_id=?').get(user.id);
+  setParticipantAccess(db,user.id,true,'root-test','Bloqueio administrativo sintético');
+  for(const text of ['3','1','Pessoa Renomeada','continuar'])await inbound(text);
+  expect(db.prepare('SELECT password_hash AS hash FROM user_passwords WHERE user_id=?').get(user.id)).toEqual(previous);
+  expect(db.prepare('SELECT name FROM users WHERE id=?').get(user.id)).toEqual({name:'Pessoa Sintetica'});
+  expect(db.prepare('SELECT blocked_at FROM participant_access_restrictions WHERE user_id=?').get(user.id)).not.toEqual({blocked_at:null});
+  expect(db.prepare('SELECT 1 FROM group_memberships WHERE phone=?').get(phone)).toBeUndefined();
+  const messages=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%:access-blocked'").all() as {payload:string}[];
+  expect(messages).toHaveLength(4);
+  expect(messages.every(r=>payloadBody(r.payload).includes('pausado pela administração'))).toBe(true);
+  await inbound('Tenho duvidas');
+  expect(db.prepare("SELECT 1 FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone)).toBeTruthy();
+ });
+
 });

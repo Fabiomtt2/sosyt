@@ -1,5 +1,6 @@
 import {afterEach,beforeEach,describe,expect,it} from "vitest";
 import {createDatabase,type AppDatabase} from "./db.js";
+import {recordGroupVerification,recordMemberVerification,materializeApprovedMembership,verifiedGroupCodes} from "./group-verification.js";
 import {botProgressReply} from "./bot-progress-replies.js";
 import {classifyInbound} from "./bot-inbound.js";
 describe("bot reads persisted progress without mutating engines",()=>{
@@ -52,4 +53,30 @@ describe("bot reads persisted progress without mutating engines",()=>{
  it("does not pretend to know an unregistered person's account",()=>{
   expect(botProgressReply(db,"5511988887777","ranking")).toContain("preparar seu acesso primeiro");
  });
+ it("lists all verified groups, preserves primary admission, and removes stale mapping evidence",()=>{
+  db.prepare("INSERT INTO participation_requests(id,phone,name,status,created_at,updated_at) VALUES('r',?,'Lia','APPROVED',?,?)").run(phone,now,now);
+  db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id) VALUES('2',1,'222@g.us')").run();
+  db.prepare("UPDATE groups SET whatsapp_group_id='111@g.us' WHERE code='1'").run();
+  for(const code of ['1','2']){
+   const gid=code==='1'?'111@g.us':'222@g.us';
+   recordGroupVerification(db,'EVOLUTION',code,gid,'SOS YOUTUBER '+code,1,now);
+   recordMemberVerification(db,'EVOLUTION',code,phone,gid,true,now);
+   materializeApprovedMembership(db,phone,code,now);
+  }
+  expect(verifiedGroupCodes(db,phone)).toEqual(['1','2']);
+  expect(db.prepare('SELECT group_code FROM group_memberships WHERE phone=?').get(phone)).toEqual({group_code:'1'});
+  const reply=botProgressReply(db,phone,'minhas filas');
+  expect(reply).toContain('SOS YOUTUBER 1 · SOS YOUTUBER 2');
+  db.prepare("UPDATE groups SET whatsapp_group_id='999@g.us' WHERE code='2'").run();
+  expect(verifiedGroupCodes(db,phone)).toEqual(['1']);
+ });
+ it("shows emoji progress from stored playlist observation and actual level XP",()=>{
+  db.prepare("INSERT INTO group_memberships(phone,group_code,approved_at) VALUES(?,'1',?)").run(phone,now);
+  const round=(db.prepare('SELECT id FROM rounds LIMIT 1').get() as {id:string}).id;
+  db.prepare("INSERT INTO round_participants(round_id,user_id,joined_at) VALUES(?,'u',?)").run(round,now);
+  db.prepare("INSERT INTO playlist_watch_progress(round_id,user_id,watched_seconds_json,durations_json,percent,updated_at) VALUES(?,'u','[]','[]',50,?)").run(round,now);
+  expect(botProgressReply(db,phone,'filas')).toContain('🟪🟪🟪🟪🟪⬜⬜⬜⬜⬜ 50%');
+  expect(botProgressReply(db,phone,'xp')).toContain('⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%');
+ });
+
 });

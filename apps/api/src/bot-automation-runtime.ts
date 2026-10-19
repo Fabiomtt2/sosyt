@@ -1,3 +1,4 @@
+import {captureQueueEvent} from "./bot-queue-snapshot.js";
 import { createHash } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -139,10 +140,10 @@ export function dispatchBotAutomations(db: AppDatabase,config: Config,at: Date =
       status=(SELECT status FROM whatsapp_outbox o WHERE o.id=outbox_id),
       reason=(SELECT last_error FROM whatsapp_outbox o WHERE o.id=outbox_id)
       WHERE status='QUEUED' AND outbox_id IN (SELECT id FROM whatsapp_outbox WHERE status IN ('SENT','FAILED'))`);
-    const rows = db.prepare(`SELECT d.*,e.event,e.user_id AS userId,e.created_at AS eventCreatedAt FROM bot_automation_deliveries d
+    const rows = db.prepare(`SELECT d.*,e.event,e.user_id AS userId,e.created_at AS eventCreatedAt,e.source_id AS sourceId,e.vars_json AS eventVars FROM bot_automation_deliveries d
       JOIN bot_automation_events e ON e.id=d.event_id
       WHERE d.status='WAITING' AND d.available_at<=? ORDER BY d.available_at,d.rowid LIMIT 100`).all(at.toISOString()) as Array<{
-        id:string;recipient:string;target:string;body:string;event:AutomationEvent;userId:string|null;eventCreatedAt:string;
+        id:string;recipient:string;target:string;body:string;event:AutomationEvent;userId:string|null;eventCreatedAt:string;sourceId:string;eventVars:string;
       }>;
     let queued=0,waiting=0,suppressed=0;
     for (const row of rows) {
@@ -161,7 +162,7 @@ export function dispatchBotAutomations(db: AppDatabase,config: Config,at: Date =
         // The live outbox worker reserves actual Evolution attempts. Producer-side
         // budgeting would discard valid jobs and count queued work as delivered.
       }
-      const result=group ? transport.group(db,config,row.recipient,row.body,"automation:"+row.id,{event:row.event,deliveryClass:deliveryClass(row.event)==="QUEUE"?"QUEUE":"ENGAGEMENT",expiresAt:new Date(Date.parse(row.eventCreatedAt)+86_400_000).toISOString()})
+      const result=group ? transport.group(db,config,row.recipient,row.body,"automation:"+row.id,{event:row.event,queueSnapshot:captureQueueEvent(db,row.event,row.sourceId,JSON.parse(row.eventVars) as Variables,row.eventCreatedAt),deliveryClass:deliveryClass(row.event)==="QUEUE"?"QUEUE":"ENGAGEMENT",expiresAt:new Date(Date.parse(row.eventCreatedAt)+86_400_000).toISOString()})
         : transport.dm(db,config,row.recipient,row.body,"automation:"+row.id,undefined,{event:row.event,deliveryClass:deliveryClass(row.event)});
       if (result.queued && result.outboxId) {set("QUEUED",undefined,result.outboxId);queued++;}
       else if (["OPTED_OUT","QUIET_HOURS","BUDGET_EXCEEDED"].includes(result.reason ?? "")) {set("SKIPPED",result.reason);suppressed++;}

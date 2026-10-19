@@ -19,7 +19,7 @@ describe("group join confirms real membership before granting access",()=>{
  function client(presentAfter:boolean,status="200"){
   let added=false;
   const fetchImpl=vi.fn(async(url:string)=>({ok:true,status:200,json:async()=>url.includes("/participants/")
-   ?{participants:added&&presentAfter?[{id:"100000000000001@lid",phoneNumber:phone+"@s.whatsapp.net"}]:[]}
+   ?{participants:added&&presentAfter?[{id:"100000000000001@lid",phoneNumber:phone+"@s.whatsapp.net"}]:[{id:"5511988888888@s.whatsapp.net"}]}
    :url.includes("updateParticipant")?(added=true,{participants:[{jid:phone+"@s.whatsapp.net",status}]})
    :{inviteCode:"synthetic-invite"}}));
   return createEvolutionClient({config:{url:"https://example.test",instance:"sos",apiKey:"synthetic"},fetchImpl});
@@ -45,4 +45,36 @@ describe("group join confirms real membership before granting access",()=>{
   expect(await processGroupJoin(db,config,c)).toMatchObject({escalated:true,reason:"MEMBERSHIP_REVOKED_REQUIRES_REVIEW"});
   expect(add).not.toHaveBeenCalled();
  });
+ it.each(['missing','full'])("skips %s group 1 and uses verified group 2; ignores unpaired 3",async(mode)=>{
+  db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id,membership_mode) VALUES('2',1,'222@g.us','EVOLUTION'),('3',1,NULL,'EVOLUTION')").run();
+  const c=client(true);
+  let added=false;
+  vi.spyOn(c,'groupParticipants').mockImplementation(async(gid)=>{
+    if(gid==='123@g.us'){
+      if(mode==='missing')throw new Error('404');
+      return mode==='full'?Array.from({length:1024},(_,i)=>'55119'+String(i).padStart(8,'0')):[];
+    }
+    return added?['5511988888888',phone]:['5511988888888'];
+  });
+  const add=vi.spyOn(c,'addParticipant').mockImplementation(async()=>{added=true;return {};});
+  expect(await processGroupJoin(db,config,c)).toMatchObject({added:true,groupCode:'2'});
+  expect(add).toHaveBeenCalledOnce();expect(add).toHaveBeenCalledWith('222@g.us',phone);
+ });
+ it("empty real group 1 is tried but admission still requires presence confirmation",async()=>{
+  const c=client(true);vi.spyOn(c,'groupParticipants').mockResolvedValue([]);
+  const add=vi.spyOn(c,'addParticipant');
+  expect(await processGroupJoin(db,config,c)).toMatchObject({groupCode:'1',reason:'EVOLUTION_MEMBERSHIP_NOT_CONFIRMED'});
+  expect(add).toHaveBeenCalledOnce();
+  expect(db.prepare('SELECT 1 FROM group_memberships WHERE phone=?').get(phone)).toBeUndefined();
+ });
+
+ it("uses empty real1 before group2 once the new presence is confirmed",async()=>{
+  db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id) VALUES('2',1,'222@g.us')").run();
+  const c=client(true);let joined=false;
+  vi.spyOn(c,'groupParticipants').mockImplementation(async gid=>gid==='123@g.us'?(joined?[phone]:[]):['5511888888888']);
+  const add=vi.spyOn(c,'addParticipant').mockImplementation(async()=>{joined=true;return {};});
+  expect(await processGroupJoin(db,config,c)).toMatchObject({added:true,groupCode:'1'});
+  expect(add).toHaveBeenCalledWith('123@g.us',phone);
+ });
+
 });

@@ -7,6 +7,8 @@ import type { Config } from "./config.js";
 import { effectiveOwnerAccounts } from "./owners.js";
 import { randomUUID } from "node:crypto";
 import { catalogTierOf, type AvatarTier } from "./avatar-tiers.js";
+import { assertSocialInteractionAllowed, isSocialBlocked, socialVisibilitySql } from "./social-blocks.js";
+import { canDirectMessage } from "./social.js";
 import type { AppDatabase } from "./db.js";
 
 const systemIdentity=()=>({id:"system",name:"Sua jornada no SOS",groupCode:"",avatar:null,presentation:{badge:null,superActive:false} as UserPresentation});
@@ -58,7 +60,9 @@ function sanitizeBody(raw: unknown): string {
 export function sendDirectMessage(db: AppDatabase, fromId: string, toId: string, rawBody: string) {
   if (fromId === toId) throw Object.assign(new Error("Você não pode enviar mensagem para si mesmo."), { statusCode: 400 });
   const recipient = identityOf(db, toId);
-  if (!recipient) throw Object.assign(new Error("Destinatário não encontrado."), { statusCode: 404 });
+  if (!recipient||!db.prepare("SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL").get(toId)) throw Object.assign(new Error("Destinatário não encontrado."), { statusCode: 404 });
+  assertSocialInteractionAllowed(db,fromId,toId);
+  if(!canDirectMessage(db,fromId,toId))throw Object.assign(new Error("Esta pessoa precisa aceitar sua solicitação de conversa ou amizade antes de receber mensagens."),{statusCode:403,code:"MESSAGE_CONSENT_REQUIRED"});
   const body = sanitizeBody(rawBody);
   const id = randomUUID(), now = new Date().toISOString();
   db.prepare(`INSERT INTO mail_messages (id,thread_key,sender_id,sender_role,recipient_id,body,created_at,read_at,deleted_at)
@@ -81,14 +85,14 @@ export function ownerBroadcast(db: AppDatabase, rawBody: string, actorOwnerId?: 
 }
 
 export function unreadCount(db: AppDatabase, userId: string): number {
-  return (db.prepare("SELECT COUNT(*) AS n FROM mail_messages WHERE recipient_id=? AND read_at IS NULL AND deleted_at IS NULL").get(userId) as { n: number }).n;
+  return (db.prepare("SELECT COUNT(*) AS n FROM mail_messages WHERE recipient_id=? AND read_at IS NULL AND deleted_at IS NULL AND (sender_role<>'USER' OR "+socialVisibilitySql("recipient_id","sender_id")+")").get(userId) as { n: number }).n;
 }
 
 /** Caixa de entrada: threads (último recado + não-lidos). Broadcast aparece como thread do Owner. */
 export function listInbox(db: AppDatabase, userId: string,config?:Config) {
   const rows = db.prepare(`SELECT thread_key AS threadKey, sender_id AS senderId, sender_role AS senderRole, recipient_id AS recipientId,
     body, created_at AS createdAt, read_at AS readAt
-    FROM mail_messages WHERE deleted_at IS NULL AND (recipient_id=? OR sender_id=?) ORDER BY created_at DESC`).all(userId, userId) as Array<Record<string, unknown>>;
+    FROM mail_messages WHERE deleted_at IS NULL AND (recipient_id=? OR sender_id=?) AND (sender_role<>'USER' OR ${socialVisibilitySql("?","CASE WHEN sender_id=? THEN recipient_id ELSE sender_id END")}) ORDER BY created_at DESC`).all(userId, userId,userId,userId,userId,userId) as Array<Record<string, unknown>>;
   const threads = new Map<string, { key: string; withId: string | null; role: MailRole; lastBody: string; lastAt: string; unread: number }>();
   for (const r of rows) {
     const key = String(r.threadKey);
@@ -105,6 +109,7 @@ export function listInbox(db: AppDatabase, userId: string,config?:Config) {
 
 /** Mensagens de um thread (DM com `otherId`, ou 'broadcast'); marca recebidas como lidas. */
 export function readThread(db: AppDatabase, userId: string, otherId: string,config?:Config) {
+  if(!["broadcast","system"].includes(otherId)&&isSocialBlocked(db,userId,otherId))return [];
   const key = ["broadcast","system"].includes(otherId) ? otherId : threadKey(userId, otherId);
   const scope = ["broadcast","system"].includes(otherId) ? "recipient_id=?" : "(recipient_id=? OR sender_id=?)";
   const params = ["broadcast","system"].includes(otherId) ? [userId] : [userId, userId];

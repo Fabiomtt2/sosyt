@@ -51,7 +51,7 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
     // no singular casa tambem o plural via includes. Vem antes de HELP na ordem, entao
     // "tenho duvidas" chama uma pessoa em vez de cair na ajuda automatica.
     "tenho duvida", "tenho uma duvida", "tenho duvidas", "estou com duvida",
-    "humano", "atendente", "pessoa de verdade", "falar com alguem", "falar com uma pessoa", "suporte humano",
+    "preciso de suporte", "quero suporte", "falar com o suporte", "falar com a equipe", "falar com um admin", "falar com o admin", "falar com um owner", "falar com rafael", "falar com fabio", "atendimento humano", "atendimento pessoal", "uma pessoa me ajuda", "tenho 1 duvida", "humano", "atendente", "pessoa de verdade", "falar com alguem", "falar com uma pessoa", "suporte humano",
   ] },
   // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
   { intent: "PARTICIPATE", phrases: ["1"] },
