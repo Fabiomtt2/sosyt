@@ -1,0 +1,50 @@
+name: Validate SOS Youtuber
+
+on:
+  push:
+    branches: [main, auditoria/hybrid-plus-convergencia]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install project dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Unit and HTTP tests
+        run: npm test
+      - name: Type checks
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Install browser on the isolated runner
+        run: npx playwright install --with-deps chromium
+      - name: Browser journeys
+        run: npm run test:e2e -w @conexao/client
+      - name: Preserve synthetic browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .local-tmp/browser-results/
+            .local-tmp/social-messenger-evidence/
+            .local-tmp/intro-flash-evidence/

@@ -1,3 +1,49 @@
+# Atualização vigente — 19/10/2026 UTC — branch em validação
+
+Cofre preservado: ~/AUDITORIA-CLAUDE-SOSYT/01-ESPELHO/trabalho, branch auditoria/hybrid-plus-convergencia.
+Commits locais: fcc8b2f backend (bot/grupos/filas/social/Owner), 756c852 cliente/artes/emblemas.
+Main remoto ainda f4d91ac neste registro; não publicar até completar revisão dos gates.
+API802/802 completos; após última descriçãoPasse16focados verdes. Cliente38/38, lint/buildfinal4 verdes.
+E2Efinal2:13pass/3fail/4nãoexecutados. Corrigidos conflitoCSS do chat e esperas do ambiente.
+E2Elocalfinal4 PID479160 reexecuta6cenários, ainda sem término. Comércio frio5s falhou;
+novo teste exige dashboardHTTP200 antes da tela. Conferir log .local-tmp/release-gates-e2e-final4.log.
+Faltam ainda visual-convergence e repetir acesso/moderação após CSS; não declarar20verdes sem provas.
+Novo workflow validation.yml roda suite/lint/build/E2E na branch/PR, sem deploy nem segredos de produção.
+Ler docs/HANDOFF-ASTRA-BOT-SOCIAL-20261019.md integral e docs/PENDENCIAS-INTEGRACAO-20261019.md.
+12emblemas agora usam catálogo do servidor no LevelBadge; prancha32/48px aberta, E2Eimagem pendente.
+Fonte de produção continua release bot-convergencia-20261018 até deploy realmente SUCCESS/API13caps.
+Nenhuma worktree nova, reset, clean, stash ou descarte. Screenshots/segredos fora dos commits.
+
+---
+
+# Checkpoint vigente — convergência 19/10/2026 UTC (publicação em preparação)
+
+Fonte autorizada: cofre ~/AUDITORIA-CLAUDE-SOSYT/01-ESPELHO/trabalho,
+branch auditoria/hybrid-plus-convergencia, base f4d91ac. WIP preservado e integrado;
+nenhum commit desta rodada enviado no instante deste registro. A árvore antiga não foi alterada.
+Produção anterior confirmada: API 9ffd980e-1707-4f9d-8b78-ee3ba7b94654, Web
+af25a7e1-505c-45e1-8409-8f89dab629fe, ambas SUCCESS, release bot-convergencia-20261018.
+
+Leia integralmente docs/HANDOFF-ASTRA-BOT-SOCIAL-20261019.md e
+ docs/PENDENCIAS-INTEGRACAO-20261019.md. Regras novas prevalecem sobre histórico abaixo:
+- Cadastro validado pelo inbound enfileira inclusão antes do login; menor grupo REAL com vaga,
+  inclusive 1 vazio, é elegível. Não inventar grupo3. Aprovação exige presença confirmada.
+- Filas duram72h; todos concluíram ou expirou: saem das ativas, histórico/URLs/ledger preservados.
+  Reutilizar lacuna1 sem compactar2; abandonar aplica60min uma vez, sem bloquear outras filas liberadas.
+- Playlist parcial requer aceite explícito: XP verificado, zero moedas; seleção individual congelada.
+- Convite de amizade1moeda, aceite0; direct exige consentimento; bloquear filtra DM/global/presentes.
+- Bom dia/noite para todos grupos vinculados, escalonados; reserva de capacidade dentro dos freios.
+  Nunca religar runGroupPlan nem duplicar transporteEvolution. LID nunca é telefone.
+
+Gates atuais: API802/802 e cliente36/36; lint/build completos passaram. E2E20 em andamento,
+PID472482, log .local-tmp/release-gates-e2e-final2.log. Não iniciar segundo navegador.
+Antes de publicar, confirmar término/resultado, revisar staged, preservar screenshots fora do commit,
+commits temáticos e push branch/main sem force. API nova exige13capacidades antes de iniciarWeb.
+BackupSQLite WAL consistente precede migrações aditivas. Autorização de publicação já existe.
+GoogleOAuth e Pix ainda dependem de credenciais externas; roundtrip humano real ainda não certificado.
+
+---
+
 # Checkpoint vigente — 2026-10-18T08:45-03:00
 
 Fonte de integração: cofre Claude ~/AUDITORIA-CLAUDE-SOSYT/01-ESPELHO/trabalho,

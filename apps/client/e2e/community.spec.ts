@@ -32,7 +32,7 @@ async function fillBrazilPhone(page: any, subscriber: string) {
 }
 
 test("login único, solicitação, aprovação Owner, participante e compra demo", async ({ page, request }) => {
-  test.setTimeout(360_000);
+  test.setTimeout(600_000);
   // This page-by-page scenario captures many full-size images on the low-memory host.
   // Allow bounded browser action time while preserving every assertion and server check.
   page.setDefaultTimeout(30_000);
@@ -551,7 +551,9 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(banners.getByText("10 vídeos. Uma playlist em comum.",{exact:true})).toBeVisible();
   await banners.getByRole("button",{name:"Próximo banner"}).click();
   await expect(banners.getByText("Seu tempo continua com você.",{exact:true})).toBeVisible();
+  await expect(banners.locator("img")).toHaveAttribute("src",/time-continuity-v2.webp/);
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
+  await expect(banners).toContainText("sem moedas");
   await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-tempo-desktop.png"),fullPage:false});
   await banners.getByRole("button",{name:"Próximo banner"}).click();
   await expect(banners.getByText("Um recado pode aproximar criadores.",{exact:true})).toBeVisible();
@@ -625,7 +627,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await page.screenshot({animations:"disabled",path:resolve(evidence,"participante-loja-desktop.png"),fullPage:false});
   expect(await storeDialog.evaluate((el)=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   await page.setViewportSize({width:390,height:844});
-  const buyItem=storeDialog.getByRole("button",{name:"Quero este item"}).first();
+  const buyItem=storeDialog.locator('[data-product-code="COINS_10"]').getByRole("button",{name:"Quero este item"});
   await buyItem.scrollIntoViewIfNeeded();
   expect(await buyItem.evaluate(el=>{
     const box=el.getBoundingClientRect();

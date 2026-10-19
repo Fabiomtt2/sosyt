@@ -6,6 +6,8 @@ test("Acesso e sala comunitária preservam identidade e controles administrativo
   test.setTimeout(150000);
   const api = "http://127.0.0.1:17333";
   const evidence = resolve("../../docs/evidencias");
+  const check=expect.configure({timeout:15_000});
+  const chatResponses:Array<{status:number;at:number}>=[];page.on("response",r=>{if(r.url().endsWith("/chat/global")&&r.request().method()==="GET")chatResponses.push({status:r.status(),at:Date.now()});});
   const phase = process.env.SOS_VISUAL_PHASE ?? "after";
   const errors: string[] = [];
   page.on("pageerror", e => errors.push(e.message));
@@ -31,7 +33,7 @@ test("Acesso e sala comunitária preservam identidade e controles administrativo
   await page.evaluate(owner => localStorage.setItem("conexao_owner_token", owner), owner);
   await page.reload();
   const room = page.getByRole("complementary", { name: "Chat global da comunidade" });
-  await expect(room.getByText("Bem-vindos à nossa sala. Cada voz faz parte desta comunidade.", { exact: true })).toBeVisible();
+  try{await check(room.getByText("Bem-vindos à nossa sala. Cada voz faz parte desta comunidade.", { exact: true })).toBeVisible();}finally{await test.info().attach("chat-initial-status",{body:JSON.stringify(chatResponses),contentType:"application/json"});}
   await room.getByLabel("Mensagem para o chat global").fill("Uma segunda mensagem da administração.");
   await room.getByRole("button", { name: "Enviar mensagem à comunidade" }).click();
   await expect(room.getByText("Uma segunda mensagem da administração.", { exact: true })).toBeVisible();
@@ -66,7 +68,9 @@ test("Acesso e sala comunitária preservam identidade e controles administrativo
   await superMessage.getByLabel("Ações da mensagem de Criadora SUPER").click();
   await superMessage.getByRole("button", { name: "Fixar aviso", exact: true }).click();
   await expect(room.getByLabel("Avisos fixados")).toContainText("Um olá de quem cria junto com vocês.");
+  const moderationSaved=page.waitForResponse(response=>response.url()===api+"/admin/chat/global/moderate"&&response.request().method()==="POST");
   await superMessage.getByRole("button", { name: "Silenciar por 10 min", exact: true }).click();
+  expect((await moderationSaved).status()).toBe(200);
   const muted = await request.post(api + "/chat/global", { headers: supHeaders, data: { body: "Não deverá ser enviada enquanto silenciada." } });
   expect((await muted.json()).code).toBe("CHAT_MUTED");
   await request.post(api + "/admin/chat/global/moderate", { headers, data: { userId: sup.user.id, action: "UNMUTE" } });

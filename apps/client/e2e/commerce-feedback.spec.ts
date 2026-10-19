@@ -1,10 +1,12 @@
 import { ownerSession } from "./helpers/owner-session";
-import {test,expect} from "@playwright/test";
+import {test,expect as browserExpect} from "@playwright/test";
+const expect=browserExpect.configure({timeout:15_000});
 import {resolve} from "node:path";
 import Database from "better-sqlite3";
 
+test.use({actionTimeout:30_000});
 test("loja completa, recibos, animação e identidade SUPER persistem sem duplicar",async({page,request})=>{
- test.setTimeout(240000);
+ test.setTimeout(360000);
  const server="http://127.0.0.1:17333",evidence=resolve("../../docs/evidencias");
  const errors:string[]=[];page.on("pageerror",error=>errors.push(error.message));
  const owner=await ownerSession(request);
@@ -21,7 +23,9 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await page.setViewportSize({width:1440,height:960});
  await page.goto("/?audit=commerce-20261014");
  await page.evaluate(token=>{localStorage.setItem("conexao_token",token);localStorage.setItem("conexao_active_role","user");},lia.token);
+ const dashboardLoaded=page.waitForResponse(response=>response.url()===server+"/dashboard"&&response.request().method()==="GET",{timeout:30_000});
  await page.reload();
+ expect((await dashboardLoaded).status()).toBe(200);
  await expect(page.getByRole("heading",{name:"Vamos montar a próxima seleção?"})).toBeVisible();
  await expect(page.locator(".gc-admin-badge").first()).toHaveText("ADMIN");
  expect(await page.locator(".super-cta").evaluate(el=>getComputedStyle(el,"::after").animationName)).toBe("sos-super-shimmer");
@@ -46,6 +50,7 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  }
  await page.locator(".wallet-store-link").click();
  const store=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
+ await expect(store.locator(".store-product").first()).toHaveAttribute("data-product-code","SUPER_30");
  for(const code of ["COINS_10","PASS_SINGLE","SKIP_1","SUPER_30"])await expect(store.locator('[data-product-code="'+code+'"]')).toHaveCount(1);
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:960});
@@ -85,8 +90,11 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await expect(celebration).toContainText("1 Pular");
  await celebration.getByRole("button",{name:"Ver meu inventário"}).click();
  const inventory=page.getByRole("dialog",{name:"Mensagens e inventário"});
- await expect(inventory.getByLabel("Meu inventário")).toContainText("1 passe");
- await expect(inventory.getByLabel("Meu inventário")).toContainText("1 Pular");
+ await inventory.getByRole("button",{name:"Inventário",exact:true}).click();
+ await expect(inventory.getByLabel("Meu inventário").locator(".wallet-value")).toHaveCount(4);
+ await expect(inventory.getByLabel("Meu inventário").locator(".passes-value strong")).toHaveText("1");
+ await expect(inventory.getByLabel("Meu inventário").locator(".skips-value strong")).toHaveText("1");
+ await expect(inventory.getByLabel("Meu inventário").locator(".super-value strong")).toHaveText("Inativo");
  await page.screenshot({path:resolve(evidence,"commerce-inventory-1440.png"),animations:"disabled"});
  await page.keyboard.press("Escape");
  const superPurchase=await buy("SUPER_30");
@@ -106,23 +114,30 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  const message=room.locator(".gc-msg-super").filter({hasText:"Uma nova fase para criar com vocês."});
  await expect(message).toBeVisible();
  await expect(message.locator(".user-avatar")).toHaveAttribute("data-badge","SUPER");
+ await message.getByRole("button",{name:"Ver Lia Criadora",exact:true}).click();
+ const portrait=page.getByRole("dialog",{name:"Avatar de Lia Criadora"});
+ await expect(portrait.locator(".avatar-classic-native")).toHaveCSS("width","80px");
+ await expect(portrait.getByRole("button",{name:"Escolher avatar em alta definição",exact:true})).toBeVisible();
+ await portrait.getByRole("button",{name:"Fechar",exact:true}).click();
  expect(await message.locator(".gc-super-text").evaluate(el=>getComputedStyle(el).color)).toBe("rgb(73, 49, 65)");
  await expect(room.getByLabel("Mensagem para o chat global")).toBeEnabled();
  await room.getByLabel("Mensagem para o chat global").fill("Obrigada por compartilhar suas ideias.");
  await room.getByRole("button",{name:"Enviar mensagem à comunidade"}).click();
  await expect(room.getByText("Obrigada por compartilhar suas ideias.",{exact:true})).toBeVisible();
- await request.post(server+"/mail/dm",{headers:auth,data:{toUserId:kai.user.id,body:"Olá, Kai! Vamos criar juntos."}});
+ const consent=await request.post(server+"/social/message-requests",{headers:auth,data:{targetUserId:kai.user.id}});expect(consent.ok(),await consent.text()).toBe(true);
+ expect((await request.post(server+"/social/message-requests/"+(await consent.json()).id,{headers:{authorization:"Bearer "+kai.token},data:{accept:true}})).ok()).toBe(true);
+ expect((await request.post(server+"/mail/dm",{headers:auth,data:{toUserId:kai.user.id,body:"Olá, Kai! Vamos criar juntos."}})).ok()).toBe(true);
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:960});
   await page.screenshot({path:resolve(evidence,"commerce-super-chat-"+width+".png"),animations:"disabled"});
  }
  // A second user sees the same image and subscription identity in direct messages.
  await page.evaluate(token=>{localStorage.setItem("conexao_token",token);},kai.token);await page.reload();
- await page.getByRole("button",{name:"Mensagens e inventário",exact:true}).click();
+ await page.getByRole("button",{name:/Abrir correio e amigos/}).first().click();
  const direct=page.getByRole("dialog",{name:"Mensagens e inventário"});
  await direct.getByRole("button",{name:/Lia Criadora/}).click();
- await expect(direct.locator(".community-messages .user-avatar")).toHaveAttribute("data-badge","SUPER");
- await expect(direct.locator(".community-messages")).toContainText("Olá, Kai!");
+ await expect(direct.locator(".social-message-stream .user-avatar")).toHaveAttribute("data-badge","SUPER");
+ await expect(direct.locator(".social-message-stream")).toContainText("Olá, Kai!");
  await page.screenshot({path:resolve(evidence,"commerce-super-direct-390.png"),animations:"disabled"});
  await page.keyboard.press("Escape");
  // Expiration in the isolated browser fixture only; production is never touched.

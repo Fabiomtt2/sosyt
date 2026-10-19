@@ -1,7 +1,9 @@
 import { ownerSession } from "./helpers/owner-session";
-import {test,expect} from "@playwright/test";
+import {test,expect as browserExpect} from "@playwright/test";
+const expect=browserExpect.configure({timeout:15_000});
 import {resolve} from "node:path";
 import {readFileSync} from "node:fs";
+test.use({actionTimeout:30_000});
 test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no navegador",async({page,request})=>{
  test.setTimeout(180000);
  const server="http://127.0.0.1:17333",evidence=resolve("../../docs/evidencias");
@@ -28,6 +30,7 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  }
  await page.keyboard.press("Escape");await page.setViewportSize({width:1440,height:960});
  await page.getByRole("button",{name:/Trocar avatar/}).click();
+ await page.getByRole("dialog",{name:"Escolher avatar"}).getByRole("button",{name:"Owner",exact:true}).click();
  const avatarSaved=page.waitForResponse(response=>response.url()===server+"/admin/profile/avatar"&&response.request().method()==="PUT");
  await page.getByRole("button",{name:"Escolher Avatar Premium E2E",exact:true}).click();
  expect((await avatarSaved).status()).toBe(200);
@@ -44,6 +47,8 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  const alice=await member("5571999990201","Alice Premium"),bruno=await member("5571999990202","Bruno Premium");
  expect((await request.post(server+"/chat/global",{headers:{authorization:"Bearer "+rootParticipant},data:{body:"Bem-vindos! Este é nosso espaço de conversa."}})).ok()).toBe(true);
  const ah={authorization:"Bearer "+alice.token},bh={authorization:"Bearer "+bruno.token};
+ const consent=await request.post(server+"/social/message-requests",{headers:ah,data:{targetUserId:bruno.user.id}});expect(consent.ok(),await consent.text()).toBe(true);
+ expect((await request.post(server+"/social/message-requests/"+(await consent.json()).id,{headers:bh,data:{accept:true}})).ok()).toBe(true);
  await request.post(server+"/chat/global",{headers:bh,data:{body:"Olá, Alice! Vamos criar juntos."}});
  const pix=await request.post(server+"/payments/pix",{headers:ah,data:{product:"SKIP_1",email:"alice@example.test",cpf:"52998224725"}});
  expect(pix.ok(),await pix.text()).toBe(true);
@@ -77,7 +82,7 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
   expect(chatBounds!.x).toBeGreaterThanOrEqual(0);
   expect(chatBounds!.x+chatBounds!.width).toBeLessThanOrEqual(width);
   const dashboard=await page.locator("main.dashboard").boundingBox();
-  if(width===1440){expect(chatBounds!.height).toBeGreaterThan(650);expect(dashboard!.x+dashboard!.width).toBeLessThanOrEqual(chatBounds!.x);}
+  if(width===1440){expect(await room.locator(".gc-stream").evaluate(el=>el.clientHeight)).toBeGreaterThanOrEqual(250);expect(await room.locator(".gc-stream").evaluate(el=>el.clientHeight)).toBeLessThanOrEqual(360);expect(dashboard!.x+dashboard!.width).toBeLessThanOrEqual(chatBounds!.x);}
   else expect(dashboard!.y+dashboard!.height).toBeLessThanOrEqual(chatBounds!.y);
   await page.screenshot({animations:"disabled",path:resolve(evidence,"premium-participant-"+width+".png"),fullPage:false});
  }
@@ -108,16 +113,17 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  await page.setViewportSize({width:1440,height:900});
  await expect(page.getByRole("log",{name:"Mensagens da comunidade"})).toBeVisible();
  await page.getByRole("button",{name:"Ver Bruno Premium",exact:true}).click();
- await page.getByRole("button",{name:"Abrir conversa",exact:true}).click();
+ await page.getByRole("button",{name:"Ver perfil, amigos e mensagens",exact:true}).click();
  const community=page.getByRole("dialog",{name:"Mensagens e inventário"});
  await expect(community.getByText("Bruno Premium",{exact:true}).first()).toBeVisible();
  await community.getByLabel("Seu recado").fill("Oi Bruno, este recado fica salvo para você.");
  await community.getByRole("button",{name:"Enviar",exact:true}).click();
- await expect(community.locator(".community-messages").getByText("Oi Bruno, este recado fica salvo para você.",{exact:true})).toBeVisible();
+ await expect(community.locator(".social-message-stream").getByText("Oi Bruno, este recado fica salvo para você.",{exact:true})).toBeVisible();
  const inbox=await request.get(server+"/mail/inbox",{headers:bh});expect((await inbox.json()).threads.some((t:any)=>t.with?.name==="Alice Premium")).toBe(true);
+ await community.getByRole("button",{name:"Enviar um presente",exact:true}).click();
  await community.getByRole("button",{name:"1 Pular",exact:true}).click();
- await expect(community.locator(".gift-confirm")).toContainText("Bruno Premium");
- await expect(community.locator(".community-threads button").first()).toBeDisabled();
+ await expect(community.locator(".social-confirm-card")).toContainText("Bruno Premium");
+ await expect(community.locator(".social-thread-list button").first()).toBeDisabled();
  await community.getByRole("button",{name:"Confirmar presente",exact:true}).click();
  await expect(community.getByRole("status")).toContainText("Presente entregue");
  expect((await (await request.get(server+"/queues/mine",{headers:bh})).json()).skipsAvailable).toBe(1);
@@ -129,6 +135,10 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  }
  await page.keyboard.press("Escape");await expect(community).toHaveCount(0);
  expect(await page.evaluate(()=>getComputedStyle(document.body).overflow)).not.toBe("hidden");
+ const initial=(await (await request.get(server+"/dashboard",{headers:bh})).json()).openRound.id;
+ // Viewing never creates a FREE membership. Enter explicitly before testing Pular.
+ const firstContribution=await request.post(server+"/rounds/current/submissions",{headers:bh,data:{url:"https://youtu.be/E2EQUE00001",expectedRoundId:initial}});
+ expect(firstContribution.ok(),await firstContribution.text()).toBe(true);
  const before=(await (await request.get(server+"/dashboard",{headers:bh})).json()).openRound.id;
  const skipped=await request.post(server+"/queues/skip",{headers:bh});expect(skipped.ok(),await skipped.text()).toBe(true);
  const next=(await skipped.json()).queue.id;expect(next).not.toBe(before);
