@@ -1,7 +1,7 @@
 import { BotPasswordSettings } from "./BotPasswordSettings";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Phone, Sparkles, ShieldCheck, Wand2, Trash2, RefreshCw, Copy, Check, Gift, Ban } from "lucide-react";
-import { ownerApi, type CredentialsState, type SuperAdminState } from "./api";
+import { ownerApi, type CredentialsState, type SuperAdminState, type OwnerOverview } from "./api";
 
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleString("pt-BR") : "—");
 const days = (iso?: string) => {
@@ -15,12 +15,16 @@ const days = (iso?: string) => {
  * telefone dos Owners, credencial de cada ADMIN e gestão da assinatura SUPER.
  * Reúne num lugar só o que antes exigia mexer em variável de ambiente e deploy.
  */
-export function OwnerAccessPanel() {
+export function OwnerAccessPanel({users=[]}:{users?:OwnerOverview["users"]}) {
   const [creds, setCreds] = useState<CredentialsState>();
   const [superState, setSuperState] = useState<SuperAdminState>();
   const [mine, setMine] = useState({ password: "", confirm: "" });
   const [phones, setPhones] = useState<Record<string, string>>({ fabio: "", rafael: "" });
   const [grant, setGrant] = useState({ userId: "", days: "30" });
+  const [participantSearch,setParticipantSearch]=useState("");
+  const grantUser=users.find(user=>user.id===grant.userId);
+  const search=participantSearch.trim().toLocaleLowerCase("pt-BR");
+  const matchingUsers=users.filter(user=>!user.revokedAt && (!search || [user.name,user.phone,user.id].some(value=>value.toLocaleLowerCase("pt-BR").includes(search)))).slice(0,30);
   const [generated, setGenerated] = useState<{ ownerId: string; password: string }>();
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -157,12 +161,14 @@ export function OwnerAccessPanel() {
         <form className="owner-access-form" onSubmit={(e) => {
           e.preventDefault();
           const days = Number(grant.days || superState?.defaultDays || 30);
+          if(!grantUser){setError("Escolha um participante cadastrado na lista.");return;}
+          if(!Number.isInteger(days)||days<1||days>3650){setError("Escolha uma duração inteira de 1 a 3.650 dias.");return;}
           void run(() => ownerApi.grantSuper(grant.userId.trim(), days), `SUPER concedido por ${days} dias.`)
             .then((ok) => { if (ok) setGrant({ userId: "", days: String(superState?.defaultDays ?? 30) }); });
         }}>
-          <label>ID do participante<input value={grant.userId} onChange={(e) => setGrant({ ...grant, userId: e.target.value })} placeholder="cole o ID do participante" /></label>
-          <label className="narrow">Dias<input value={grant.days} onChange={(e) => setGrant({ ...grant, days: e.target.value })} inputMode="numeric" /></label>
-          <button className="primary" disabled={busy || grant.userId.trim().length < 8}><Gift size={15} /> Doar SUPER</button>
+          <label>Buscar por nome, WhatsApp ou ID<input type="search" value={participantSearch} onChange={e=>{setParticipantSearch(e.target.value);setGrant(current=>({...current,userId:""}));}} placeholder="Quem vai receber o SUPER?" disabled={busy}/></label><label>Participante<select aria-label="Participante para receber SUPER" value={grant.userId} onChange={e=>setGrant({...grant,userId:e.target.value})} disabled={busy}><option value="">Selecione um participante</option>{matchingUsers.map(user=><option key={user.id} value={user.id}>{user.name} · {user.phone}</option>)}</select></label>{grantUser&&<p className="muted">Selecionado: <strong>{grantUser.name}</strong> · {grantUser.phone}<br/>ID: <code>{grantUser.id}</code> <button type="button" className="text-button" onClick={()=>void navigator.clipboard.writeText(grantUser.id).then(()=>flash("ID copiado.")).catch(()=>setError("Não foi possível copiar. Selecione o ID exibido."))}>Copiar ID</button></p>}<small>O nome e o telefone identificam a pessoa. O ID é preenchido automaticamente; a doação não registra uma compra.</small>
+          <label className="narrow">Dias<input type="number" min="1" max="3650" step="1" value={grant.days} onChange={(e) => setGrant({ ...grant, days: e.target.value })} inputMode="numeric" /></label>
+          <button className="primary" disabled={busy || !grantUser}><Gift size={15} /> Doar SUPER</button>
         </form>
         {!superState?.subscribers.length ? <p className="muted">Nenhuma assinatura registrada.</p> : (
           <div className="table-scroll">
@@ -170,7 +176,7 @@ export function OwnerAccessPanel() {
               <tbody>
                 {superState.subscribers.map((s) => (
                   <tr key={s.userId} className={s.revokedAt ? "comms-mail-deleted" : ""}>
-                    <td><strong>{s.name}</strong><small>{s.phone}</small></td>
+                    <td><strong>{s.name}</strong><small>{s.phone}</small><small>ID: <code>{s.userId}</code></small></td>
                     <td><strong>{days(s.expiresAt)}</strong><small>{when(s.expiresAt)}</small></td>
                     <td>{s.source === "GIFT" ? "Doação do Owner" : s.source === "PURCHASE" ? "Compra" : s.source}</td>
                     <td>{s.autoRenew ? <span className="table-status on">Automática</span> : <span className="table-status off">Manual</span>}</td>

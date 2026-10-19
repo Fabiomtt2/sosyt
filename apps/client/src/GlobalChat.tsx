@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MessagesSquare, Send, Pin, PinOff, Trash2, ShieldAlert, VolumeX, UserX, X, ChevronDown, ChevronUp, Mail, SlidersHorizontal, MoreHorizontal } from "lucide-react";
 import { api, type ChatMessage, type ChatRole, type ChatSender } from "./api";
-import { UserAvatarView, AvatarLightbox } from "./AvatarModal";
+import { UserAvatarView, AvatarLightbox, AvatarModal } from "./AvatarModal";
 import { SuperBadge } from "./SuperPanel";
+import { useCommunityUnread } from "./CommunityLauncher";
+import "./global-room.css";
 
 const POLL_MS = 5000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -14,7 +16,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: 
 // distintas: nome em Manrope, mensagem em DM Sans. Admin/Owner ganham faixa dourada.
 export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptionActive }: { onOpenProfile?: (userId: string) => void; onOpenInbox:()=>void; currentUserId:string;subscriptionActive?:boolean }) {
   const [open, setOpen] = useState(()=>sessionStorage.getItem("sos-chat-open")!=="false");
-  const [unread,setUnread]=useState(0);
+  const {total:unread}=useCommunityUnread();
   const toggle=()=>setOpen(value=>{sessionStorage.setItem("sos-chat-open",String(!value));return !value;});
   const [connected,setConnected]=useState(false);
   const syncingRef=useRef(false);
@@ -27,7 +29,8 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const [adminTools, setAdminTools] = useState(false);
   const [clearConfirm, setClearConfirm] = useState(false);
-  const [zoom, setZoom] = useState<ChatSender | null>(null);   // avatar ampliado
+  const [zoom, setZoom] = useState<ChatSender | null>(null);
+  const [selfPicker,setSelfPicker]=useState<ChatSender>();   // avatar ampliado
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
 
@@ -52,7 +55,8 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
   }, []);
 
   useEffect(()=>{void sync();},[subscriptionActive,sync]);
-  useEffect(()=>{let active=true;const update=()=>void api.mailUnread().then(data=>{if(active)setUnread(data.unread);}).catch(()=>{});update();const timer=setInterval(update,10000);return()=>{active=false;clearInterval(timer);};},[]);
+  useEffect(()=>{const refresh=()=>void sync();window.addEventListener("sos-community-updated",refresh);return()=>window.removeEventListener("sos-community-updated",refresh);},[sync]);
+
   useEffect(() => { void sync(); const t = window.setInterval(() => void sync(), POLL_MS); return () => window.clearInterval(t); }, [sync]);
   useEffect(() => { if (cooldownLeft <= 0) return; const t = window.setInterval(() => setCooldownLeft((s) => Math.max(0, s - 1)), 1000); return () => window.clearInterval(t); }, [cooldownLeft]);
   useEffect(() => { if (atBottomRef.current && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [state.messages, open]);
@@ -90,7 +94,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
         <div><span className="gc-title"><MessagesSquare size={20}/> Sala da comunidade</span><span className="gc-subtitle">Todos os grupos, uma comunidade.</span></div>
         <button className="gc-toggle" type="button" aria-label={open?"Recolher sala da comunidade":"Expandir sala da comunidade"} onClick={toggle} aria-expanded={open}>{open?<ChevronDown size={18}/>:<ChevronUp size={18}/>}</button>
       </div>
-      {open&&<div className="gc-room-bar"><span className={"gc-live"+(connected?"":" offline")} role="status">{connected?"Conversa atualizada":"Reconectando…"}</span><button type="button" onClick={onOpenInbox}><Mail size={15}/> Privadas{unread>0&&<b aria-label={unread+" mensagens não lidas"}>{unread>99?"99+":unread}</b>}</button></div>}
+      {open&&<div className="gc-room-bar"><span className={"gc-live"+(connected?"":" offline")} role="status">{connected?"Conversa atualizada":"Reconectando…"}</span><button type="button" onClick={onOpenInbox}><Mail size={15}/> Correio e amigos{unread>0&&<b aria-label={unread+" mensagens não lidas"}>{unread>99?"99+":unread}</b>}</button></div>}
 
       {open && <>
         {isStaff && <div className="gc-admin-tools">
@@ -106,7 +110,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
         {state.pinned.length > 0 && (
           <div className="gc-pinned" aria-label="Avisos fixados"><strong className="gc-pinned-heading"><Pin size={13}/> Avisos da comunidade</strong>
             {state.pinned.map((m) => (
-              <div key={m.id} className="gc-pinned-item"><Pin size={12} /><b className="gc-name">{m.sender.name}</b><span className="gc-text">{m.body}</span></div>
+              <div key={m.id} className="gc-pinned-item"><Pin size={12} /><button type="button" className="gc-name gc-name-button" onClick={()=>onOpenProfile?.(m.sender.id)}>{m.sender.name}</button><span className="gc-text">{m.body}</span></div>
             ))}
           </div>
         )}
@@ -126,7 +130,7 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
                 <div className={"gc-bubble"+((m.sender.presentation?.progress?.level??1)>=30?" gc-level-accent":"")}>
                   <div className="gc-meta">
                     {m.sender.presentation?.progress&&<LevelBadge progress={m.sender.presentation.progress} compact/>}
-                    <b className="gc-name">{m.sender.name}</b>
+                    <button type="button" className="gc-name gc-name-button" onClick={()=>onOpenProfile?.(m.sender.id)}>{m.sender.name}</button>
                     {staff ? null
                       : isSuper ? <span className="gc-role-tag super">SUPER</span>
                       : m.sender.groupCode && m.sender.groupCode!=="#" ? <span className="gc-group">SOS {m.sender.groupCode}</span> : null}
@@ -173,11 +177,13 @@ export function GlobalChat({ onOpenProfile,onOpenInbox,currentUserId,subscriptio
         <AvatarLightbox
           avatar={zoom.avatar ?? undefined} presentation={zoom.presentation}
           name={zoom.name}
+          onChooseHD={zoom.id===currentUserId?()=>{setSelfPicker(zoom);setZoom(null);}:undefined}
           subtitle={zoom.groupCode === "#" ? "Participação administrativa" : zoom.groupCode ? `SOS YOUTUBER ${zoom.groupCode}` : undefined}
           onClose={() => setZoom(null)}
-          actions={onOpenProfile ? <button type="button" onClick={() => { const id = zoom.id; setZoom(null); onOpenProfile(id); }}>Abrir conversa</button> : undefined}
+          actions={onOpenProfile ? <button type="button" onClick={() => { const id = zoom.id; setZoom(null); onOpenProfile(id); }}>Ver perfil, amigos e mensagens</button> : undefined}
         />,document.body
       )}
+      {selfPicker&&createPortal(<AvatarModal name={selfPicker.name} current={selfPicker.avatar??undefined} presentation={selfPicker.presentation} onClose={()=>setSelfPicker(undefined)} onChanged={()=>{setSelfPicker(undefined);void sync();window.dispatchEvent(new Event("sos-community-updated"));}}/>,document.body)}
     </aside>
   );
 }

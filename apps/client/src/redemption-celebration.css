@@ -1,0 +1,10 @@
+.redemption-celebration{width:min(430px,calc(100vw - 32px));border-color:#c9acd0;max-height:calc(100dvh - 110px);overflow-y:auto;overscroll-behavior:contain}
+.redemption-receipt-art{display:grid;place-items:center;flex:0 0 72px;width:72px;height:82px;overflow:hidden;border-radius:16px;background:#f4eaf1}
+.redemption-receipt-art>.store-editorial-art{width:100%;height:100%;object-fit:contain}
+.redemption-receipt-art>.store-raster-skip{width:100%;height:100%}
+.redemption-item-quantity>b{color:#78536d;font:800 1.15rem/1.4 Manrope,sans-serif}
+.journey-redemption-card .journey-item-icon{width:80px;height:86px;background:#f8f0f5;overflow:hidden;flex:0 0 80px}
+.journey-redemption-card .journey-item-icon>.store-editorial-art,.journey-redemption-card .journey-item-icon>.store-raster-skip{width:100%;height:100%;object-fit:contain}
+@media(max-width:600px){.redemption-celebration{max-height:calc(100dvh - 28px)}.redemption-receipt-art{flex-basis:58px;width:58px;height:70px}}
+
+.redemption-confirm-backdrop{position:fixed;inset:0;z-index:1399;background:#37223835;backdrop-filter:blur(2px)}

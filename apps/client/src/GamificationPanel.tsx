@@ -1,5 +1,9 @@
+import {useLevelEmblem} from "./level-emblems";
+import {publicApiAssetUrl} from "./api";
+import { RedemptionCelebration, type ConfirmedRedemption } from "./RedemptionCelebration";
+import { CommerceArtwork } from "./CommerceArtwork";
 import { useEffect, useRef, useState } from "react";
-import { Award, CalendarDays, Check, ChevronDown, Coins, Crown, Gift, Leaf, LoaderCircle, RefreshCw, ShieldCheck, SkipForward, Sparkles, Star, Ticket, Trophy } from "lucide-react";
+import { Award, CalendarDays, Check, ChevronDown, Coins, Crown, Gift, Leaf, LoaderCircle, RefreshCw, ShieldCheck, Sparkles, Star, Trophy } from "lucide-react";
 import { UserAvatarView } from "./AvatarModal";
 import type { UserAvatar, UserPresentation } from "./api";
 import "./gamification.css";
@@ -66,13 +70,14 @@ export function LevelBadge({ progress, className = "", compact = false }: {
   className?: string;
   compact?: boolean;
 }) {
+  const emblem=useLevelEmblem(progress?.level??0);
   if (!progress || !Number.isFinite(progress.level) || progress.level < 1) return null;
   const level = Math.floor(progress.level);
   const tier = tiers.find((item) => level >= item.from) ?? tiers[tiers.length - 1];
-  const Emblem = tier.icon;
+  const title=emblem?.label??tier.title;
   return <span className={"journey-level-badge journey-tier-" + tier.className + (compact ? " is-compact" : "") + " " + className}
-    title={"Nível " + level + " · " + tier.title} aria-label={"Nível " + level + " · " + tier.title}>
-    <span className="journey-level-emblem" aria-hidden="true"><Emblem size={compact ? 15 : 28} strokeWidth={1.7}/></span>
+    title={"Nível " + level + " · " + title} aria-label={"Nível " + level + " · " + title} data-emblem-tier={emblem?.tier}>
+    <span className="journey-level-emblem is-illustrated" aria-hidden="true">{emblem&&<img src={publicApiAssetUrl(emblem.url)} alt="" loading="lazy" decoding="async"/>}</span>
     <span className="journey-level-label">{"Nível "}<b>{level}</b></span>
   </span>;
 }
@@ -96,6 +101,7 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [reward, setReward] = useState<BoosterClaimResult>();
+  const [redemptionReceipt,setRedemptionReceipt]=useState<ConfirmedRedemption>();
   const [now, setNow] = useState(Date.now());
   const mounted = useRef(true);
   const operation = useRef(false);
@@ -143,9 +149,11 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     try {
       const referenceId = redemptionReferences.current[code] ?? crypto.randomUUID();
       redemptionReferences.current[code] = referenceId;
-      await onRedeem(code, referenceId);
+      const result=await onRedeem(code, referenceId);
       if (!mounted.current) return;
       delete redemptionReferences.current[code];
+      const confirmation=result && typeof result==="object" ? result as {price?:unknown;replayed?:unknown}:undefined;
+      setRedemptionReceipt({code,price:typeof confirmation?.price==="number"&&Number.isFinite(confirmation.price)?confirmation.price:undefined,replayed:confirmation?.replayed===true});
       setNotice((code === "SKIP" ? "Pular" : "Passe") + " confirmado no seu inventário. Use quando fizer sentido para você.");
       await refreshAfterSuccess();
     } catch (cause) {
@@ -217,9 +225,9 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     <div className="journey-redemptions">
       <div className="journey-block-heading"><Coins size={20} aria-hidden="true"/><div><h3>Escolha como usar suas recompensas</h3><p>Troque suas moedas de recompensa por uma ajuda na próxima fila.</p></div></div>
       <div className="journey-redemption-grid">{([
-        { code: "SKIP", label: "Pular", icon: SkipForward, help: "Entre em outra fila sem encerrar a que acompanha." },
-        { code: "PASS", label: "Passe", icon: Ticket, help: "Envie uma contribuição extra na mesma fila." }
-      ] as const).map((item) => <div className="journey-redemption-card" key={item.code}><span className="journey-item-icon"><item.icon size={25} strokeWidth={1.5}/></span><div><h4>{item.label}</h4><p>{item.help}</p><small>{number(data.redemption[item.code])} moedas de recompensa</small></div><button type="button" className="journey-secondary" disabled={Boolean(busy) || data.redemptionEnabled===false || progress.rewardCoins < data.redemption[item.code]} onClick={() => void redeem(item.code)}>{busy === item.code ? <LoaderCircle size={17} className="spin"/> : "Trocar"}</button></div>)}</div>
+        { code: "SKIP", label: "Pular", help: "Entre em outra fila sem encerrar a que acompanha." },
+        { code: "PASS", label: "Passe", help: "Abra outra fila ou envie uma contribuição extra na mesma fila." }
+      ] as const).map((item) => <div className="journey-redemption-card" key={item.code}><span className="journey-item-icon"><CommerceArtwork kind={item.code==="PASS"?"pass":"skip"}/></span><div><h4>{item.label}</h4><p>{item.help}</p><small>{number(data.redemption[item.code])} moedas de recompensa</small></div><button type="button" className="journey-secondary" disabled={Boolean(busy) || data.redemptionEnabled===false || progress.rewardCoins < data.redemption[item.code]} onClick={() => void redeem(item.code)}>{busy === item.code ? <LoaderCircle size={17} className="spin"/> : "Trocar"}</button></div>)}</div>
       <p className="journey-redemption-note"><ShieldCheck size={16} aria-hidden="true"/><span>Moedas compradas ficam fora desta troca. Seus itens aparecem no inventário após a confirmação.</span></p>
     </div>
 
@@ -228,6 +236,7 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
       <Ranking entries={data.ranks[rankingTab]} label={rankingTab === "monthly" ? "Ranking de experiência do mês" : "Ranking de experiência desde o início"}/>
       <p className="journey-rank-note">Um reconhecimento pelo caminho percorrido. Cada pessoa pode seguir no seu próprio ritmo.</p>
     </div>
+    {redemptionReceipt&&<RedemptionCelebration receipt={redemptionReceipt} onClose={()=>setRedemptionReceipt(undefined)}/>}
     {notice && <p className="journey-feedback is-success" role="status"><Check size={18} aria-hidden="true"/>{notice}</p>}
     {error && <p className="journey-feedback is-error" role="alert">{error}</p>}
   </section>;

@@ -12,7 +12,7 @@ export const productKind=(item:CommerceProduct):"coins"|"super"|"skip"|"pass"|"i
 export function productExplanation(item:CommerceProduct) {
  return [
   item.credits>0?"Cada moeda permite salvar uma URL válida.":null,
-  item.extraPasses>0?"O passe permite uma contribuição extra na mesma fila; salvar a URL também usa 1 moeda.":null,
+  item.extraPasses>0?"O passe abre outra fila ou permite uma contribuição extra na mesma fila; salvar a URL também usa 1 moeda.":null,
   item.grantsItem==="SKIP"&&!item.subscriptionDays?"Pular abre outra fila sem apagar sua participação e seu progresso na atual. Não conclui vídeos por você.":null,
   item.subscriptionDays?"Seu avatar continua o mesmo, com moldura SUPER enquanto a assinatura estiver ativa. Você também tem chat sem espera, até 5 vídeos por fila e divulgação do canal.":null
  ].filter(Boolean).join(" ");

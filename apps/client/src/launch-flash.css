@@ -1,0 +1,84 @@
+/* A brief brand transition over the already-mounted, usable Index. */
+.launch-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+  background: #f8f3ea;
+  animation: sos-launch-reveal 1900ms cubic-bezier(.22,.7,.25,1) both;
+}
+.launch-flash__wash {
+  position: absolute;
+  inset: -25%;
+  background:
+    radial-gradient(ellipse at 35% 45%, #b56d8b26, transparent 48%),
+    radial-gradient(ellipse at 70% 65%, #d9ba852e, transparent 45%);
+  transform: rotate(-12deg);
+}
+.launch-flash__beam {
+  position: absolute;
+  inset: -70% -40%;
+  background: linear-gradient(115deg, transparent 42%, #fffaf000 46%, #fffdf4bf 50%, #fffaf000 54%, transparent 58%);
+  transform: translateX(-75%);
+  animation: sos-launch-beam 1500ms cubic-bezier(.3,.1,.18,1) both;
+}
+.launch-flash__brand {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(82vw, 470px);
+  display: grid;
+  grid-template-columns: clamp(76px, 15vw, 108px) auto;
+  align-items: center;
+  gap: 0 22px;
+  color: #463044;
+  transform: translate(-50%, -50%);
+  animation: sos-launch-flight 1900ms cubic-bezier(.2,.65,.2,1) both;
+}
+.launch-flash__symbol {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 30%;
+  background: #a4385b;
+  color: #fff8ed;
+  box-shadow: 0 12px 22px #61324c26;
+}
+.launch-flash__symbol svg { width: 56%; height: 56%; }
+.launch-flash__wordmark {
+  font: 800 clamp(15px, 3.5vw, 27px)/1.2 "Manrope", "DM Sans", sans-serif;
+  letter-spacing: .15em;
+  color: #463044;
+}
+.launch-flash__caption {
+  grid-column: 1 / -1;
+  margin-top: 26px;
+  text-align: center;
+  font: 500 clamp(12px, 2.8vw, 15px)/1.5 "DM Sans", sans-serif;
+  letter-spacing: .025em;
+  color: #765b6b;
+}
+@keyframes sos-launch-beam {
+  from { transform: translateX(-75%); }
+  to { transform: translateX(75%); }
+}
+@keyframes sos-launch-flight {
+  0% { opacity: 0; transform: translate(calc(-50% - 30px), -45%) scale(.94); }
+  23% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  64% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(calc(-50% + 48px), -55%) scale(1.035); }
+}
+@keyframes sos-launch-reveal {
+  0%, 62% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (max-width: 480px) {
+  .launch-flash__brand { width: min(80vw, 320px); gap: 0 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .launch-flash { display: none; animation: none; }
+  .launch-flash *, .launch-flash *::before, .launch-flash *::after { animation: none; }
+}

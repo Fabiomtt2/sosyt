@@ -193,6 +193,16 @@ export function PaymentIntegrationModal({ initial,onClose,onSaved }:{
         </div>
       </section>}
 
+      {provider==="MERCADO_PAGO"&&<details className="payment-config-section" aria-label="Passo a passo Mercado Pago">
+        <summary style={{cursor:"pointer",fontWeight:800,color:"#684474",padding:"8px 0"}}>Como ativar seu Mercado Pago · 4 passos</summary>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(230px,100%),1fr))",gap:12,marginTop:16}}>
+          <article style={{padding:16,border:"1px solid #e5d6e4",borderRadius:16,background:"#fffaf5"}}><h4>1 · Crie sua aplicação</h4><p>Entre no Mercado Pago Developers → Suas integrações. Crie ou abra a aplicação SOS YouTuber e escolha <strong>Checkout Transparente via API Payments</strong>.</p><small>Website do negócio:</small><code style={{display:"block",overflowWrap:"anywhere",fontSize:".72rem",marginTop:6}}>https://sos-youtuber-web-production.up.railway.app</code></article>
+          <article style={{padding:16,border:"1px solid #e5d6e4",borderRadius:16,background:"#fffaf5"}}><h4>2 · Ative as credenciais</h4><p>Abra Produção → Credenciais de produção. Complete os dados do negócio, ative as credenciais e copie o <strong>Access Token</strong>.</p><a href="https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/additional-content/your-integrations/credentials" target="_blank" rel="noreferrer">Guia oficial de credenciais <ExternalLink size={13}/></a></article>
+          <article style={{padding:16,border:"1px solid #e5d6e4",borderRadius:16,background:"#fffaf5"}}><h4>3 · Configure os avisos</h4><p>Na aplicação, abra Webhooks → Configurar notificações. Em produção, selecione <strong>Pagamentos (payment)</strong>. Salve e copie a assinatura secreta.</p><code style={{display:"block",overflowWrap:"anywhere",fontSize:".72rem"}}>{state.webhookUrls.mercadoPago}</code><button type="button" className="text-button" onClick={()=>void navigator.clipboard.writeText(state.webhookUrls.mercadoPago).then(()=>setNotice("Endereço dos avisos copiado.")).catch(()=>setError("Selecione e copie o endereço exibido."))}>Copiar endereço</button><br/><a href="https://www.mercadopago.com.br/developers/pt/docs/checkout-api-payments/additional-content/your-integrations/notifications/webhooks" target="_blank" rel="noreferrer">Guia oficial de Webhooks <ExternalLink size={13}/></a></article>
+          <article style={{padding:16,border:"1px solid #e5d6e4",borderRadius:16,background:"#fffaf5"}}><h4>4 · Salve e confira</h4><p>Aqui no SOS, marque <strong>Produção</strong>, cole o Access Token e a assinatura secreta nos dois campos abaixo e salve.</p><p>Confira o estado das credenciais. Depois, faça uma compra real de um pacote já aprovado por você e confirme o Pix e o benefício recebido. Os preços atuais são preservados.</p></article>
+        </div>
+      </details>}
+
       {provider==="MERCADO_PAGO" && <section className="payment-config-section payment-provider-fields">
         <div className="payment-section-heading"><div><span className="payment-step-label">3 · CHAVES</span><h3>Dados da sua aplicação Mercado Pago</h3></div></div>
         <label><span className="label-with-help">Chave de acesso <HelpButton topic="mp-access" label="Explicar chave de acesso do Mercado Pago" onOpen={setHelpTopic}/></span>

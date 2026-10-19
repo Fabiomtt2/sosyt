@@ -1,0 +1,18 @@
+/* Fixed community room: bounded reading area, comfortable mobile touch targets. */
+.global-chat.open{max-width:100%;min-width:0}
+.global-chat .gc-stream{flex:1;height:clamp(250px,34vh,360px);min-height:80px;max-height:360px;overflow-y:auto;overscroll-behavior:contain}
+.global-chat .gc-head{padding:15px 18px}
+.global-chat .gc-title{font-size:1rem;line-height:1.4}
+.global-chat .gc-subtitle{font-size:.74rem;line-height:1.5}
+.global-chat .gc-room-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.global-chat .gc-room-bar button{min-height:40px;display:inline-flex;align-items:center;gap:7px}
+.global-chat .gc-name-button{border:0;background:transparent;text-align:left;padding:3px 0;color:inherit;font:inherit;font-weight:750;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
+.global-chat .gc-name-button:hover{text-decoration:underline;text-underline-offset:3px}
+.global-chat .gc-name-button:focus-visible{outline:3px solid #ad81a2;outline-offset:3px;border-radius:4px}
+.global-chat .gc-bubble{min-width:0;max-width:100%}
+.global-chat .gc-meta{flex-wrap:wrap;row-gap:5px}
+.global-chat .gc-pinned{max-height:150px;overflow-y:auto;overscroll-behavior:contain}
+.global-chat .gc-input input{min-width:0;min-height:46px}
+.global-chat .gc-send,.global-chat .gc-toggle{min-width:44px;min-height:44px}
+.global-chat .gc-admin-tools{flex-wrap:wrap;gap:8px}
+@media(max-width:600px){.global-chat .gc-stream{height:300px;min-height:80px;max-height:44dvh}.global-chat .gc-head{padding:13px 14px}.global-chat .gc-title{font-size:.88rem}.global-chat .gc-room-bar{padding:8px 14px}.global-chat .gc-room-bar button{font-size:.7rem}.global-chat .gc-pinned{max-height:120px}}

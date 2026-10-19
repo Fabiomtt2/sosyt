@@ -20,8 +20,8 @@ export function PurchaseCelebration({receipt,onClose,onInventory}:{receipt:Purch
     const profile=document.querySelector(".header-actions .profile")?.getBoundingClientRect();
     if(profile)setDestination({x:Math.min(window.innerWidth-54,profile.left+profile.width/2),y:Math.max(65,profile.bottom+20)});
   }
-  const timer=window.setTimeout(onClose,6500);
-  return()=>window.clearTimeout(timer);
+  // The receipt remains readable until the person closes it or opens inventory.
+  // Only the decorative arrival animation is temporary.
  },[receipt.paymentId,onClose,receipt.credits]);
  return createPortal(<>
   {destination&&<div className="purchase-arrival" style={{left:destination.x,top:destination.y}} aria-hidden="true">

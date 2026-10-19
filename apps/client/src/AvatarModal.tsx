@@ -1,3 +1,4 @@
+import "./avatar-tiers.css";
 import { LevelBadge } from "./GamificationPanel";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -63,14 +64,16 @@ export function UserAvatarView({avatar,name,presentation,className=""}:{avatar?:
  * retrato em tamanho grande, sempre CIRCULAR e sem corte — o mesmo enquadramento
  * da tela de escolha. Fecha no Escape, no fundo ou no botao.
  */
-export function AvatarLightbox({avatar,name,presentation,subtitle,onClose,actions}:{
-  avatar?:UserAvatar;name:string;presentation?:UserPresentation;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;
+export function AvatarLightbox({avatar,name,presentation,subtitle,onClose,actions,onChooseHD}:{
+  avatar?:UserAvatar;name:string;presentation?:UserPresentation;subtitle?:string;onClose:()=>void;actions?:React.ReactNode;onChooseHD?:()=>void;
 }) {
   const modalRef=useModalLifecycle(onClose);
   return <div className="avatar-lightbox-backdrop" onMouseDown={onClose} role="presentation">
     <section ref={modalRef} className="avatar-lightbox" role="dialog" aria-modal="true" aria-label={`Avatar de ${name}`} onMouseDown={(event)=>event.stopPropagation()}>
       <button type="button" className="avatar-lightbox-close" onClick={onClose} aria-label="Fechar">×</button>
-      <UserAvatarView avatar={avatar} name={name} presentation={presentation} className="avatar-lightbox-image"/>
+      <UserAvatarView avatar={avatar} name={name} presentation={presentation} className={"avatar-lightbox-image"+(avatar?.kind==="PRESET"?" avatar-classic-native":"")}/>
+      {avatar?.kind==="PRESET"&&<p className="avatar-classic-caption">Avatar clássico · tamanho original preservado</p>}
+      {onChooseHD&&avatar?.kind==="PRESET"&&<button type="button" className="secondary" onClick={onChooseHD}>Escolher avatar em alta definição</button>}
       {presentation?.progress&&<LevelBadge progress={presentation.progress}/>}
       <h3>{name}</h3>
       {subtitle && <p className="avatar-lightbox-sub">{subtitle}</p>}
@@ -92,12 +95,15 @@ export function AvatarModal({
   const [error,setError]=useState("");
   const [presetArtReady,setPresetArtReady]=useState(false);
   const [category,setCategory]=useState<AvatarCategory>("ALL");
+  const [tier,setTier]=useState<"COMMON"|"SUPER"|"OWNER">(current?.kind==="CATALOG"?current.tier??"COMMON":"COMMON");
+  const [categoriesOpen,setCategoriesOpen]=useState(false);
   const railRef=useRef<HTMLDivElement>(null);
   const presets=useMemo(()=>Array.from({length:PRESET_COUNT},(_,index)=>`avatar-${String(index+1).padStart(2,"0")}`),[]);
-  const activeCategory=AVATAR_CATEGORIES.find((item)=>item.id===category)??AVATAR_CATEGORIES[0];
+  const activeCategory=AVATAR_CATEGORIES.find((item)=>item.id===category);
   const visiblePresets=presets.filter((presetId)=>{
+    if(tier!=="COMMON")return false;
     const number=Number(presetId.slice(-2));
-    return number>=activeCategory.start&&number<=activeCategory.end;
+    return Boolean(activeCategory && number>=activeCategory.start&&number<=activeCategory.end);
   });
 
   function scrollPresets(direction:number){
@@ -114,7 +120,7 @@ export function AvatarModal({
     return()=>{sprite.onload=null;sprite.onerror=null;};
   },[]);
 
-  const modalRef=useModalLifecycle(onClose);
+  const modalRef=useModalLifecycle(()=>{if(!busy)onClose();},true,!busy);
   useEffect(()=>{
     const key=(event:KeyboardEvent)=>{
       if(event.key==="ArrowLeft")scrollPresets(-1);
@@ -139,7 +145,9 @@ export function AvatarModal({
   // AUDITORIA / catálogo: avatares gerenciados pelo painel (comum/SUPER/OWNER).
   const [catalog,setCatalog]=useState<CatalogAvatarItem[]>([]);
   useEffect(()=>{ let alive=true; loadCatalog().then((r)=>{ if(alive) setCatalog(r.avatars); }).catch(()=>undefined); return()=>{alive=false;}; },[loadCatalog]);
-  const visibleCatalog=catalog.filter((item)=> category==="ALL" || item.category===category);
+  const visibleCatalog=catalog.filter(item=>item.tier===tier && (category==="ALL" || item.category===category));
+  const tierCategories=Array.from(new Set(catalog.filter(item=>item.tier===tier).map(item=>item.category))).sort();
+  const categoryName=(id:string)=>AVATAR_CATEGORIES.find(item=>item.id===id)?.label??id.toLowerCase().replaceAll("_"," ");
   async function chooseCatalog(item:CatalogAvatarItem){
     if(item.locked) return;
     setBusy(true);setError("");
@@ -153,20 +161,24 @@ export function AvatarModal({
     }finally{setBusy(false);}
   }
 
-  return <div className="modal-backdrop avatar-backdrop" onMouseDown={onClose}>
+  return <div className="modal-backdrop avatar-backdrop" onMouseDown={()=>{if(!busy)onClose();}}>
     <section ref={modalRef} className="modal avatar-modal avatar-modal-compact" role="dialog" aria-modal="true" aria-label="Escolher avatar" onMouseDown={(event)=>event.stopPropagation()}>
-      <button className="close" aria-label="Fechar escolha de avatar" onClick={onClose}><X size={20}/></button>
+      <button className="close" aria-label="Fechar escolha de avatar" disabled={busy} onClick={onClose}><X size={20}/></button>
       <div className="avatar-picker-head">
         <div><p className="eyebrow dark">AVATAR</p><h2>{title}</h2></div>
         <UserAvatarView avatar={selected} name={name} presentation={presentation} className="avatar-picker-current"/>
       </div>
-      <div className="avatar-category-tabs" role="tablist" aria-label="Categorias de avatar">
-        {AVATAR_CATEGORIES.map((item)=><button key={item.id} type="button" role="tab" aria-selected={category===item.id} className={category===item.id?"active":""} onClick={()=>{setCategory(item.id);railRef.current?.scrollTo({left:0,behavior:"smooth"});}}>{item.label}</button>)}
+      <div className="avatar-tier-tabs" role="group" aria-label="Coleções de avatares">
+        {(["COMMON","SUPER","OWNER"] as const).map(value=><button key={value} type="button" aria-pressed={tier===value} className={tier===value?"active":""} onClick={()=>{setTier(value);setCategory("ALL");setCategoriesOpen(false);railRef.current?.scrollTo({left:0});}}>{value==="COMMON"?"Comuns":value==="OWNER"?"Owner":"SUPER"}</button>)}
       </div>
-      {presetArtReady?<div className="avatar-carousel-shell">
+      <div className="avatar-collection-heading"><strong>{tier==="COMMON"?"Sua coleção de avatares":tier==="SUPER"?"Coleção SUPER":"Coleção Owner"}</strong><button type="button" className="text-button" aria-expanded={categoriesOpen} onClick={()=>setCategoriesOpen(value=>!value)}>{categoriesOpen?"Fechar categorias":"Explorar categorias"}</button></div>
+      {categoriesOpen&&<div className="avatar-category-tabs" role="group" aria-label="Categorias de avatar">
+        {Array.from(new Set(["ALL",...(tier==="COMMON"?AVATAR_CATEGORIES.map(item=>item.id):[]),...tierCategories])).map(id=><button key={id} type="button" aria-pressed={category===id} className={category===id?"active":""} onClick={()=>{setCategory(id as AvatarCategory);railRef.current?.scrollTo({left:0});}}>{id==="ALL"?"Todos":categoryName(id)}</button>)}
+      </div>}
+      {presetArtReady||catalog.length>0?<div className="avatar-carousel-shell">
         <button className="carousel-arrow avatar-arrow" type="button" onClick={()=>scrollPresets(-1)} aria-label="Avatares anteriores"><ChevronLeft/></button>
         <div className="avatar-rail" ref={railRef} aria-label="Avatares disponíveis">
-          {visiblePresets.map((presetId)=><button key={presetId} className={selected?.kind==="PRESET"&&selected.presetId===presetId?"avatar-choice selected":"avatar-choice"} disabled={busy} aria-label={`Escolher avatar ${Number(presetId.slice(-2))}`} onClick={()=>void choose(presetId)}>
+          {presetArtReady&&visiblePresets.map((presetId)=><button key={presetId} className={selected?.kind==="PRESET"&&selected.presetId===presetId?"avatar-choice selected":"avatar-choice"} disabled={busy} aria-label={`Escolher avatar ${Number(presetId.slice(-2))}`} onClick={()=>void choose(presetId)}>
             <span style={avatarPresetStyle(presetId)}/>{selected?.kind==="PRESET"&&selected.presetId===presetId&&<i><Check size={13}/></i>}
           </button>)}
           {visibleCatalog.map((item)=>{

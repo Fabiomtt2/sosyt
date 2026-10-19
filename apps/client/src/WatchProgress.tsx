@@ -163,7 +163,7 @@ export function WatchProgress({
     close();
   },true,!finalizing);
 
-  const percent = progressPercent(progress);
+  const percent = Math.min(100,Math.round(progressPercent(progress)*10/Math.max(1,slots.filter(slot=>slot.videoId).length)));
   const perVideoPercent=progress.watchedSeconds.map((watched,index)=>{
     const duration=progress.durations[index] ?? 0;
     return duration>0 ? Math.min(100,Math.floor((watched/duration)*100)) : 0;
@@ -374,7 +374,7 @@ export function WatchProgress({
         {currentSlot && <div className="watch-video-context">
           {currentSlot.videoThumbnailUrl && <img src={currentSlot.videoThumbnailUrl} alt="" />}
           <div>
-            <span>Vídeo {currentIndex+1} de 10</span>
+            <span>Vídeo {currentIndex+1} de {slots.filter(slot=>slot.videoId).length}</span>
             <strong>{currentSlot.videoTitle ?? "Vídeo compartilhado nesta fila"}</strong>
             <small>{currentSlot.videoChannelTitle ? <>Publicado por {currentSlot.videoChannelTitle}</> : "Publicado no YouTube"}</small>
           </div>
@@ -392,7 +392,7 @@ export function WatchProgress({
         </div>
 
         <div className="watch-journey">
-          <div className="watch-journey-head"><div><span>Seu progresso nesta fila</span><strong>{percent}% concluído</strong></div><small>10 vídeos</small></div>
+          <div className="watch-journey-head"><div><span>Seu progresso nesta fila</span><strong>{percent}% concluído</strong></div><small>{slots.filter(slot=>slot.videoId).length} vídeos</small></div>
           <div className="watch-video-grid">
             {slots.slice(0,10).map((slot,index)=><div key={slot.slot} className={"watch-video-step "+(index===currentIndex?"current":"")+(perVideoPercent[index]>=100?" complete":"")}>
               <div><span>{index+1}</span>{slot.avatar ? <UserAvatarView avatar={slot.avatar} name={slot.userName ?? "Participante"} className="watch-step-avatar"/> : null}</div>
@@ -438,7 +438,7 @@ export function WatchProgress({
 
         {confirmAbandon && <div className="completion-warning abandon-warning" role="alert">
           <strong>Abandonar esta tarefa em {percent}%?</strong>
-          <p>Seu progresso, sua playlist e as recompensas por tempo já registradas continuam salvos. A tarefa deixa de bloquear sua conta e você volta para a Fila aberta mais recente sem cooldown; as regras normais de moedas e passes continuam valendo.</p>
+          <p>Seu progresso, sua playlist e as recompensas por tempo já registradas continuam salvos. O abandono aplica 60 minutos antes de novo ingresso gratuito. Outras filas já liberadas permanecem acessíveis; Passe/Pular permite outro acesso.</p>
           <div className="ready-actions"><button className="secondary" disabled={finalizing} onClick={() => setConfirmAbandon(false)}>Continuar assistindo</button><button className="danger-button" disabled={finalizing} onClick={() => void abandonTask()}>{finalizing ? "Salvando e saindo…" : "Sim, abandonar tarefa"}</button></div>
         </div>}
       </section>

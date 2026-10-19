@@ -1,3 +1,5 @@
+import { ActionErrorDialog } from "./ActionErrorDialog";
+import { LaunchFlash } from "./LaunchFlash";
 import { GamificationPanel, LevelBadge } from "./GamificationPanel";
 import { JourneyModal } from "./JourneyModal";
 import { useCallback, useEffect, useState, useRef, type FormEvent } from "react";
@@ -14,6 +16,7 @@ import {usePurchaseFeedback} from "./usePurchaseFeedback";
 import {PurchaseCelebration} from "./PurchaseCelebration";
 import { PurchaseModal } from "./PurchaseModal";
 import { StoreModal } from "./StoreModal";
+import { CommunityLauncher } from "./CommunityLauncher";
 import { CommunityModal } from "./CommunityModal";
 import { WelcomeLoading } from "./WelcomeLoading";
 import { GlobalChat } from "./GlobalChat";
@@ -49,11 +52,6 @@ function writePendingRequestMemory(state: ParticipationStatus) {
   localStorage.setItem(PENDING_REQUEST_KEY, JSON.stringify({ token: state.requestToken, phone: state.phone }));
 }
 
-function storedCooldownUntil() {
-  const value = Date.parse(localStorage.getItem(COOLDOWN_KEY) ?? "");
-  return Number.isFinite(value) && value > Date.now() ? value : 0;
-}
-
 function countdownLabel(milliseconds: number) {
   const total = Math.max(0, Math.ceil(milliseconds / 1000));
   const minutes = Math.floor(total / 60);
@@ -79,7 +77,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [cooldownUntil, setCooldownUntil] = useState(storedCooldownUntil);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
   const [nowMs, setNowMs] = useState(Date.now());
   const suppressPendingResume = useRef(false);
 
@@ -431,16 +429,16 @@ function ReadyRound({ round, userId, connected, onConnect, onExport, onWatch, bu
     : 0;
   return <article className="ready-card">
     <div className="ready-icon"><Check /></div>
-    <div><p className="eyebrow dark">FILA {round.number} COMPLETA</p><h3>10 vídeos prontos para sua playlist</h3><p className="muted">Esta fila permanece vinculada à sua conta até você concluir a tarefa. Seu progresso, autores, URLs e saldo ficam preservados.</p></div>
-    {round.export && <p className="creation-progress" role="status">{round.export.status === "SUCCESS" ? "Playlist criada · 10 de 10 vídeos incluídos" : `${round.export.addedCount ?? 0} de 10 vídeos incluídos · ${Math.min(100,(round.export.addedCount ?? 0)*10)}% da criação${round.export.status === "FAILED" ? " · tentativa interrompida; você pode retomar" : ""}`}</p>}
-    <details className="cycle-details"><summary>Ver os 10 vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={false} eligible={false} own={slot.userId === userId} busy={busy} onInspectParticipant={onInspectParticipant}/>)}</section></details>
+    <div><p className="eyebrow dark">FILA {round.number} · SUA SELEÇÃO</p><h3>{round.slots.filter(slot=>slot.videoId).length} vídeos na sua seleção</h3>{round.expiresAt&&<p className="task-note">Esta fila encerra em {new Date(round.expiresAt).toLocaleString("pt-BR")}. Validade: 3 dias desde a abertura.</p>}<p className="muted">Esta fila permanece vinculada à sua conta até você concluir a tarefa. Seu progresso, autores, URLs e saldo ficam preservados.</p></div>
+    {round.export && <p className="creation-progress" role="status">{round.export.status === "SUCCESS" ? `Playlist criada · ${round.slots.filter(slot=>slot.videoId).length} vídeos incluídos` : `${round.export.addedCount ?? 0} de 10 vídeos incluídos · ${Math.min(100,(round.export.addedCount ?? 0)*10)}% da criação${round.export.status === "FAILED" ? " · tentativa interrompida; você pode retomar" : ""}`}</p>}
+    <details className="cycle-details"><summary>Ver vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={false} eligible={false} own={slot.userId === userId} busy={busy} onInspectParticipant={onInspectParticipant}/>)}</section></details>
     {!viewerContributed ? <div className="admin-ready-view"><ShieldCheck size={18}/><div><strong>Visualização administrativa</strong><span>Você pode inspecionar os 10 participantes desta fila. Como não contribuiu nela, nenhuma playlist ou tarefa pessoal será criada.</span></div></div>
       : success ? <><div className="creator-kindness-note"><strong>Enquanto assiste, vale espalhar apoio 💜</strong><span>Se gostar de um vídeo, um joinha e um comentário gentil podem deixar o dia daquele criador mais especial.</span></div><div className="ready-actions"><a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir playlist no YouTube <ExternalLink size={16} /></a><button className="primary compact" onClick={onWatch}>Acompanhar tarefa · {watchPercent}%</button></div><small className="task-note">Fechar o acompanhamento apenas pausa. Dentro dele você pode abandonar a tarefa preservando seu percentual e as moedas já confirmadas.</small></>
       : <button className="primary compact" onClick={connected ? onExport : onConnect} disabled={busy}>{busy ? <LoaderCircle className="spin" /> : "Criar playlist"}</button>}
   </article>;
 }
 
-function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;onCooldown:(until:string)=>void;onOpenAdmin:()=>Promise<void> }) {
+function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin:()=>Promise<void> }) {
   const [data, setData] = useState<Dashboard>();
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -466,11 +464,10 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
     try {const fresh=await api.dashboard(selectedQueue);if(epoch===loadEpoch.current){setData(fresh);setError("");}}
     catch(cause){
       if(epoch!==loadEpoch.current)return;
-      if(cause instanceof ApiError&&cause.status===423&&typeof cause.data.cooldownUntil==="string")onCooldown(cause.data.cooldownUntil);
-      else if(cause instanceof ApiError&&(cause.status===401||cause.status===403))onLogout();
+      if(cause instanceof ApiError&&(cause.status===401))onLogout();
       else setError(cause instanceof Error?cause.message:"Falha ao carregar.");
     }
-  },[onLogout,onCooldown,selectedQueue]);
+  },[onLogout,selectedQueue]);
   const purchaseFeedback=usePurchaseFeedback(data?.user.id,load);
   useEffect(() => { void load(); const refresh=()=>{if(document.visibilityState==="visible")void load();};const timer=window.setInterval(refresh,5_000);window.addEventListener("focus",refresh);return()=>{window.clearInterval(timer);window.removeEventListener("focus",refresh);};},[load]);
   useEffect(() => { if (!Capacitor.isNativePlatform()) return; const listener = CapacitorApp.addListener("appUrlOpen", async ({ url }) => { if (url.startsWith("conexaoyoutube://oauth")) { await Browser.close(); await load(); } }); return () => { void listener.then((handle) => handle.remove()); }; }, [load]);
@@ -511,14 +508,14 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
   async function submit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await api.submit(url,openRoundId); setUrl(""); await load(); } catch (cause) { if(cause instanceof ApiError && cause.status===409 && cause.data.code==="QUEUE_CHANGED"){await load();setError(cause.message+" Nenhuma moeda foi cobrada. Confira a nova fila e envie novamente.");} else setError(cause instanceof Error ? cause.message : "Falha ao salvar."); } finally { setBusy(false); } }
   async function connectYoutube(roundId?: string) { setBusy(true); try { const native = Capacitor.isNativePlatform(); const result = await api.youtubeConnect(native ? "app" : "web", roundId); if (native) await Browser.open({ url: result.url }); else window.location.href = result.url; } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao conectar."); } finally { setBusy(false); } }
   async function exportRound(id:string) {
-    setCreationRound(data?.readyRounds.find((r)=>r.id===id));
+    setCreationRound(previous=>previous??data?.readyRounds.find((r)=>r.id===id));
     setBusy(true);setError("");
     try {
       await api.exportRound(id);
       const fresh=await api.dashboard();
       setData(fresh);
       setCreationRound(undefined);
-      setNotice("Playlist criada com os 10 vídeos. O acompanhamento foi aberto para você continuar daqui.");
+      setNotice("Playlist criada. Seu acompanhamento está disponível com a seleção salva.");
       const ready=fresh.readyRounds.find((round)=>round.id===id && round.export?.status==="SUCCESS" && round.export.playlistId);
       if (ready) setWatchRound(ready);
     } catch(cause) {
@@ -528,14 +525,14 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
 
   const included = creationRound ? data.readyRounds.find((r) => r.id === creationRound.id)?.export?.addedCount ?? 0 : 0;
   return <div className="app-shell">
-    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} title="Atualizar"><RefreshCw size={18} /></button><button className="icon-button" data-purchase-anchor="inventory" aria-label="Mensagens e inventário" title="Mensagens e inventário" onClick={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}><MessagesSquare size={18}/></button><button className="icon-button" onClick={()=>setShowAccountMenu(true)} aria-label="Abrir menu da minha conta" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowAvatar(true)} aria-label={`Trocar avatar de ${data.user.name}`} title="Trocar avatar"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="header-avatar"/>{data.viewer.adminRole&&<span className="header-admin-badge">ADMIN</span>}</button><button className="profile profile-text-only" onClick={()=>setShowAccountMenu(true)} aria-label={`Abrir menu da conta de ${data.user.name}`}><div><strong>{data.user.name}</strong><small>{data.user.youtubeChannel?.title ?? (data.viewer.adminRole ? "Acesso administrativo" : data.groupAccess?.ready===false?"Entrada no grupo em andamento":`Grupo SOS YOUTUBER ${data.user.groupCode}`)}</small></div></button></div></header>
+    <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} title="Atualizar"><RefreshCw size={18} /></button><CommunityLauncher onOpen={()=>{setCommunityTarget(undefined);setShowCommunity(true);}} /><button className="icon-button" onClick={()=>setShowAccountMenu(true)} aria-label="Abrir menu da minha conta" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowAvatar(true)} aria-label={`Trocar avatar de ${data.user.name}`} title="Trocar avatar"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="header-avatar"/>{data.viewer.adminRole&&<span className="header-admin-badge">ADMIN</span>}</button><button className="profile profile-text-only" onClick={()=>setShowAccountMenu(true)} aria-label={`Abrir menu da conta de ${data.user.name}`}><div><strong>{data.user.name}</strong><small>{data.user.youtubeChannel?.title ?? (data.viewer.adminRole ? "Acesso administrativo" : data.groupAccess?.ready===false?"Entrada no grupo em andamento":data.user.groupCodes?.length?`Grupos SOS ${data.user.groupCodes.join(", ")}`:`Grupo SOS YOUTUBER ${data.user.groupCode}`)}</small></div></button></div></header>
     <main className="dashboard">
       {data.groupAccess?.ready===false&&<section className="notice group-access-status" style={{display:"block"}} role="status" aria-label="Entrada no grupo">
         <strong>{data.groupAccess.state==="INVITED"?"Confira seu convite no WhatsApp":data.groupAccess.state==="NEEDS_SUPPORT"?"Sua entrada no grupo precisa de atenção":"Estamos preparando sua entrada no grupo"}</strong>
         <p>{data.groupAccess.state==="INVITED"?"Sua conta já está acessível. Aceite o convite enviado pelo WhatsApp; a confirmação de presença será atualizada automaticamente.":data.groupAccess.state==="NEEDS_SUPPORT"?"Sua conta e senha continuam funcionando. A entrada automática no grupo encontrou uma dificuldade; fale com o atendimento para a equipe responsável conferir.":"Sua conta e senha já funcionam. A entrada automática no grupo está em andamento; esta página acompanha a confirmação. As filas ficam disponíveis quando sua presença no grupo for confirmada."}</p>
         {data.groupAccess.state==="NEEDS_SUPPORT"&&<ProjectWhatsAppContact/>}
       </section>}
-      {data.groupAccess?.ready!==false&&<QueueSwitcher queues={data.queues} onSelect={(id)=>setSelectedQueue(id)} onChanged={()=>void load()} onNeedSkip={()=>setShowStore(true)}/>}
+      {data.groupAccess?.ready!==false&&<QueueSwitcher queues={data.queues} administrative={data.viewer.adminRole==="ROOT_OWNER"} onSelect={setSelectedQueue} onChanged={load} onLeft={(id)=>{if(id===selectedQueue||id===data.queues.current?.id)setSelectedQueue(undefined);}} onNeedSkip={()=>setShowStore(true)} onNeedPass={()=>setShowStore(true)}/>}
       {(!hasPendingTask || administrativeParticipant) ? <>
         <UserWelcomeCarousel onOpenStore={()=>setShowStore(true)} onOpenCommunity={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>
         {data.gamification?.enabled&&<button type="button" className="journey-launcher" onClick={()=>setShowJourney(true)}>
@@ -545,8 +542,9 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
         <SuperPanel snapshot={data.subscription} onOpenStore={()=>setShowStore(true)}/>
         <section className="hero-row queue-hero">
           <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.number}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>
-          <UserWallet wallet={data.wallet} onOpenStore={()=>setShowStore(true)}/>
+          <UserWallet wallet={data.wallet} skipsAvailable={data.queues.skipsAvailable} passesAvailable={data.queues.passesAvailable} subscription={data.subscription} onOpenStore={()=>setShowStore(true)}/>
         </section>
+        <p className="queue-lifetime-note">Cada fila dura 3 dias desde a abertura. Ao expirar ou quando todos concluírem, sai das filas ativas; seus links e histórico ficam preservados.{data.openRound.expiresAt&&<> Esta fila encerra em {new Date(data.openRound.expiresAt).toLocaleString("pt-BR")}.</>}</p>
         <section className="progress-card"><div className="progress-copy"><strong>{filled} de 10 vídeos</strong><span>{10 - filled} espaços restantes</span></div><div className="progress-track"><i style={{ width: `${filled * 10}%` }} /></div></section>
         {data.openRound.number > 1 && <div className="queue-context" role="status"><div className="queue-pill">FILA {data.openRound.number}</div><div><strong>Você está na Fila {data.openRound.number}.</strong><span>Contribua quando houver espaço. Se participar de outras filas, use o seletor para alternar: cada uma mantém seus vídeos, autores e progresso.</span></div></div>}
         {!eligible && data.groupAccess?.ready!==false && !data.wallet.paymentHold && <div className="notice"><LockKeyhole size={19} /><span>{data.wallet.total<1 ? "Você precisa de pelo menos 1 moeda para salvar uma URL." : "Você usou suas contribuições nesta fila. Acompanhe a seleção ou confira outra fila pelo seletor."}</span></div>}
@@ -554,31 +552,33 @@ function DashboardPage({ onLogout,onCooldown,onOpenAdmin }: { onLogout:()=>void;
         {data.wallet.paymentHold && <div className="notice" role="status"><ShieldCheck size={19} /><span>Carteira em revisão por atualização de um pagamento. Novas contribuições ficam suspensas até a conciliação.</span></div>}
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
         {error && <p className="error banner">{error}</p>}
+        {filled>0&&filled<10&&data.openRound.slots.some(slot=>slot.userId===data.user.id)&&<section className="partial-playlist-choice"><h3>Já quer começar a assistir?</h3><p>Você pode criar sua playlist com os {filled} vídeos atuais. Receberá XP pelo acompanhamento válido, sem moedas nesta seleção. Esperar os 10 permite ganhar mais XP e recompensas de moedas.</p><button type="button" className="secondary" disabled={busy} onClick={()=>setCreationRound({...data.openRound,viewerContributed:true})}>Criar playlist com {filled} vídeos</button></section>}
         <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} onInspectParticipant={administrativeParticipant?setAdminParticipantPhone:undefined} viewerChannel={data.user.youtubeChannel} onConnectChannel={()=>void connectYoutube()}/>)}</section>
       </> : <>
         <section className="hero-row task-hero">
           <div><p className="eyebrow dark">SUA TAREFA · FILA {data.readyRounds[0]?.number}</p><h1>Esta fila já foi preenchida.</h1><p className="muted">Como você participou da Fila {data.readyRounds[0]?.number}, acompanhe os vídeos pelo player oficial. A cada 20 minutos registrados no player, acumulados entre sessões e filas, você recebe 1 moeda interna. O percentual mostra sua jornada, mas não determina a recompensa.</p></div>
           <UserWallet wallet={data.wallet} onOpenStore={()=>setShowStore(true)} compact/>
         </section>
-        <div className="queue-context task-context" role="status"><div className="queue-pill">FILA {data.readyRounds[0]?.number}</div><div><strong>A próxima fila já pode estar sendo montada por outros participantes.</strong><span>Fechar o acompanhamento apenas pausa. Abandonar encerra esta tarefa com o percentual atual e libera sua volta à fila mais nova, mantendo o histórico desta fila intacto.</span></div></div>
+        <div className="queue-context task-context" role="status"><div className="queue-pill">FILA {data.readyRounds[0]?.number}</div><div><strong>A próxima fila já pode estar sendo montada por outros participantes.</strong><span>Fechar o acompanhamento apenas pausa. Abandonar preserva o percentual e aplica 60 minutos antes de novo ingresso gratuito. Suas outras filas liberadas continuam acessíveis; Passe/Pular permite outro acesso.</span></div></div>
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
         {error && <p className="error banner">{error}</p>}
       </>}
       {data.readyRounds.length > 0 && <section className="completed"><div className="section-title"><div><p className="eyebrow dark">{administrativeParticipant?"SUPERVISÃO DE FILAS":"FILA EM ANDAMENTO"}</p><h2>{administrativeParticipant?"Filas completas recentes":"Sua seleção concluída"}</h2></div><span>{administrativeParticipant?"Clique em um avatar para administrar o participante":"Seu progresso fica salvo na conta"}</span></div>{data.readyRounds.map((round) => <ReadyRound key={round.id} round={round} userId={data.user.id} connected={data.viewer.youtubeConnected} busy={busy} onConnect={() => setCreationRound(round)} onExport={() => setCreationRound(round)} onWatch={() => setWatchRound(round)} onInspectParticipant={administrativeParticipant?setAdminParticipantPhone:undefined}/>)}</section>}
       <footer><ShieldCheck size={17} /><span>Moedas são créditos internos do SOS YouTuber usados nas contribuições. Elas podem vir do crédito inicial, de compras ou das recompensas da sua jornada e não possuem valor de saque.</span></footer>
     </main>
-    {creationRound && <div className="modal-backdrop" onMouseDown={()=>{if(!busy)setCreationRound(undefined);}}><section ref={creationModalRef} className="modal" onMouseDown={(event)=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Criação de playlist"><button className="close" aria-label="Cancelar criação" disabled={busy} onClick={() => setCreationRound(undefined)}>×</button><p className="eyebrow dark">FILA {creationRound.number} · 10 VÍDEOS</p><h2>Criar playlist na sua conta</h2><p className="muted">{data.viewer.youtubeConnected ? "Você autorizou o acesso ao YouTube. Ao confirmar, os dez links salvos serão incluídos em uma playlist privada na sua conta." : "Você será direcionado à autenticação oficial do Google/YouTube. Após autorizar, criaremos uma playlist privada com os dez links permanentes desta fila."}</p><p className="muted">Você pode cancelar. Os registros de autoria e links da fila continuam preservados.</p>{busy && data.viewer.youtubeConnected && <div role="status"><progress max={10} value={included} /><p>{included} de 10 vídeos incluídos · {Math.min(100,included*10)}% da criação</p></div>}{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => { setError(""); if (data.viewer.youtubeConnected) void exportRound(creationRound.id); else { sessionStorage.setItem("conexao_creation_intent",JSON.stringify({userId:data.user.id,roundId:creationRound.id,at:Date.now()})); void connectYoutube(creationRound.id); } }}>{busy ? data.viewer.youtubeConnected ? "Criando…" : "Abrindo autenticação…" : data.viewer.youtubeConnected ? "Confirmar criação" : "Continuar para Google/YouTube"}</button></section></div>}
+    {creationRound && <div className="modal-backdrop" onMouseDown={()=>{if(!busy)setCreationRound(undefined);}}><section ref={creationModalRef} className="modal" onMouseDown={(event)=>event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Criação de playlist"><button className="close" aria-label="Cancelar criação" disabled={busy} onClick={() => setCreationRound(undefined)}>×</button><p className="eyebrow dark">FILA {creationRound.number} · {creationRound.slots.filter(slot=>slot.videoId).length} VÍDEOS</p><h2>Criar playlist na sua conta</h2><p className="muted">{data.viewer.youtubeConnected ? "Você autorizou o acesso ao YouTube. Ao confirmar, os links da sua seleção salva serão incluídos em uma playlist privada na sua conta." : "Você será direcionado à autenticação oficial do Google/YouTube. Após autorizar, criaremos uma playlist privada com os links permanentes da sua seleção."}</p><p className="muted">Você pode cancelar. Os registros de autoria e links da fila continuam preservados.</p>{creationRound.slots.filter(slot=>slot.videoId).length<10&&<p role="note" className="notice">Seleção parcial: XP proporcional aos vídeos observados, sem moedas neste acompanhamento. A seleção fica fixa; esperar 10 vídeos permite mais XP e moedas.</p>}{busy && data.viewer.youtubeConnected && <div role="status"><progress max={10} value={included} /><p>{included} de 10 vídeos incluídos · {Math.min(100,included*10)}% da criação</p></div>}{error && <p className="error" role="alert">{error}</p>}<button className="primary" disabled={busy} onClick={() => { setError(""); setBusy(true); void api.preparePlaylist(creationRound.id,creationRound.slots.filter(slot=>slot.videoId).length<10).then(()=>{if(data.viewer.youtubeConnected)void exportRound(creationRound.id);else{sessionStorage.setItem("conexao_creation_intent",JSON.stringify({userId:data.user.id,roundId:creationRound.id,at:Date.now()}));void connectYoutube(creationRound.id);}}).catch(cause=>{setError(cause instanceof Error?cause.message:"Não foi possível preparar sua seleção.");setBusy(false);}); }}>{busy ? data.viewer.youtubeConnected ? "Criando…" : "Abrindo autenticação…" : data.viewer.youtubeConnected ? "Confirmar criação" : "Continuar para Google/YouTube"}</button></section></div>}
     <GlobalChat subscriptionActive={data.subscription?.active} currentUserId={data.user.id} onOpenInbox={()=>{setCommunityTarget(undefined);setShowCommunity(true);}} onOpenProfile={(id)=>{setCommunityTarget(id);setShowCommunity(true);}}/>
+    {error&&!creationRound&&<ActionErrorDialog message={error} onClose={()=>setError("")}/>}
     {showCommunity&&<CommunityModal wallet={data.wallet} currentUserId={data.user.id} targetId={communityTarget} onClose={()=>setShowCommunity(false)}/>}
     {showJourney&&data.gamification&&<JourneyModal onClose={()=>setShowJourney(false)}>
-      <GamificationPanel data={data.gamification} onClaimBooster={async()=>{const result=await api.claimBooster();await load();return result;}} onRedeem={async(code,reference)=>{await api.redeemReward(code,reference);await load();}} onRefresh={load}/>
+      <GamificationPanel data={data.gamification} onClaimBooster={async()=>{const result=await api.claimBooster();await load();return result;}} onRedeem={async(code,reference)=>{const result=await api.redeemReward(code,reference);await load();return result;}} onRefresh={load}/>
     </JourneyModal>}
     {showStore && <StoreModal onChanged={load} data={data} onClose={()=>setShowStore(false)} onChoose={(product)=>{setShowStore(false);setPurchaseProduct(product);}}/>}
     {purchaseProduct && <PurchaseModal product={purchaseProduct} productInfo={data.commerce.products.find((item)=>item.code===purchaseProduct)} onClose={()=>setPurchaseProduct(undefined)} paymentStates={purchaseFeedback.states} onTracked={purchaseFeedback.track} onApproved={(receipt)=>{setPurchaseProduct(undefined);void purchaseFeedback.confirm(receipt);}}/>}
     {purchaseFeedback.receipt&&<PurchaseCelebration key={purchaseFeedback.receipt.paymentId} receipt={purchaseFeedback.receipt} onClose={purchaseFeedback.dismiss} onInventory={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>}
     {showAccountMenu && <UserAccountMenu data={data} onClose={()=>setShowAccountMenu(false)} onLogout={onLogout} onDeleted={onLogout} onOpenAdmin={onOpenAdmin} onConnectYoutube={()=>{setShowAccountMenu(false);void connectYoutube();}} onAvatarChanged={(avatar)=>{setData((current)=>current?{...current,user:{...current.user,avatar}}:current);void load();}}/>}
     {showAvatar && <AvatarModal name={data.user.name} current={data.user.avatar} presentation={data.user.presentation} onClose={()=>setShowAvatar(false)} onChanged={(avatar)=>{setData((current)=>current?{...current,user:{...current.user,avatar}}:current);void load();}}/>}
-    {watchRound?.export?.playlistId && <WatchProgress onProgress={()=>void load()} playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} slots={watchRound.slots} initialProgress={watchRound.export.watchProgress} initialBalance={data.wallet.total} initialWatchRewards={data.watchRewards} onClose={() => { setWatchRound(undefined); void load(); }} onFinalized={onCooldown} onAbandoned={({percent,nextOpenRound})=>{setWatchRound(undefined);setNotice(nextOpenRound ? `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados. Você voltou para a Fila ${nextOpenRound.sequence}.` : `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados.`);void load();}} />}
+    {watchRound?.export?.playlistId && <WatchProgress onProgress={()=>void load()} playlistId={watchRound.export.playlistId} roundId={watchRound.id} userId={data.user.id} slots={watchRound.slots} initialProgress={watchRound.export.watchProgress} initialBalance={data.wallet.total} initialWatchRewards={data.watchRewards} onClose={() => { setWatchRound(undefined); void load(); }} onFinalized={()=>{setWatchRound(undefined);setSelectedQueue(undefined);setNotice("Tarefa concluída. Suas outras filas continuam disponíveis; o intervalo protege somente um novo ingresso gratuito.");void load();}} onAbandoned={({percent,nextOpenRound})=>{setWatchRound(undefined);setNotice(nextOpenRound ? `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados. Você voltou para a Fila ${nextOpenRound.sequence}.` : `Tarefa encerrada em ${percent}%. Seu progresso e moedas foram preservados.`);void load();}} />}
     {adminParticipantPhone && administrativeParticipant && <ParticipantAdminModal phone={adminParticipantPhone} groups={adminGroups} onClose={()=>setAdminParticipantPhone(undefined)} onChanged={(next)=>{if(next)setAdminParticipantPhone(next);void load();}}/>}
   </div>;
 }
@@ -623,18 +623,11 @@ export function App() {
     setActiveRole("owner");
   },[setActiveRole]);
 
-  const enterCooldown=useCallback((until:string)=>{
-    localStorage.removeItem("conexao_token");
-    localStorage.setItem(COOLDOWN_KEY,until);
-    if(localStorage.getItem("conexao_owner_token")) setActiveRole("owner");
-    else setActiveRole(undefined);
-  },[setActiveRole]);
-
   const doneLogin=useCallback((next:"user"|"owner")=>setActiveRole(next),[setActiveRole]);
 
   return role==="owner"
     ? <OwnerDashboard onLogout={logoutOwner} onParticipate={participateAsOwner}/>
     : role==="user"
-      ? <DashboardPage onLogout={logoutUser} onCooldown={enterCooldown} onOpenAdmin={openAdminPanel}/>
-      : <Login onDone={doneLogin}/>;
+      ? <DashboardPage onLogout={logoutUser} onOpenAdmin={openAdminPanel}/>
+      : <><LaunchFlash/><Login onDone={doneLogin}/></>;
 }

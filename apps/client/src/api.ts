@@ -4,6 +4,9 @@ const isBrowser = typeof window !== "undefined";
 const isLocalHost = !isBrowser || ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const API_URL = configuredApiUrl || (isLocalHost ? "http://localhost:3333" : "");
 
+export type LevelEmblem = {tier:number;slug:string;label:string;fromLevel:number;url:string};
+export const publicApiAssetUrl=(path:string)=>API_URL+path;
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly data: Record<string, unknown> = {}) { super(message); }
 }
@@ -33,13 +36,29 @@ export type GoogleIdentityClaim={status:"PENDING"|"APPROVED"|"DECLINED";requestT
 export type GoogleIdentityRequest={id:string;name:string;phone:string;email:string;createdAt:string;groupCode?:string};
 export type CompanionDevice={id:string;label:string;createdAt:string;lastSeenAt?:string;signal?:string;playerMatches:number;authorized:number};
 export const api = {
+  levelEmblems:()=>request<{emblems:LevelEmblem[]}>("/level-emblems"),
+  preparePlaylist:(id:string,acceptPartial:boolean)=>request<{count:number;rewardEligible:boolean}>("/rounds/"+encodeURIComponent(id)+"/prepare-playlist",{method:"POST",body:JSON.stringify({acceptPartial})}),
   passwordLogin:(phone:string,password:string)=>request<{token:string;mustChangePassword:boolean}>("/auth/password/login",{method:"POST",body:JSON.stringify({phone,password})}),
   setPassword:(newPassword:string,currentPassword?:string)=>request("/auth/password/set",{method:"POST",body:JSON.stringify({newPassword,currentPassword})}),
   gamification:()=>request<GamificationData & {enabled:boolean}>("/gamification/me"),
   claimBooster:()=>request<BoosterClaimResult>("/gamification/booster",{method:"POST"}),
-  redeemReward:(itemCode:"SKIP"|"PASS",referenceId:string)=>request("/gamification/redeem",{method:"POST",body:JSON.stringify({itemCode,referenceId})}),
+  redeemReward:(itemCode:"SKIP"|"PASS",referenceId:string)=>request<{itemCode:string;price:number;replayed:boolean}>("/gamification/redeem",{method:"POST",body:JSON.stringify({itemCode,referenceId})}),
   giftRewardCoins:(toUserId:string,coins:number,referenceId:string)=>request("/gamification/gift-coins",{method:"POST",body:JSON.stringify({toUserId,coins,referenceId})}),
 
+  socialUnread:()=>request<{unread:number}>("/social/unread"),
+  socialOverview:()=>request<SocialOverview>("/social"),
+  socialFind:(phone:string)=>request<SocialProfile>("/social/find",{method:"POST",body:JSON.stringify({phone})}),
+  socialProfile:(userId:string)=>request<SocialProfile>("/social/profile/"+encodeURIComponent(userId)),
+  socialRequest:(targetUserId:string,referenceId:string)=>request("/social/requests",{method:"POST",body:JSON.stringify({targetUserId,referenceId})}),
+  socialRespond:(id:string,action:"ACCEPT"|"DECLINE"|"CANCEL"|"REMOVE")=>request("/social/requests/"+encodeURIComponent(id),{method:"POST",body:JSON.stringify({action})}),
+  socialBlock:(userId:string,blocked:boolean)=>request("/social/blocks/"+encodeURIComponent(userId),{method:"PUT",body:JSON.stringify({blocked})}),
+  socialPreferences:(acceptFriendRequests:boolean)=>request("/social/preferences",{method:"PUT",body:JSON.stringify({acceptFriendRequests})}),
+  socialNotifications:()=>request<{unread:number;notifications:SocialNotification[]}>("/social/notifications"),
+  socialRead:(ids:string[])=>request("/social/notifications/read",{method:"POST",body:JSON.stringify({ids})}),
+  giftCoins:(toUserId:string,coins:number,referenceId:string)=>request("/gamification/gift-coins",{method:"POST",body:JSON.stringify({toUserId,coins,referenceId})}),
+  socialMessageRequests:()=>request<{requests:SocialMessageRequest[]}>("/social/message-requests"),
+  socialMessageRequest:(targetUserId:string)=>request("/social/message-requests",{method:"POST",body:JSON.stringify({targetUserId})}),
+  socialMessageRespond:(id:string,accept:boolean)=>request("/social/message-requests/"+encodeURIComponent(id),{method:"POST",body:JSON.stringify({accept})}),
   companionPairing:()=>request<{pairingCode:string;apiUrl:string;expiresInSeconds:number}>("/companion/pairings",{method:"POST",body:JSON.stringify({consent:true})}),
   companionDevices:()=>request<{devices:CompanionDevice[]}>("/companion/devices"),
   companionRevoke:(id:string)=>request<{ok:true}>(`/companion/devices/${id}`,{method:"DELETE"}),
@@ -52,11 +71,14 @@ export const api = {
   requestCode: (body: { name: string; phone: string; registration?:boolean; consent?:true }) => request<{ devCode?: string; expiresInSeconds:number }>("/auth/request-code", { method: "POST", body: JSON.stringify(body) }),
   verifyCode: (body: { phone: string; code: string }) => request<{ token?: string; participation?:ParticipationStatus }>("/auth/verify", { method: "POST", body: JSON.stringify(body) }),
   dashboard: (roundId?: string) => request<Dashboard>("/dashboard" + (roundId ? ("?roundId=" + encodeURIComponent(roundId)) : "")),
-  queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number; inventory:Array<{itemCode:string;quantity:number}> }>("/queues/mine"),
+  queuesMine: () => request<{ queues: MyQueue[]; canSkip: boolean; skipsAvailable: number; canUsePass: boolean; passesAvailable: number; cooldownUntil?: string; inventory:Array<{itemCode:string;quantity:number}> }>("/queues/mine"),
   superMe: () => request<SuperState>("/super/me"),
   superPins: () => request<{ pins: SuperPin[]; slotsFree: number; slots: number }>("/super/pins"),
   createSuperPin: (body: string) => request<{ id: string; expiresInSeconds: number }>("/super/pins", { method: "POST", body: JSON.stringify({ body }) }),
   queueSkip: (referenceId?:string) => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST",body:JSON.stringify({referenceId}) }),
+  queuePass: (referenceId:string) => request<{queue:MyQueue;passesAvailable:number;replayed:boolean}>("/queues/pass", {method:"POST",body:JSON.stringify({referenceId})}),
+  queueResume:(roundId:string)=>request<{ok:true;replayed:boolean}>(`/queues/${encodeURIComponent(roundId)}/resume`,{method:"POST"}),
+  queueLeave: (roundId:string) => request<{ok:true}>(`/queues/${encodeURIComponent(roundId)}/leave`, {method:"POST"}),
   giftItem: (toUserId: string, itemCode: string, quantity = 1,referenceId?:string) =>
     request<{ reference: string }>("/inventory/gift", { method: "POST", body: JSON.stringify({ toUserId, itemCode, quantity, referenceId }) }),
   submit: (url: string, expectedRoundId?:string) => request("/rounds/current/submissions", { method: "POST", body: JSON.stringify({ url, expectedRoundId }) }),
@@ -105,7 +127,7 @@ export type AdminAvatarItem = { slug:string; tier:AvatarTier; category:string; l
 export const catalogAvatarUrl = (slug:string) => `${API_URL}/avatars/${slug}`;
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
 export type MyQueue = { id: string; number: number; status: string; vacancies: number };
-export type QueuesState = { current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number };
+export type QueuesState = { available?: Array<MyQueue & {joined:boolean;canResume?:boolean}>; current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number; passesAvailable: number; cooldownUntil?: string };
 export type ChatRole = "USER" | "SUPER" | "ADMIN" | "OWNER";
 export type SuperState = {
   active:boolean; expiresAt?:string; secondsRemaining:number; autoRenew:boolean; source?:string;
@@ -136,7 +158,7 @@ export type WatchRewards = {verifiedSeconds:number;coins:number;secondsToNextRew
 export type WatchObservationResult = WatchProgressState & WatchRewards & {
   acceptedSeconds:number;sessionConflict?:boolean;xpDelta?:number;levelRewards?:Array<{level:number;coins:number;trialDays:number}>;
 };
-export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
+export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";expiresAt?:string;slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
 export type UserProfileSummary = {
   activity:{ submissions:number; rounds:number; playlists:number; completedTasks:number };
   adminAccess?:{role:"ROOT_OWNER"|"ADMIN_OWNER"};
@@ -151,7 +173,7 @@ export type UserProfileSummary = {
 };
 export type Dashboard = {
   groupAccess?:{ready:boolean;state:"MEMBER"|"JOINING"|"INVITED"|"NEEDS_SUPPORT";groupCode?:string};
-  user: { id: string; name: string; phone: string; groupCode: string; presentation?:UserPresentation; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
+  user: { id: string; name: string; phone: string; groupCode: string; groupCodes?:string[]; presentation?:UserPresentation; avatar?: UserAvatar; youtubeChannel?: { id?:string; title:string; thumbnailUrl?:string } };
   wallet: { promo: number; purchased: number; reward: number; total: number; extraPasses: number; paymentHold: boolean };
   subscription:SuperState;
   gamification?:GamificationData & {enabled:boolean;redemptionEnabled:boolean;milestones:{every:number;coins:number;trialEvery:number;trialDays:number}};
@@ -223,7 +245,7 @@ export type PaymentIntegrationState = {
 export type OwnerVersion = { appVersion: string; gitSha: string; dirty: boolean };
 export type GroupVerificationState = { required: boolean; accessReady: boolean; memberVerified: boolean; ownerAdminVerified: boolean; provider?: string };
 export type OwnerParticipant = {
-  id: string; userId?: string; name: string; phone: string; groupCode: string; createdAt?: string; lastSeenAt?: string; deletedAt?: string;
+  id: string; userId?: string; name: string; phone: string; groupCode: string; groupCodes?:string[]; createdAt?: string; lastSeenAt?: string; deletedAt?: string;
   cooldownUntil?: string; cooldownReason?: string; balanceMillis: number; promoMillis: number; purchasedMillis: number; rewardMillis: number;
   extraPasses: number; paymentHold: number; approvedAt?: string; approvedByOwnerId?: string; approvedByOwnerName?: string;
   revokedAt?: string; source?: string; requestStatus?: string; requestSource?: string;
@@ -345,6 +367,9 @@ export type BotAutomationRuntime = {
 };
 
 export const ownerApi = {
+  community:()=>ownerRequest<OwnerCommunityData>("/admin/community"),
+  saveCommunity:(body:OwnerCommunityConfig)=>ownerRequest<{config:OwnerCommunityConfig}>("/admin/community",{method:"PUT",body:JSON.stringify(body)}),
+  revokeCommunityRelationship:(id:string,reason:string)=>ownerRequest<{ok:true;replayed:boolean}>(`/admin/community/relationships/${encodeURIComponent(id)}/revoke`,{method:"POST",body:JSON.stringify({reason})}),
   sendBotTestMessage:(referenceId:string)=>ownerRequest<{queued:true;outboxId:string}>("/admin/bot/test-message",{method:"POST",body:JSON.stringify({referenceId})}),
   botTestMessageStatus:(outboxId:string)=>ownerRequest<{status:string;reason?:string|null;providerConfirmed:boolean}>(`/admin/bot/test-message/${encodeURIComponent(outboxId)}`),
   supportAvailability:()=>ownerRequest<SupportAvailabilityState>("/admin/bot/support-availability"),
@@ -477,3 +502,22 @@ export type GamificationBotSettings={enabled:boolean;events:Record<string,{enabl
 export type GamificationBotData={settings:GamificationBotSettings;catalog:Array<{event:string;label:string;placeholders:string[]}>;runtime:{wired:boolean;transport:string;note:string};deliveries:Array<{eventId:string;event:string;name:string;status:string;reason?:string;createdAt:string}>};
 
 export type BotPasswordState={enabled:boolean;templateName:string;templateLanguage:string;deliveries:Array<{userId:string;name:string;status:string;createdAt:string}>};
+
+export type SocialRelationship={status:"SELF"|"FRIEND"|"REQUEST_SENT"|"REQUEST_RECEIVED"|"NONE"|"DISABLED"|"BLOCKED";invitationId?:string;blockedByMe?:boolean;interactionBlocked?:boolean};
+export type SocialProfile={user:ChatSender|null;relationship:SocialRelationship;acceptsRequests?:boolean;enabled?:boolean;interactionBlocked?:boolean;blockedByMe?:boolean};
+export type SocialOverview={friendshipRequestCost?:number;blocked?:Array<{userId:string;user:ChatSender|null;createdAt:string}>;enabled:boolean;preferences:{acceptFriendRequests:boolean};friends:Array<{id:string;user:ChatSender|null;since:string}>;incoming:Array<{id:string;user:ChatSender|null;createdAt:string}>;outgoing:Array<{id:string;user:ChatSender|null;createdAt:string}>;unread:number;transferableCoins:number};
+export type SocialNotification={id:string;kind:string;referenceId:string;payload:Record<string,unknown>;actor:ChatSender|null;createdAt:string;readAt:string|null};
+export type SocialMessageRequest={id:string;senderId:string;recipientId:string;status:"PENDING"|"ACCEPTED"|"DECLINED";createdAt:string;incoming:boolean;user:ChatSender|null};
+
+export type OwnerCommunityConfig = { friendsEnabled:boolean; coinGiftsEnabled:boolean; maxGiftCoins:number; declinedInviteCooldownHours:number };
+export type OwnerCommunityRelationship = { id:string; status:"PENDING"|"ACCEPTED"; senderId:string; recipientId:string; sender?:ChatSender|null; recipient?:ChatSender|null; createdAt:string; updatedAt:string };
+export type OwnerCommunityData = {
+  config:OwnerCommunityConfig;
+  stats:{friendships:number;pendingInvitations:number;participantsReceivingInvites:number};
+  relationships:OwnerCommunityRelationship[];
+  audit:Array<{id:string;actorId:string;action:string;targetId:string|null;payload:string;createdAt:string}>;
+  coinTransfers:{
+    totals:{count:number;amountMillis:number;rewardMillis:number;purchasedMillis:number;revenueCents:number};
+    transfers:Array<{id:string;fromUserId:string;fromName:string;toUserId:string;toName:string;referenceId:string;amountMillis:number;rewardMillis:number;purchasedMillis:number;createdAt:string}>;
+  };
+};

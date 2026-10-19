@@ -6,7 +6,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 
 const money=(cents=0)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
-export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"automations"|"comms"|"access"|"avatars"|"gamification";
+export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"automations"|"comms"|"access"|"avatars"|"gamification"|"community";
 
 export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onRefresh,onVersion,onLogout,onAvatarChanged,onParticipate,onManageOwners}:{
   data:OwnerOverview;onClose:()=>void;onNavigate:(target:OwnerMenuTarget)=>void;onWhatsApp:()=>void;onPayments:()=>void;onRefresh:()=>void;onVersion:()=>void;onLogout:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;
@@ -40,6 +40,7 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
       <section className="desk-section">
         <div className="desk-section-title"><CheckCircle2 size={17}/><strong>Comunidade</strong></div>
         <button className="owner-menu-link" onClick={()=>go("requests")}><span><Users size={17}/><b>Solicitações</b></span><small>{data.metrics.pendingRequests} aguardando decisão</small></button>
+        {data.owner.role==="ROOT_OWNER"&&<button className="owner-menu-link" onClick={()=>go("community")}><span><Users size={17}/><b>Amigos e presentes</b></span><small>Convites, regras e histórico de moderação</small></button>}
         <button className="owner-menu-link" onClick={()=>go("users")}><span><Users size={17}/><b>Participantes</b></span><small>Perfis, avatares, atividade, carteiras e acessos</small></button>
         <button className="owner-menu-link" onClick={()=>go("groups")}><span><ShieldCheck size={17}/><b>Grupos e acesso</b></span><small>Grupos 1–999, membros e verificação externa</small></button>
         <button className="owner-menu-link" onClick={()=>go("removed")}><span><ShieldCheck size={17}/><b>Contas removidas</b></span><small>{data.metrics.deletedUsers} ID(s) preservados apenas para auditoria</small></button>
@@ -64,6 +65,7 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
 
       <section className="desk-section desk-account-section">
         <div className="desk-section-title"><Settings2 size={17}/><strong>Meu perfil</strong></div>
+        {data.owner.permissions.canManageOwners&&<button className="owner-menu-link" onClick={()=>go("access")}><span><ShieldCheck size={17}/><b>Minha senha e assinaturas SUPER</b></span><small>Trocar sua senha, redefinir acesso da equipe e conceder SUPER</small></button>}
         <ProfilePhotoActions saveAvatar={ownerApi.saveAvatar} clearAvatar={ownerApi.clearAvatar} onChanged={onAvatarChanged}/>
         <button className="desk-action" onClick={onLogout}><LogOut size={17}/><span><strong>Sair do painel Owner</strong><small>Encerra somente esta sessão administrativa.</small></span></button>
       </section>

@@ -27,10 +27,14 @@
 .journey-level-label{display:flex;flex-direction:column;gap:2px}
 .journey-level-label b{font-size:1.3rem;font-weight:800}
 .journey-level-badge.is-compact{gap:4px;font-size:.61rem}
-.journey-level-badge.is-compact .journey-level-emblem{width:22px;height:26px}
+.journey-level-badge.is-compact .journey-level-emblem{width:32px;height:32px}
 .journey-level-badge.is-compact .journey-level-emblem::after{inset:3px}
 .journey-level-badge.is-compact .journey-level-label{display:block}
 .journey-level-badge.is-compact .journey-level-label b{font-size:.65rem}
+
+.journey-level-badge .journey-level-emblem.is-illustrated{clip-path:none;background:transparent;filter:none}
+.journey-level-badge .journey-level-emblem.is-illustrated::after{display:none}
+.journey-level-emblem.is-illustrated img{display:block;width:100%;height:100%;object-fit:contain}
 
 /* XP e carteira: não misturar experiência, recompensas e compras. */
 .journey-progress-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:22px;padding:22px;border-radius:20px;border:1px solid #e4d1da;background:linear-gradient(120deg,#f8edf1,#f9f2eb 70%);margin-bottom:24px}

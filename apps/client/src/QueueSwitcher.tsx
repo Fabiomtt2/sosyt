@@ -1,79 +1,128 @@
-import { useRef,useState } from "react";
-import { Layers, Plus, Lock, LoaderCircle } from "lucide-react";
-import { api, type QueuesState } from "./api";
+import { useRef, useState } from "react";
+import { Layers, Plus, LoaderCircle, LogOut, Ticket } from "lucide-react";
+import { api, type MyQueue, type QueuesState } from "./api";
 
-/**
- * AUDITORIA / multi-fila: mostra em QUAIS filas o participante está e permite
- * transitar entre elas. Só aparece quando ele tem mais de uma — quem está em uma
- * fila só não vê seletor nenhum (e não fica sabendo que existem outras filas).
- * O botão "Pular" usa um item do inventário; se não houver fila livre, o servidor
- * cria uma — o item nunca é desperdiçado.
- */
-export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip }: {
+/** Active memberships remain selectable when another queue is opened or completed. */
+export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedPass, onLeft, administrative = false }: {
   queues: QueuesState;
   onSelect: (roundId: string) => void;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   onNeedSkip?: () => void;
+  onNeedPass?: () => void;
+  onLeft?: (roundId: string) => void;
+  administrative?: boolean;
 }) {
-  const skipReference=useRef<string|undefined>(undefined);
-  const [busy, setBusy] = useState(false);
+  const references = useRef<Partial<Record<"PASS" | "SKIP", string>>>({});
+  const [busy, setBusy] = useState<"PASS" | "SKIP" | "LEAVE" | null>(null);
   const [error, setError] = useState("");
+  const [leaving, setLeaving] = useState<MyQueue | null>(null);
   const mine = queues.mine;
   const currentId = queues.current?.id;
-  const canSkip = queues.skipsAvailable > 0;
+  const current = mine.find(queue => queue.id === currentId);
+  const canSkip = !administrative && queues.skipsAvailable > 0;
+  const canPass = !administrative && queues.passesAvailable > 0;
 
-  // Uma fila só e sem Pular disponível: nada a mostrar, nada a revelar.
-  if (mine.length <= 1 && !canSkip) return null;
+  if (!mine.length && !queues.available?.length && !canSkip && !canPass && !administrative) return null;
 
-  async function useSkip() {
-    setBusy(true); setError("");
+  async function enterWith(item: "PASS" | "SKIP") {
+    if (busy) return;
+    setBusy(item);
+    setError("");
     try {
-      skipReference.current??=crypto.randomUUID();
-      const result = await api.queueSkip(skipReference.current);
-      skipReference.current=undefined;
+      const reference = references.current[item] ??= crypto.randomUUID();
+      const result = item === "PASS" ? await api.queuePass(reference) : await api.queueSkip(reference);
       onSelect(result.queue.id);
-      onChanged();
+      await onChanged();
+      delete references.current[item];
     } catch (cause) {
-      const e = cause as { message?: string; code?: string };
-      if (e.code === "SKIP_REQUIRED") onNeedSkip?.();
-      setError(e.message ?? "Não foi possível entrar em outra fila.");
-    } finally { setBusy(false); }
+      const failure = cause as {message?: string; data?: {code?: string}};
+      if (failure.data?.code === "SKIP_REQUIRED") onNeedSkip?.();
+      if (failure.data?.code === "PASS_REQUIRED") onNeedPass?.();
+      setError(failure.message ?? "Não foi possível abrir outra fila. Tente novamente; a mesma solicitação será reutilizada.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resumeQueue(id:string){
+    if(busy)return;setBusy("LEAVE");setError("");
+    try{await api.queueResume(id);onSelect(id);await onChanged();}catch(cause){setError((cause as Error).message);}finally{setBusy(null);}
+  }
+  async function leaveQueue() {
+    if (!leaving || busy) return;
+    const target = leaving;
+    setBusy("LEAVE");
+    setError("");
+    try {
+      await api.queueLeave(target.id);
+      setLeaving(null);
+      onLeft?.(target.id);
+      await onChanged();
+    } catch (cause) {
+      setError((cause as Error).message ?? "Não foi possível sair desta fila. Tente novamente.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
     <section className="queue-switcher" aria-label="Minhas filas">
       <div className="qs-head">
         <Layers size={16} />
-        <strong>{mine.length > 1 ? "Você está em " + mine.length + " filas" : "Sua fila"}</strong>
+        <strong>{administrative ? "Filas em acompanhamento administrativo" : mine.length > 1 ? `Você está em ${mine.length} filas` : "Suas filas"}</strong>
       </div>
-
-      <div className="qs-tabs" role="tablist">
-        {mine.map((q) => (
-          <button
-            key={q.id}
-            role="tab"
-            type="button"
-            aria-selected={q.id === currentId}
-            className={"qs-tab" + (q.id === currentId ? " active" : "")}
-            onClick={() => onSelect(q.id)}
-          >
-            <b>Fila {q.number}</b>
-            <small>{q.status === "OPEN" ? (q.vacancies > 0 ? q.vacancies + (q.vacancies === 1 ? " vaga" : " vagas") : "completa") : "em acompanhamento"}</small>
+      <div className="qs-tabs" role="tablist" aria-label="Escolha uma fila">
+        {mine.map(queue => (
+          <button key={queue.id} role="tab" type="button" aria-selected={queue.id === currentId}
+            className={"qs-tab" + (queue.id === currentId ? " active" : "")}
+            onClick={() => onSelect(queue.id)}
+            onKeyDown={event => {
+              const index = mine.findIndex(item => item.id === queue.id);
+              const next = event.key === "ArrowRight" ? (index + 1) % mine.length
+                : event.key === "ArrowLeft" ? (index + mine.length - 1) % mine.length
+                : event.key === "Home" ? 0 : event.key === "End" ? mine.length - 1 : -1;
+              if (next < 0) return;
+              event.preventDefault();
+              onSelect(mine[next].id);
+              (event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next])?.focus();
+            }}>
+            <b>Fila {queue.number}</b>
+            <small>{queue.status === "OPEN" ? queue.vacancies > 0 ? `${queue.vacancies} ${queue.vacancies === 1 ? "vaga" : "vagas"}` : "completa" : "em acompanhamento"}</small>
           </button>
         ))}
       </div>
-
+      {Boolean(queues.available?.length) && <div className="qs-directory" aria-label="Todas as filas disponíveis">
+        <strong>Filas da comunidade</strong>
+        {queues.available?.map(queue=><p key={queue.id}>Fila {queue.number} · {10-queue.vacancies}/10 vídeos · {queue.joined?"seu acesso liberado":queue.status==="READY"?"completa":"entrada disponível com Passe ou Pular"}{queue.canResume&&<button type="button" className="text-button" disabled={!!busy} onClick={()=>void resumeQueue(queue.id)}>Retomar minha Fila {queue.number}</button>}</p>)}
+      </div>}
       <div className="qs-actions">
-        {canSkip ? (
-          <button type="button" className="qs-skip" onClick={() => void useSkip()} disabled={busy}>
-            {busy ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
-            Entrar em outra fila
-            <span className="qs-skip-count">{queues.skipsAvailable===Number.MAX_SAFE_INTEGER?"∞":queues.skipsAvailable} Pular</span>
+        {administrative && <>
+          <button type="button" className="qs-skip" onClick={() => void enterWith("SKIP")} disabled={!!busy}>
+            {busy === "SKIP" ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
+            Abrir outra fila como administrador
           </button>
-        ) : (
-          <p className="qs-locked"><Lock size={14} /> Conclua 100% da sua fila para avançar — ou use um <b>Pular</b> da loja para participar de outra ao mesmo tempo.</p>
-        )}
+          <p className="qs-locked">Acesso administrativo, fora de competição. Esta ação não consome itens.</p>
+        </>}
+        {canPass && <button type="button" className="qs-skip" onClick={() => void enterWith("PASS")} disabled={!!busy}>
+          {busy === "PASS" ? <LoaderCircle size={15} className="spin" /> : <Ticket size={15} />}
+          Usar 1 Passe <span className="qs-skip-count">{queues.passesAvailable} disponíveis</span>
+        </button>}
+        {canSkip && <button type="button" className="qs-skip" onClick={() => void enterWith("SKIP")} disabled={!!busy}>
+          {busy === "SKIP" ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
+          Usar 1 Pular <span className="qs-skip-count">{queues.skipsAvailable} disponíveis</span>
+        </button>}
+        {!administrative && <p className="qs-locked">Passe ou Pular abre acesso a outra fila sem encerrar as suas filas atuais. Concluir uma tarefa mantém as outras filas já liberadas disponíveis.</p>}
+        {!administrative && queues.cooldownUntil && <p className="qs-locked">O intervalo indicado protege um novo ingresso gratuito. Após abandono voluntário, são 60 minutos. Você pode continuar nas filas já liberadas ou usar Passe/Pular.</p>}
+        {current && <button type="button" className="secondary" disabled={!!busy} onClick={() => { setError(""); setLeaving(current); }}>
+          <LogOut size={15} /> Sair da Fila {current.number}
+        </button>}
       </div>
+      {leaving && <div role="alertdialog" aria-modal="false" aria-labelledby="queue-leave-title" aria-describedby="queue-leave-description">
+        <strong id="queue-leave-title">Sair da Fila {leaving.number}?</strong>
+        <p id="queue-leave-description">{administrative ? "Seus links, histórico e progresso serão preservados. Sair encerra sua participação nesta fila; você mantém o acesso administrativo às outras filas, sem consumo de itens e fora de competição." : "Seus links, histórico e progresso serão preservados. Sair encerra o acesso atual e não devolve moedas, Passe ou Pular. Abandonar aplica 60 minutos de intervalo para novo ingresso gratuito. Passe/Pular permite outro acesso e suas demais filas liberadas continuam disponíveis; o mesmo progresso não gera recompensa duplicada."}</p>
+        <button type="button" className="secondary" autoFocus disabled={!!busy} onClick={() => setLeaving(null)}>Continuar nesta fila</button>
+        <button type="button" disabled={!!busy} onClick={() => void leaveQueue()}>{busy === "LEAVE" ? "Saindo…" : "Confirmar saída"}</button>
+      </div>}
       {error && <p className="qs-error" role="alert">{error}</p>}
     </section>
   );

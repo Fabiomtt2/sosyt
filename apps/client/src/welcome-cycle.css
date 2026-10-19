@@ -1,0 +1,4 @@
+.welcome-cycle-wrap{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .45s ease,opacity .35s ease}
+.welcome-cycle-wrap>div{min-height:0;overflow:hidden}
+.welcome-cycle-wrap.is-ending{grid-template-rows:0fr;opacity:0;pointer-events:none}
+@media(prefers-reduced-motion:reduce){.welcome-cycle-wrap{transition:none}}

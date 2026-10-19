@@ -1,5 +1,7 @@
+import { RedemptionCelebration, type ConfirmedRedemption } from "./RedemptionCelebration";
 import { useRef, useState } from "react";
 import {productKind,productExplanation} from "./commerce";
+import { InventoryOverview } from "./UserWallet";
 import { CommerceArtwork } from "./CommerceArtwork";
 import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
@@ -14,16 +16,18 @@ const status=(value:string)=>value==="APPROVED"?"Confirmado":value==="PENDING"?"
 export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onClose:()=>void;onChoose:(product:string)=>void;onChanged?:()=>Promise<void>}) {
   const [trading,setTrading]=useState<string>();
   const [notice,setNotice]=useState("");
+  const [redemptionReceipt,setRedemptionReceipt]=useState<ConfirmedRedemption>();
+  const tradingLock=useRef(false);
   const references=useRef<Partial<Record<"SKIP"|"PASS",string>>>({});
   async function trade(code:"SKIP"|"PASS"){
-    if(trading)return;setTrading(code);setNotice("");
+    if(tradingLock.current)return;tradingLock.current=true;setTrading(code);setNotice("");
     const reference=references.current[code]??crypto.randomUUID();references.current[code]=reference;
-    try{await api.redeemReward(code,reference);delete references.current[code];setNotice((code==="SKIP"?"Pular":"Passe")+" chegou ao seu inventário.");await onChanged?.();}
+    try{const result=await api.redeemReward(code,reference);delete references.current[code];setRedemptionReceipt({code,price:result.price,replayed:result.replayed});setNotice((code==="SKIP"?"Pular":"Passe")+" chegou ao seu inventário.");try{await onChanged?.();}catch{setNotice("Troca confirmada. O saldo será atualizado quando a conexão voltar.");}}
     catch(e){setNotice(e instanceof Error?e.message:"Não foi possível concluir a troca.");}
-    finally{setTrading(undefined);}
+    finally{tradingLock.current=false;setTrading(undefined);}
   }
-  const modalRef=useModalLifecycle(onClose);
-  const products=data.commerce.products;
+  const modalRef=useModalLifecycle(()=>{if(!tradingLock.current)onClose();},true,!trading);
+  const products=data.commerce.products.map((item,index)=>({item,index})).sort((a,b)=>Number((b.item.subscriptionDays??0)>0)-Number((a.item.subscriptionDays??0)>0)||a.index-b.index).map(({item})=>item);
   const history=data.profile?.purchases.history.slice(0,5) ?? [];
   const blocked=!data.commerce.pixAvailable||Boolean(data.wallet.paymentHold);
   const titleFor=(code:string)=>products.find((item)=>item.code===code)?.title ?? (code==="LEGACY"?"Compra anterior":code);
@@ -31,9 +35,9 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
     ? "Pagamento por Pix via "+provider(data.commerce.provider)+". O benefício entra na sua conta somente depois da confirmação do servidor."
     : "As compras ficam disponíveis quando o Owner concluir a configuração do Pix. Suas moedas e recompensas atuais continuam normais.";
 
-  return <div className="modal-backdrop store-backdrop premium-store-backdrop" onMouseDown={onClose}>
+  return <div className="modal-backdrop store-backdrop premium-store-backdrop" onMouseDown={()=>{if(!tradingLock.current)onClose();}}>
     <section ref={modalRef} className="modal store-modal store-modal-v2 store-editorial premium-store" role="dialog" aria-modal="true" aria-label="Loja SOS YouTuber" onMouseDown={(event)=>event.stopPropagation()}>
-      <button className="close" aria-label="Fechar loja" onClick={onClose}><X size={20}/></button>
+      <button className="close" aria-label="Fechar loja" disabled={Boolean(trading)} onClick={onClose}><X size={20}/></button>
 
       <div className="store-head store-head-v2">
         <div className="store-title-copy">
@@ -43,7 +47,8 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
         </div>
         <div className="store-balance" aria-label="Saldo atual">
           <span>Você tem agora</span>
-          <div><strong><Coins size={18}/>{data.wallet.total.toLocaleString("pt-BR",{maximumFractionDigits:3})}<small>moedas</small></strong><strong><Ticket size={18}/>{data.wallet.extraPasses}<small>passes</small></strong><strong><Package size={18}/>{data.queues.skipsAvailable===Number.MAX_SAFE_INTEGER?"∞":data.queues.skipsAvailable}<small>Pular</small></strong></div>
+          <InventoryOverview wallet={data.wallet} skipsAvailable={data.queues.skipsAvailable} passesAvailable={data.queues.passesAvailable} subscription={data.subscription} label="Benefícios disponíveis"/>
+
         </div>
       </div>
 
@@ -51,7 +56,7 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
       <div className="store-products store-products-v2">
         {products.length===0 && <p className="muted">Nenhum item disponível na loja no momento.</p>}
         {products.map((item)=>(
-          <article key={item.code} className="store-product store-product-v2 coins-product" data-product-code={item.code}>
+          <article key={item.code} className={"store-product store-product-v2 coins-product"+((item.subscriptionDays??0)>0?" store-product--super":"")} data-product-code={item.code}>
             <div className="store-product-visual coins-visual">
               {/* AUDITORIA: a ilustracao vem do painel. Sem imagem definida, um
                   marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
@@ -60,8 +65,9 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
                 : <CommerceArtwork kind={productKind(item)}/>}
             </div>
             <div className="store-product-copy store-product-copy-v2">
+              {(item.subscriptionDays??0)>0&&<span className="store-super-highlight"><Sparkles size={14}/> Experiência SUPER</span>}
               <h3>{item.title}</h3>
-              <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
+              <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para abrir outra fila ou fazer uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
               {productExplanation(item)&&<details className="store-product-how"><summary>Como usar este benefício</summary><p>{productExplanation(item)}</p></details>}
               <ul className="store-product-benefits">
                 {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
@@ -69,7 +75,7 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
                 {!item.subscriptionDays && item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li><Package size={15}/> {item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
                 {(item.subscriptionDays ?? 0)>0 && <li><Sparkles size={15}/> {item.subscriptionDays} dias de assinatura</li>}
               </ul>
-              <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
+              <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked||Boolean(trading)} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
               {data.gamification?.redemptionEnabled&&item.credits===0&&!item.subscriptionDays&&(item.grantsItem==="SKIP"||item.extraPasses===1)&&<div className="store-reward-trade">
                 <span>Ou use {item.grantsItem==="SKIP"?data.gamification.redemption.SKIP:data.gamification.redemption.PASS} moedas de recompensa</span>
                 <button type="button" className="secondary" disabled={Boolean(trading)||data.wallet.reward<(item.grantsItem==="SKIP"?data.gamification.redemption.SKIP:data.gamification.redemption.PASS)} onClick={()=>void trade(item.grantsItem==="SKIP"?"SKIP":"PASS")}>Trocar recompensas</button>
@@ -79,10 +85,11 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
         ))}
       </div>
 
+      {redemptionReceipt&&<RedemptionCelebration receipt={redemptionReceipt} onClose={()=>setRedemptionReceipt(undefined)}/>}
       {notice&&<p role="status">{notice}</p>}
       <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
         <span><Coins size={16}/><b>1 moeda</b> salva 1 URL</span>
-        <span><Ticket size={16}/><b>Passe</b> permite outra contribuição na mesma fila</span><span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
+        <span><Ticket size={16}/><b>Passe</b> abre outra fila ou permite contribuição extra</span><span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
       </div>
 
       <div className={data.commerce.pixAvailable?"store-payment-state ready":"store-payment-state pending"}>

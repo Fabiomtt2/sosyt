@@ -7,7 +7,7 @@
 .global-chat.closed{height:auto!important}
 .global-chat.open{height:min(470px,70dvh)!important;display:flex;flex-direction:column}
 .global-chat .gc-head{flex-shrink:0;padding:16px}
-.global-chat .gc-stream{flex:1;min-height:80px;max-height:none!important;padding:14px;overflow-y:auto}
+.global-chat .gc-stream{padding:14px}
 .global-chat .gc-msg{align-items:flex-start}
 .global-chat .gc-input{padding:12px}
 .global-chat .gc-note{padding:0 14px 14px;font-size:.75rem;line-height:1.5}
@@ -214,7 +214,7 @@
 .premium-store .commerce-art{transform:scale(.88);transform-origin:center}
 @media(min-width:1200px){
  .app-shell:has(.global-chat.open) .dashboard{width:calc(100% - 466px);max-width:1180px;margin-left:28px;margin-right:438px}
- .global-chat.open{width:388px!important;right:24px!important;top:100px!important;bottom:24px!important;height:calc(100dvh - 124px)!important}
+ .global-chat.open{width:388px!important;right:24px!important;top:100px!important;bottom:auto!important;height:min(650px,calc(100dvh - 124px))!important}
  .app-shell:has(.global-chat.open) .user-welcome-hero.welcome-carousel.informative-banner{grid-template-columns:40% minmax(0,1fr)!important}
 }
 @media(max-width:1199px){
@@ -459,7 +459,7 @@
 .journey-toggle input{width:18px;height:18px;padding:0;flex-shrink:0}
 .journey-settings-grid textarea{min-height:130px;resize:vertical}
 .global-chat .gc-meta .journey-level-badge.is-compact{padding:3px 5px;font-size:.65rem}
-.global-chat .gc-meta .journey-level-emblem{width:21px;height:21px}
+.global-chat .gc-meta .journey-level-emblem{width:32px;height:32px}
 .gc-meta .journey-tier-beginning{background:transparent;border-color:transparent}
 
 .journey-grid:not(:has(.journey-booster)){grid-template-columns:1fr}
@@ -481,3 +481,29 @@
 @media(max-width:680px){.journey-modal-toolbar{margin-left:-16px;margin-right:-16px;padding-left:16px;padding-right:16px}}
 
 .watch-xp-notice{padding:12px 16px;border:1px solid #c9abc0;border-radius:12px;color:#65475d;background:#faf2f8;font-weight:700}
+
+/* Consistent four-benefit inventory; SUPER accents use the established palette. */
+.inventory-overview.wallet-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;min-width:0}
+.inventory-overview .wallet-value{min-width:0;align-items:flex-start;padding:13px 10px;gap:9px}
+.inventory-overview .wallet-value>div{display:flex;flex-direction:column;min-width:0}
+.inventory-overview .wallet-value strong{font-size:clamp(1rem,2vw,1.35rem);line-height:1.2;overflow-wrap:anywhere}
+.inventory-overview .wallet-value span{overflow-wrap:anywhere}
+.inventory-overview .wallet-value small{display:block;font-size:.66rem;line-height:1.5;color:#806978;margin-top:5px;overflow-wrap:anywhere}
+.inventory-overview .super-value.is-active{background:linear-gradient(135deg,#f2e9fa,#fcebf0);border-color:#ccb0d5}
+.inventory-overview .super-value .wallet-value-icon{color:#8853a0;background:#eee1f3}
+.inventory-shelf>.inventory-overview{flex-basis:100%}
+.store-balance>.inventory-overview{margin-top:12px}
+.store-balance .inventory-overview .wallet-value{background:#fffaf5;border:1px solid #e9d9df;border-radius:13px}
+.store-balance .inventory-overview .wallet-value strong{color:#56374e;display:block}
+.store-product.store-product--super{border:1px solid #bc93d2;background:linear-gradient(135deg,#f5edfc 0%,#fff8f4 65%,#fae7f1 100%);box-shadow:0 0 0 3px #d9bfe225,0 12px 32px #8b4f9d16}
+.store-super-highlight{display:inline-flex;align-items:center;gap:6px;margin-bottom:10px;color:#82469b;font-size:.72rem;font-weight:800;letter-spacing:.035em}
+@media(max-width:480px){.inventory-overview .wallet-value{padding:11px 8px;gap:7px}.inventory-overview .wallet-value-icon{flex-shrink:0}.store-balance .inventory-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* The right half of the persisted, transparent editorial atlas is Pular. */
+.store-raster-skip{width:100%;aspect-ratio:1;overflow:hidden;position:relative;isolation:isolate}
+.store-raster-skip>img{display:block;width:200%;max-width:none;height:100%;object-fit:contain;transform:translateX(-50%)}
+.qs-directory{display:flex;flex-wrap:wrap;gap:8px 14px;padding:12px;background:#f8f2e9;border-radius:14px}
+.qs-directory>strong{flex-basis:100%;color:#5c3e57}.qs-directory>p{margin:0;font-size:.85rem;line-height:1.5}
+.partial-playlist-choice{padding:18px 22px;border:1px solid #d8c1ce;border-radius:18px;background:#faf5ee;margin:18px 0}
+.partial-playlist-choice h3{margin:0 0 8px}.partial-playlist-choice p{max-width:65ch;line-height:1.6}
+.action-error-backdrop{z-index:12000}.action-error-dialog{max-width:480px;color:#4c3045}.action-error-dialog .error{font-size:1rem;line-height:1.7;overflow-wrap:anywhere}.action-error-dialog>svg{color:#9d4768}
