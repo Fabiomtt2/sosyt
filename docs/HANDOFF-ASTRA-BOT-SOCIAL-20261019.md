@@ -1,3 +1,17 @@
+## Publicação confirmada — 2026-10-19T12:06:05+00:00
+
+Este checkpoint supera os estados pendentes anteriores desta rodada. Branch auditoria/hybrid-plus-convergencia; fonte publicada e incorporada por avanço direto em main: d857e09044af23cb0b45cb45250c85157a9e6a39. Cofre atual preservado, worktrees antigas não editadas; capturas WIP locais não foram incluídas nos commits.
+
+Validação da fonte: CI https://github.com/Fabiomtt2/sosyt/actions/runs/39248366138 — API803/803, cliente38/38, 20/20 jornadas de navegador, tipos, build e diff check verdes. Grade390px, loja, mensagens/amigos e jornada foram abertas visualmente. Isso não certifica todas as páginas antigas do Owner.
+
+Railway API7e304c00-38d6-4c9a-acdf-2746641e5b98 e Web50c2c930-b26f-4e35-8eb0-43a8a09f81a3: SUCCESS,1/1; ambos fonte d857e09. Evolution e Postgres1/1, zero problemas e zero operações pendentes. API /health200, release filas-comunidade-20261018,13capacidades. Web aguardou a API compatível antes de servir. URL pública aberta em Chromium390/1440,200 e sem overflow; bundle novo index-ln_VE7_u.js, anterior index-KfK0Ipmu.js.
+
+Backup antes das migrações confirmado no log da API: /data/backups/pre-queue-pass-1792411421940-0896897e-4d7e-4f44-97b9-c75ad1038123.sqlite. Volume /data preservado. Catálogo público de12emblemas e12WebP200 válidos. Root runtime EVOLUTION/open/connected=true. Mensagem SELF desta publicação cd893001-6a2d-4fa9-9517-edfe5349a78b: SENT,providerConfirmed=true. Isso prova transporte de saída; resposta real de Rafael através do relay ainda não foi observada.
+
+Incidente relatado: sincronização nova confirmou que o participante citado está no grupo1 e com acesso pronto. A mensagem antiga de cadastro era ambígua. Agora a notificação distingue conta criada, presença já existente, inclusão confirmada, convite e falha; worker consulta todos os grupos reais antes de adicionar em um grupo com vaga, reconhecendo também quem já está em outro grupo. Grade mobile2colunas, formulário em largura inteira.
+
+As demais pendências continuam em docs/PENDENCIAS-INTEGRACAO-20261019.md: OAuthGoogle e Pix exigem credenciais próprias; hierarquia visual das páginas antigas do Owner, concessão unificada de todos os itens/avatar e outros refinamentos não devem ser declarados100%. Não reintroduzir aprovação manual, pacote antigo com bônus, segundo transporte ou runGroupPlan sem freios.
+
 # Continuidade — bot, comunidade e filas — 19/10/2026 UTC
 
 ## Âncora e preservação
@@ -46,3 +60,10 @@ Backend validado registrado em fcc8b2f (64arquivos,3049adições223remoções). 
 
 ## Cliente registrado e CI de branch
 Cliente registrado localmente756c852. Inclui emblemas reais via catálogo público, sem duplicar thresholds, com teste de contrato2/2 e38/38 totalcliente. ConflitoCSS removido preservando teste360px; imagemchat ampliada32px. Workflowvalidation.yml adicionado para execução isolada de npmtest/lint/build/E2E, sem deploy. Nenhum segredo é usado; fixtures não enviamWhatsAppreal nem cobramPix. A branch será enviada para completar validação, main ficaintacta. E2Elocalfinal4 ainda rodando;6cenários selecionados, não7: falta visual-convergence além de repetiraccess apósCSS.
+
+## Incidente de entrada no grupo e grade mobile — 19/10, manhã Bahia
+Esta seção supera os estados anteriores que dizem que a rodada não tem commits. Fonte atual d857e09044af23cb0b45cb45250c85157a9e6a39, branch auditoria/hybrid-plus-convergencia; main ainda f4d91ac nesta checagem. Commits temáticos de convergência e ajustes posteriores registrados; fonte sem WIP, capturas locais preservadas sem staging.
+Participante citado pelo Fábio: uma sincronização nova do Evolution confirmou presença no grupo 1, accessReady/memberVerified/ownerAdminVerified=true. Não era necessária nova inclusão. Telefones, sessão e resposta individual estão somente em arquivos privados ignorados. Runtime de produção EVOLUTION/open/connected; descoberta de 3 grupos externos, 2 ligados ao sistema.
+Correção: avisos do Owner distinguem presença sincronizada de conta criada. Worker verifica todos os grupos reais antes de escolher vaga, reconhece membro do grupo 2 sem adicioná-lo ao grupo 1, confirma presença depois do add, informa participante e Owner de inclusão ou presença prévia. Escala falha com motivo; convite continua alternativa quando privacidade impede inclusão. Enfileiramento pré-login já integrado nesta rodada.
+Grade mobile: duas colunas, formulário de envio em largura inteira, nomes, avatares, vídeos e links mantidos; estilos isolados em queue-grid.css, sem sobrescrever regras base do painel. Captura sintética queue-grid-390.png da CI39247848398 foi aberta e inspecionada. Teste de geometria e jornada Passe/saída passaram.
+CI39247848398: API803/803, cliente38/38, tipos/build verdes; navegador19/20. Última falha era nome acessível do botão de presente em mobile (texto visual oculto). Corrigido em d857e09, sem enfraquecer o teste. CI39248366138 está executando todos os gates novamente. Não tratar como publicação ou 100% enquanto não houver sucesso e deploy conferido.
