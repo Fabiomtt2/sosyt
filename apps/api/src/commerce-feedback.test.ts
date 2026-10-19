@@ -3,6 +3,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {randomUUID} from "node:crypto";
 import {mkdtempSync,rmSync} from "node:fs";
 import {resolve} from "node:path";
+import {tmpdir} from "node:os";
 import {buildApp} from "./app.js";
 import {loadConfig} from "./config.js";
 import {createDatabase,type AppDatabase} from "./db.js";
@@ -95,7 +96,7 @@ describe("compras confirmadas e identidade SUPER",()=>{
 });
 
 it("atualização de banco antigo adiciona Pular/SUPER preservando produtos configurados",()=>{
- const dir=mkdtempSync(resolve("../../.local-tmp/catalog-migration-")),file=resolve(dir,"db.sqlite");
+ const dir=mkdtempSync(resolve(tmpdir(),"sos-catalog-migration-")),file=resolve(dir,"db.sqlite");
  try{
   let db=createDatabase(file);
   db.prepare("DELETE FROM store_products WHERE code IN ('SKIP_1','SUPER_30')").run();

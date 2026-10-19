@@ -3,7 +3,9 @@ name: Validate SOS Youtuber
 on:
   push:
     branches: [main, auditoria/hybrid-plus-convergencia]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 permissions:
@@ -44,6 +46,7 @@ jobs:
           name: browser-evidence-${{ github.run_id }}
           if-no-files-found: ignore
           retention-days: 7
+          include-hidden-files: true
           path: |
             .local-tmp/browser-results/
             .local-tmp/social-messenger-evidence/
