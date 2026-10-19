@@ -124,7 +124,7 @@ export function queueBotNotification(db:AppDatabase,config:Config,phone:string,b
   return {queued:Boolean(row),outboxId:row?.id};
 }
 
-export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: string, phone: string, name: string, eventId: string) {
+export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: string, phone: string, name: string, eventId: string, deliveryNotice?:string) {
   config = effectiveWhatsAppConfig(db,config);
   if(!featureEnabled(db,"OWNER_ALERTS"))return;
   if (!config.WHATSAPP_OWNER_ALERT_TEMPLATE && config.WHATSAPP_MODE!=="EVOLUTION") return;
@@ -133,9 +133,15 @@ export function queueOwnerAlerts(db: AppDatabase, config: Config, requestId: str
   const identityCount = hasGoogleClaims ? (db.prepare("SELECT COUNT(*) AS n FROM google_identity_claims WHERE status='PENDING'").get() as { n: number }).n : 0;
   const count = participationCount + identityCount;
   const request=db.prepare("SELECT status FROM participation_requests WHERE id=?").get(requestId) as {status:string}|undefined;
-  const alertBody=request?.status==="APPROVED"
-    ? `Cadastro automático concluído: ${name} (${phone}). A conta foi criada; a entrada no grupo é confirmada separadamente. Nenhuma aprovação manual é necessária.`
-    : `Nova solicitação: ${name} (${phone}). Há ${count} solicitações aguardando análise no painel.`;
+  const confirmed=db.prepare(`SELECT DISTINCT v.group_code AS code FROM whatsapp_member_verifications v
+    JOIN groups g ON g.code=v.group_code AND g.whatsapp_group_id=v.external_group_id
+    WHERE v.phone=? AND v.revoked_at IS NULL AND g.enabled=1 ORDER BY CAST(v.group_code AS INTEGER)`).all(phone) as Array<{code:string}>;
+  const groupNotice=confirmed.length
+    ? `A sincronização confirmou presença em: ${confirmed.map(group=>"SOS YOUTUBER "+group.code).join(", ")}.`
+    : "A entrada automática no primeiro grupo SOS disponível está na fila. O bot avisará o resultado; cadastro criado ainda não confirma presença no grupo.";
+  const alertBody=deliveryNotice??(request?.status==="APPROVED"
+    ? `Cadastro automático concluído: ${name} (${phone}). ${groupNotice} Nenhuma aprovação manual do cadastro é necessária.`
+    : `Nova solicitação: ${name} (${phone}). Há ${count} solicitações aguardando análise no painel.`);
   const recipients = config.OWNER_ALERT_WHATSAPP
     ? [{ id: "primary", phone: config.OWNER_ALERT_WHATSAPP }]
     : ownerAccounts(config).filter((owner) => owner.phone).map((owner) => ({ id: owner.id, phone: owner.phone! }));
@@ -951,17 +957,25 @@ export async function drainGroupJoin(db: AppDatabase, config: Config, log?: { er
   try {
     const client = evolutionClient(runtime);
     if (!(await client.health()).connected) return;   // sessao caida: a fila espera
-    await processGroupJoin(db, config, client, {
+    const outcome=await processGroupJoin(db, config, client, {
       sendInvite: (phone, groupCode, inviteUrl) => {
         queueBotNotification(db, config, phone,
           `Quase lá! 💛 Seu WhatsApp não permite que eu te adicione direto a grupos, então aqui está o convite do SOS YOUTUBER ${groupCode}: ${inviteUrl}\nÉ só tocar para entrar — e assim que você entrar eu te mando sua senha de acesso.`,
           `group-invite:${phone}:${groupCode}`, undefined, { deliveryClass: "TRANSACTIONAL", event: "GROUP_INVITE" });
       },
-      escalate: (phone, name) => {
+      escalate: (phone, name, reason) => {
         const id = db.prepare("SELECT id FROM participation_requests WHERE phone=?").get(phone) as { id: string } | undefined;
-        if (id) queueOwnerAlerts(db, runtime, id.id, phone, name ?? "Participante", `group-join:${phone}`);
+        if (id) queueOwnerAlerts(db, runtime, id.id, phone, name ?? "Participante", `group-join:${phone}`,`Entrada no grupo não concluída para ${name ?? "Participante"} (${phone}). Motivo: ${reason}. O cadastro existe, mas isso não confirma entrada no grupo. Verifique o pareamento, os privilégios do bot e os grupos no painel.`);
       },
     });
+    if(outcome?.added&&outcome.groupCode){
+      const message=outcome.alreadyMember
+        ? `Você já participa do SOS YOUTUBER ${outcome.groupCode}! 💛 Confirmei sua presença; não vou adicionar você de novo. Seu acesso ao site está liberado.`
+        : `Pronto! 💛 Adicionei você ao SOS YOUTUBER ${outcome.groupCode} e confirmei sua presença. Seu acesso ao site está liberado.`;
+      queueBotNotification(db,config,outcome.phone,message,`group-confirmed:${outcome.requestId}`,undefined,{deliveryClass:"TRANSACTIONAL",event:"GROUP_JOIN_CONFIRMED"});
+      const request=db.prepare("SELECT id,name FROM participation_requests WHERE phone=?").get(outcome.phone) as {id:string;name:string}|undefined;
+      if(request)queueOwnerAlerts(db,runtime,request.id,outcome.phone,request.name,`group-confirmed:${outcome.requestId}`,`${request.name} (${outcome.phone}): ${outcome.alreadyMember?"já participa do":"adicionado e presença confirmada no"} SOS YOUTUBER ${outcome.groupCode}. Acesso liberado.`);
+    }
   } catch (cause) { log?.error(cause, "Group join worker failed"); }
 }
 

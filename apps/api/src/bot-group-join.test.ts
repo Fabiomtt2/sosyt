@@ -77,4 +77,14 @@ describe("group join confirms real membership before granting access",()=>{
   expect(add).toHaveBeenCalledWith('123@g.us',phone);
  });
 
+ it("recognizes an existing LID-backed member in group 2 without adding them to empty group 1",async()=>{
+  db.prepare("INSERT INTO groups(code,enabled,whatsapp_group_id) VALUES('2',1,'222@g.us')").run();
+  const c=client(true);
+  vi.spyOn(c,'groupParticipants').mockImplementation(async gid=>gid==='222@g.us'?[phone]:[]);
+  const add=vi.spyOn(c,'addParticipant');
+  expect(await processGroupJoin(db,config,c)).toMatchObject({added:true,alreadyMember:true,groupCode:'2'});
+  expect(add).not.toHaveBeenCalled();
+  expect(db.prepare("SELECT status,group_code FROM group_join_requests WHERE phone=?").get(phone)).toEqual({status:'DONE',group_code:'2'});
+ });
+
 });

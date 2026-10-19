@@ -64,6 +64,16 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
 
     const originalNumber = (queues.queues as Array<{ id: string; number: number }>).find(queue => queue.id === original.round_id)!.number;
     await switcher.getByRole("tab").filter({ has: page.locator("b", { hasText: new RegExp("^Fila " + originalNumber + "$") }) }).click();
+    await page.setViewportSize({width:390,height:960});
+    const collapse=page.getByRole("button",{name:"Recolher sala da comunidade",exact:true});
+    if(await collapse.isVisible())await collapse.click();
+    const board=page.locator(".board").first();
+    await expect(board.locator(":scope > .slot")).toHaveCount(10);
+    await expect.poll(()=>board.evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(2);
+    await board.scrollIntoViewIfNeeded();
+    expect(await board.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+    await board.screenshot({path:resolve("../../docs/evidencias/queue-grid-390.png"),animations:"disabled"});
+    await page.setViewportSize({width:1440,height:960});
     await switcher.getByRole("button", { name: "Sair da Fila " + originalNumber, exact: true }).click();
     const confirmation = switcher.getByRole("alertdialog");
     await expect(confirmation).toContainText("Seus links, histórico e progresso serão preservados.");

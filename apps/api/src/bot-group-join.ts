@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { effectiveWhatsAppConfig } from "./integrations.js";
-import { pickGroupWithRoom, sameWhatsAppNumber, type EvolutionClient, type GroupSlot } from "./bot-evolution.js";
+import { sameWhatsAppNumber, type EvolutionClient, type GroupSlot } from "./bot-evolution.js";
 
 import { recordGroupVerification, recordMemberVerification, materializeApprovedMembership } from "./group-verification.js";
 
@@ -69,7 +69,7 @@ export function groupSlots(db: AppDatabase): GroupSlot[] {
   return rows.map((r) => ({ code: r.code, memberCount: r.members, capacity: GROUP_CAPACITY, enabled: r.enabled !== 0 }));
 }
 
-export type JoinOutcome = { phone: string; groupCode?: string; added?: boolean; invited?: boolean; escalated?: boolean; reason?: string };
+export type JoinOutcome = { phone: string; groupCode?: string; requestId?: string; alreadyMember?: boolean; added?: boolean; invited?: boolean; escalated?: boolean; reason?: string };
 
 /**
  * Processa UM pedido da fila. Devolve o desfecho para o chamador registrar/avisar.
@@ -106,19 +106,20 @@ export async function processGroupJoin(
   // stale/unavailable group 1 while a real group 2 is accepting participants.
   const candidates=groupSlots(db).filter(slot=>/^[1-9]\d{0,2}$/.test(slot.code));
   let target:GroupSlot|undefined,groupJid:string|undefined,initialPhones:string[]=[];
-  while(candidates.length){
-    const candidateCode=pickGroupWithRoom(candidates.map(slot=>({...slot,memberCount:0})))?.code;
-    const candidate=candidates.find(slot=>slot.code===candidateCode);
-    if(!candidate)break;
-    candidates.splice(candidates.indexOf(candidate),1);
+  const available:Array<{slot:GroupSlot;gid:string;phones:string[]}>=[];
+  // Check every real group first: an existing member of group 2 must not be
+  // added to group 1 just because group 1 has room. LIDs are decoded by client.
+  for(const candidate of candidates){
     const gid=(db.prepare("SELECT whatsapp_group_id AS gid FROM groups WHERE code=?").get(candidate.code) as {gid:string}).gid;
     if(!/^\d+(?:-\d+)?@g\.us$/.test(gid))continue;
     try{
       const phones=await client.groupParticipants(gid);
-      if(phones.length>=GROUP_CAPACITY)continue;
-      target=candidate;groupJid=gid;initialPhones=phones;break;
-    }catch{ /* Unknown or unavailable mapping cannot be used as an admission target. */ }
+      available.push({slot:candidate,gid,phones});
+    }catch{ /* An unavailable mapping cannot establish admission or presence. */ }
   }
+  const existingMember=available.find(group=>group.phones.some(phone=>sameWhatsAppNumber(phone,job.phone)));
+  const selected=existingMember??available.find(group=>group.phones.length<GROUP_CAPACITY);
+  if(selected){target=selected.slot;groupJid=selected.gid;initialPhones=selected.phones;}
   if(!target||!groupJid){
     db.prepare("UPDATE group_join_requests SET status='FAILED',last_error='NO_VERIFIED_GROUP_WITH_ROOM',attempts=attempts+1,updated_at=? WHERE id=?").run(stamp,job.id);
     deps.escalate?.(job.phone,job.name,"NO_VERIFIED_GROUP_WITH_ROOM");
@@ -142,7 +143,7 @@ export async function processGroupJoin(
       db.prepare("UPDATE users SET group_code=?,updated_at=? WHERE phone=? AND deleted_at IS NULL").run(primary.code, stamp, job.phone);
       db.prepare("UPDATE group_join_requests SET status='DONE',group_code=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?").run(targetCode, stamp, job.id);
     })();
-    return { phone: job.phone, groupCode: targetCode, added: true };
+    return { phone: job.phone, groupCode: targetCode, requestId:job.id, alreadyMember:containsPhone(initialPhones), added: true };
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message.slice(0, 120) : "ADD_FAILED";
     if (reason === "ACCOUNT_ACCESS_REVOKED" || reason === "MEMBERSHIP_REVOKED_REQUIRES_REVIEW" || reason === "MEMBERSHIP_APPROVAL_NOT_CONFIRMED") {
