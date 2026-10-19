@@ -665,12 +665,13 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
     expect((await shared.json()).openRound.slots[0].userName).toBe("Pessoa E2E");
     const saved = await request.post("http://127.0.0.1:17333/rounds/current/submissions", { headers: { authorization: `Bearer ${token}` }, data: { url: `https://youtu.be/E2Evideo${String(n).padStart(3,"0")}` } }); expect(saved.status(),await saved.text()).toBe(201);
   }
-  await page.reload(); await expect(page.getByRole("heading", { name: "10 vídeos prontos para sua playlist" })).toBeVisible();
-  await page.getByText("Ver os 10 vídeos, autores e horários", { exact: true }).click();
+  await page.reload(); await expect(page.getByRole("heading", { name: "10 vídeos na sua seleção" })).toBeVisible();
+  await page.getByText("Ver vídeos, autores e horários", { exact: true }).click();
   await expect(page.locator(".cycle-details .slot.filled")).toHaveCount(10);
   await expect(page.locator(".cycle-details").getByRole("button", { name: "Criar playlist" })).toHaveCount(0);
   await expect(page.getByText("0 de 10 vídeos", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Esta fila já foi preenchida." })).toBeVisible();
+  await expect(page.locator(".task-hero .inventory-overview")).not.toContainText("Atualizando assinatura");
   await expect(page.getByText("A próxima fila já pode estar sendo montada por outros participantes.", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   await page.screenshot({animations:"disabled", path: resolve(evidence, "ciclo-completo-mobile.png"), fullPage: true });
@@ -687,7 +688,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   });
   await page.route("**/rounds/*/export", async (route) => { expect(route.request().method()).toBe("POST"); exported = true; await route.fulfill({ json: { playlistId: "e2e-private-playlist" } }); });
   await page.reload(); await expect(page.locator(".ready-card > button")).toHaveText("Criar playlist");
-  await page.getByText("Ver os 10 vídeos, autores e horários", { exact: true }).click();
+  await page.getByText("Ver vídeos, autores e horários", { exact: true }).click();
   await expect(page.locator(".cycle-details").getByRole("button", { name: "Criar playlist" })).toHaveCount(0);
   await page.screenshot({animations:"disabled", path: resolve(evidence, "compartilhar-playlist-mobile.png"), fullPage: true });
   await page.locator(".ready-card > button").click();

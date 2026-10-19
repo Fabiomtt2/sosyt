@@ -20,7 +20,7 @@ test("duas sessões: consentimento, amizade paga uma vez, presentes, bloqueio e 
  const a=await contexts[0].newPage(),b=await contexts[1].newPage();
  const errors:string[]=[];for(const page of [a,b])page.on("pageerror",error=>errors.push(error.message));
  async function login(page:Page,token:string){await page.goto("/?audit=social-messenger");await page.evaluate(token=>{localStorage.setItem("conexao_token",token);localStorage.setItem("conexao_active_role","user");},token);await page.reload();await expect(page.getByRole("heading",{name:"Vamos montar a próxima seleção?"})).toBeVisible();}
- async function openInbox(page:Page){await page.getByRole("button",{name:/Abrir correio e amigos/}).first().click();const hub=page.getByRole("dialog",{name:"Mensagens e inventário"});await expect(hub).toBeVisible();return hub;}
+ async function openInbox(page:Page){await page.getByRole("button",{name:/Abrir correio e amigos/}).first().click();const hub=page.getByRole("dialog",{name:"Mensagens e inventário"});await expect(hub).toBeVisible();await expect.poll(()=>hub.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=-1&&r.right<=innerWidth+1;})).toBe(true);expect(await hub.locator(".social-hub-header p").evaluate(el=>el.getBoundingClientRect().bottom<=el.closest(".social-hub-header")!.getBoundingClientRect().bottom+1)).toBe(true);return hub;}
  try {
   expect((await request.post(server+"/chat/global",{headers:bh,data:{body:"Olá! Sou Beto e quero conhecer a comunidade."}})).ok()).toBe(true);
   await login(a,alice.token);await login(b,bob.token);
@@ -62,7 +62,7 @@ test("duas sessões: consentimento, amizade paga uma vez, presentes, bloqueio e 
   expect((await (await request.get(server+"/queues/mine",{headers:bh})).json()).skipsAvailable).toBe(1);
   expect((await (await request.get(server+"/queues/mine",{headers:ah})).json()).skipsAvailable).toBe(0);
   for(const width of [1440,390]){await a.setViewportSize({width,height:960});expect(await hubA.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await a.screenshot({path:resolve(evidence,"messenger-"+width+".png"),animations:"disabled"});}
-  await hubB.getByRole("button",{name:"Conversas",exact:true}).click();await hubB.getByRole("button",{name:/Alice Amizades/}).first().click();
+  await hubB.getByRole("button",{name:/^Conversas(?: |$)/}).click();await hubB.getByRole("button",{name:/Alice Amizades/}).first().click();
   await expect(hubB.getByRole("log")).toContainText("Obrigada por aceitar");
   await hubA.getByRole("button",{name:"Bloquear",exact:true}).click();await a.getByRole("dialog",{name:"Confirmar bloqueio"}).getByRole("button",{name:"Confirmar bloqueio",exact:true}).click();
   await expect(hubA.getByText("Interações indisponíveis entre vocês.",{exact:true})).toBeVisible();

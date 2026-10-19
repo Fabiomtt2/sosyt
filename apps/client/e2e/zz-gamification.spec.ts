@@ -40,7 +40,7 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
  }
  const walletBefore=(await (await request.get(api+"/dashboard",{headers:ah})).json()).wallet;
  const passesBefore=walletBefore.extraPasses;
- const cost=(await (await request.get(api+"/gamification/me",{headers:ah})).json()).redeemPrices.PASS;
+ const cost=(await (await request.get(api+"/gamification/me",{headers:ah})).json()).redemption.PASS;
  const pass=journey.locator(".journey-redemption-card").filter({has:page.getByRole("heading",{name:"Passe",exact:true})});
  await pass.getByRole("button",{name:"Trocar",exact:true}).click();
  const confirmed=page.getByRole("dialog",{name:"Troca concluída"});

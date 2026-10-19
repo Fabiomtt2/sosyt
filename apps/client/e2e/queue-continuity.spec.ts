@@ -27,13 +27,13 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
       localStorage.setItem("conexao_active_role", "user");
     }, member.token);
     await page.reload();
-    const originalUrl = "https://youtu.be/E2EQUE00001";
+    const originalUrl = "https://youtu.be/E2ECON00001";
     await page.getByPlaceholder("Cole a URL do seu vídeo no YouTube").fill(originalUrl);
     const submitted = page.waitForResponse(response => response.url() === api + "/rounds/current/submissions" && response.request().method() === "POST");
     await page.getByRole("button", { name: /^Salvar no espaço / }).first().click();
     const saved = await submitted;
     expect(saved.ok(), await saved.text()).toBe(true);
-    const original = db.prepare("SELECT id,round_id,youtube_url FROM submissions WHERE user_id=? AND video_id='E2EQUE00001'").get(member.user.id) as { id: string; round_id: string; youtube_url: string };
+    const original = db.prepare("SELECT id,round_id,youtube_url FROM submissions WHERE user_id=? AND video_id='E2ECON00001'").get(member.user.id) as { id: string; round_id: string; youtube_url: string };
     expect(original).toBeTruthy();
     expect(db.prepare("SELECT source FROM round_participants WHERE round_id=? AND user_id=?").get(original.round_id, member.user.id)).toEqual({ source: "FREE" });
 
