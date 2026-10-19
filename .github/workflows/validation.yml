@@ -51,3 +51,7 @@ jobs:
             .local-tmp/browser-results/
             .local-tmp/social-messenger-evidence/
             .local-tmp/intro-flash-evidence/
+            docs/evidencias/commerce-items-1440.png
+            docs/evidencias/commerce-items-390.png
+            docs/evidencias/journey-1440.png
+            docs/evidencias/journey-390.png
