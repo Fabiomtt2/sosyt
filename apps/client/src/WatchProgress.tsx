@@ -405,7 +405,7 @@ export function WatchProgress({
           <Check size={17}/>
           <div>
             <strong>{syncState==="syncing" ? "Salvando seu progresso…" : syncState==="offline" ? "Guardado neste aparelho; vamos tentar sincronizar novamente" : "Seu progresso está salvo na sua conta"}</strong>
-            <span>{formatTime(verifiedSeconds)} de tempo verificado acumulado · {confirmedCoins} moeda(s) por tempo · próxima em {formatTime(secondsToNextReward)} · saldo atual: {walletTotal}</span>
+            <span>{slots.filter(slot=>slot.videoId).length<10?"Seleção parcial: XP pelo acompanhamento válido, sem moedas. Você pode criar uma versão maior quando chegarem novos vídeos.":<>{formatTime(verifiedSeconds)} de tempo verificado acumulado · {confirmedCoins} moeda(s) por tempo · próxima em {formatTime(secondsToNextReward)} · saldo atual: {walletTotal}</>}</span>
           </div>
         </div>
 
@@ -418,8 +418,8 @@ export function WatchProgress({
         <details className="watch-how">
           <summary>Como o acompanhamento funciona?</summary>
           <p>O SOS considera a reprodução natural no player oficial enquanto esta aba está visível. O servidor limita cada atualização pelo próprio relógio: saltos na linha do tempo, trechos repetidos e duas sessões simultâneas não viram tempo novo.</p>
-          <p>A cada 20 minutos de tempo real verificado, acumulados entre sessões e filas, 1 moeda interna é registrada uma única vez. O percentual da fila mostra seu progresso, mas não determina a recompensa.</p>
-          <p><strong>Concluir</strong> preserva o percentual atual e inicia o intervalo de 30 minutos. <strong>Abandonar</strong> preserva os mesmos registros, mas libera imediatamente a Fila aberta atual.</p>
+          <p>{slots.filter(slot=>slot.videoId).length<10?"Nesta seleção parcial, o acompanhamento válido rende XP proporcional, sem moedas. Ampliar a playlist preserva os trechos observados; eles não rendem crédito novamente.":"A cada 20 minutos de tempo real verificado em seleções completas, acumulados entre sessões e filas, 1 moeda interna é registrada uma única vez. O percentual mostra seu progresso, mas não determina a recompensa."}</p>
+          <p><strong>Concluir</strong> preserva o percentual atual e inicia o intervalo de 30 minutos. <strong>Abandonar</strong> preserva os registros e aplica 60 minutos antes de novo ingresso gratuito. Outras filas já liberadas continuam acessíveis.</p>
         </details>
 
         {actionError && <p className="error banner" role="alert">{actionError}</p>}
