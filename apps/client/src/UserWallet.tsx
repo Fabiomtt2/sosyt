@@ -1,3 +1,4 @@
+export { InventoryStatusBar } from "./InventoryStatusBar";
 import "./store-catalog.css";
 import { ShoppingBag } from "lucide-react";
 import { CommerceArtwork } from "./CommerceArtwork";

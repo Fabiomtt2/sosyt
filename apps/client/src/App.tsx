@@ -25,7 +25,7 @@ import { QueueSwitcher } from "./QueueSwitcher";
 import { SuperPanel } from "./SuperPanel";
 import { UserWelcomeCarousel } from "./UserWelcomeCarousel";
 import { useModalLifecycle } from "./useModalLifecycle";
-import { UserWallet } from "./UserWallet";
+import { UserWallet, InventoryStatusBar } from "./UserWallet";
 import { UserAccountMenu } from "./UserAccountMenu";
 import { ParticipantAdminModal } from "./ParticipantAdminModal";
 import { api, ownerApi, participationApi, ApiError, type Dashboard, type OwnerOverview, type ParticipationStatus, type PaymentProductCode, type Round } from "./api";
@@ -529,6 +529,7 @@ function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin
   const included = creationRound ? data.readyRounds.find((r) => r.id === creationRound.id)?.export?.addedCount ?? 0 : 0;
   return <div className="app-shell">
     <header><div className="logo"><span><Youtube size={21} fill="currentColor" /></span>SOS <strong>YouTuber</strong></div><div className="header-actions"><button className="icon-button" onClick={() => void load()} title="Atualizar"><RefreshCw size={18} /></button><CommunityLauncher onOpen={()=>{setCommunityTarget(undefined);setShowCommunity(true);}} /><button className="icon-button" onClick={()=>setShowAccountMenu(true)} aria-label="Abrir menu da minha conta" title="Menu"><Menu size={18}/></button><button className="avatar-header-button" onClick={()=>setShowAvatar(true)} aria-label={`Trocar avatar de ${data.user.name}`} title="Trocar avatar"><UserAvatarView avatar={data.user.avatar} presentation={data.user.presentation} name={data.user.name} className="header-avatar"/>{data.viewer.adminRole&&<span className="header-admin-badge">ADMIN</span>}</button><button className="profile profile-text-only" onClick={()=>setShowAccountMenu(true)} aria-label={`Abrir menu da conta de ${data.user.name}`}><div><strong>{data.user.name}</strong><small>{data.user.youtubeChannel?.title ?? (data.viewer.adminRole ? "Acesso administrativo" : data.groupAccess?.ready===false?"Entrada no grupo em andamento":data.user.groupCodes?.length?`Grupos SOS ${data.user.groupCodes.join(", ")}`:`Grupo SOS YOUTUBER ${data.user.groupCode}`)}</small></div></button></div></header>
+    <InventoryStatusBar accountId={data.user.id} wallet={data.wallet} skipsAvailable={data.queues.skipsAvailable} passesAvailable={data.queues.passesAvailable} subscription={data.subscription}/>
     <main className="dashboard">
       {data.groupAccess?.ready===false&&<section className="notice group-access-status" style={{display:"block"}} role="status" aria-label="Entrada no grupo">
         <strong>{data.groupAccess.state==="INVITED"?"Confira seu convite no WhatsApp":data.groupAccess.state==="NEEDS_SUPPORT"?"Sua entrada no grupo precisa de atenção":"Estamos preparando sua entrada no grupo"}</strong>
@@ -536,12 +537,13 @@ function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin
         {data.groupAccess.state==="NEEDS_SUPPORT"&&<ProjectWhatsAppContact/>}
       </section>}
       {data.groupAccess?.ready!==false&&<QueueSwitcher queues={data.queues} administrative={data.viewer.adminRole==="ROOT_OWNER"} onSelect={setSelectedQueue} onChanged={load} onLeft={(id)=>{if(id===selectedQueue||id===data.queues.current?.id)setSelectedQueue(undefined);}} onNeedSkip={()=>setShowStore(true)} onNeedPass={()=>setShowStore(true)}/>}
-      {(!hasPendingTask || administrativeParticipant) ? <>
-        <UserWelcomeCarousel onOpenStore={()=>setShowStore(true)} onOpenCommunity={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>
         {data.gamification?.enabled&&<button type="button" className="journey-launcher" onClick={()=>setShowJourney(true)}>
           {data.gamification.progress&&<LevelBadge progress={data.gamification.progress}/>}<span><strong>{data.gamification.administrative?"Comunidade":"Minha jornada"}</strong><small>{data.gamification.administrative?"XP administrativo ∞ · fora da competição":data.gamification.progress?data.gamification.progress.xp+" XP · veja seu próximo nível":"Acompanhe sua jornada"}</small></span>
           {data.gamification.booster.available&&<b className="journey-booster-nudge">Você tem um Booster! ✨</b>}
         </button>}
+      {(!hasPendingTask || administrativeParticipant) ? <>
+        <UserWelcomeCarousel onOpenStore={()=>setShowStore(true)} onOpenCommunity={()=>{setCommunityTarget(undefined);setShowCommunity(true);}}/>
+
         <SuperPanel snapshot={data.subscription} onOpenStore={()=>setShowStore(true)}/>
         <section className="hero-row queue-hero">
           <div><p className="eyebrow dark">QUADRO COMPARTILHADO · FILA {data.openRound.number}</p><h1>Vamos montar a próxima seleção?</h1><p className="muted">Cada vídeo entra uma vez. Ao completar 10 URLs válidas, a fila é preservada e a próxima é aberta automaticamente.</p></div>

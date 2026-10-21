@@ -2,6 +2,7 @@ import { ownerSession } from "./helpers/owner-session";
 import {test,expect as browserExpect} from "@playwright/test";
 const expect=browserExpect.configure({timeout:15_000});
 import {resolve} from "node:path";
+import {mkdirSync} from "node:fs";
 import Database from "better-sqlite3";
 
 test.use({actionTimeout:30_000});
@@ -31,6 +32,12 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  expect(await page.locator(".super-cta").evaluate(el=>getComputedStyle(el,"::after").animationName)).toBe("sos-super-shimmer");
  const wallet=page.locator('[data-purchase-anchor="coins"]');
  const celebration=page.getByRole("status",{name:"Compra confirmada"});
+ const statusbar=page.getByRole("region",{name:"Inventário da conta"});
+ const statusEvidence=resolve("../../.local-tmp/benefit-halo-evidence");mkdirSync(statusEvidence,{recursive:true});
+ await expect(statusbar.getByRole("button")).toHaveCount(4);
+ await expect(statusbar.getByRole("button",{name:"Moedas: 10",exact:true})).toBeVisible();
+ await expect(statusbar.locator(".inventory-status-change")).toHaveCount(0);
+
  async function buy(code:string){
   await page.locator(".wallet-store-link").click();
   const store=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
@@ -68,6 +75,9 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await coins.modal.getByRole("button",{name:"Simular confirmação"}).click();
  await expect(celebration).toContainText("10 moedas");
  await expect(wallet).toContainText("20");
+ await expect(statusbar.getByRole("button",{name:"Moedas: 20",exact:true})).toBeVisible();
+ await expect(statusbar.locator(".status-coins .inventory-status-change")).toHaveText("+10");
+
  await expect(page.locator(".purchase-arrival b")).toHaveText("+10");
  // Inspect the visible phase deterministically: the intentional two-second animation ends at opacity 0.
  const arrival = page.locator(".purchase-arrival b");
@@ -80,18 +90,32 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await expect(arrival).toHaveCSS("opacity","1");
  await page.screenshot({path:resolve(evidence,"commerce-coins-confirmed-1440.png")});
  await page.reload();await expect(wallet).toContainText("20");await expect(celebration).toHaveCount(0);
+ // A reload hydrates the confirmed balance; it must not pretend a second purchase occurred.
+ await expect(statusbar.getByRole("button",{name:"Moedas: 20",exact:true})).toBeVisible();
+ await expect(statusbar.locator(".inventory-status-change")).toHaveCount(0);
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:960});await statusbar.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  await expect(statusbar.getByRole("button",{name:"SUPER: Inativo",exact:true})).toBeVisible();
+  await statusbar.getByRole("button",{name:"Moedas: 20",exact:true}).click();
+  await expect(statusbar.getByRole("tooltip").filter({hasText:"Compradas: 10"})).toBeVisible();
+  await page.screenshot({path:resolve(statusEvidence,"inventory-topbar-"+width+".png"),animations:"disabled"});
+  await statusbar.getByRole("button",{name:"Moedas: 20",exact:true}).click();
+ }
+ await page.setViewportSize({width:1440,height:960});
+
  await request.post(server+"/payments/"+coins.pix.id+"/demo-approve",{headers:auth});
  expect((await (await request.get(server+"/dashboard",{headers:auth})).json()).wallet.total).toBe(20);
  const pass=await buy("PASS_SINGLE");
  await expect(pass.modal).toContainText("contribuição extra na mesma fila");
  await pass.modal.getByRole("button",{name:"Simular confirmação"}).click();
- await expect(celebration).toContainText("1 passe");await celebration.getByLabel("Fechar confirmação").click();
+ await expect(celebration).toContainText("1 passe");await expect(statusbar.getByRole("button",{name:"Passe: 1",exact:true})).toBeVisible();await celebration.getByLabel("Fechar confirmação").click();
  const skip=await buy("SKIP_1");
  await expect(skip.modal).toContainText("Não conclui vídeos por você");
  await skip.modal.getByRole("button",{name:"Fechar compra"}).click();
  await request.post(server+"/payments/"+skip.pix.id+"/demo-approve",{headers:auth});
  await page.reload();
- await expect(celebration).toContainText("1 Pular");
+ await expect(celebration).toContainText("1 Pular");await expect(statusbar.getByRole("button",{name:"Pular: 1",exact:true})).toBeVisible();
  await celebration.getByRole("button",{name:"Ver meu inventário"}).click();
  const inventory=page.getByRole("dialog",{name:"Mensagens e inventário"});
  await inventory.getByRole("button",{name:"Inventário",exact:true}).click();
@@ -105,7 +129,7 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await expect(superPurchase.modal).toContainText("moldura SUPER enquanto a assinatura estiver ativa");
  await superPurchase.modal.getByRole("button",{name:"Simular confirmação"}).click();
  await expect(celebration).toHaveClass(/is-super/);
- await expect(celebration).toContainText("SUPER por 30 dias");
+ await expect(celebration).toContainText("SUPER por 30 dias");await expect(statusbar.getByRole("button",{name:"SUPER: Ativo",exact:true})).toBeVisible();
  await expect(page.locator(".header-avatar")).toHaveClass(/avatar-tier-super/);
  await expect(page.locator(".header-avatar")).toHaveClass(/preset/);
  await expect.poll(()=>celebration.evaluate(el=>getComputedStyle(el).opacity)).toBe("1");

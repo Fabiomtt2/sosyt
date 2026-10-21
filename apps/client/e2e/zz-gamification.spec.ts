@@ -4,6 +4,7 @@ import {ownerSession} from "./helpers/owner-session";
 import {resolve} from "node:path";
 import {mkdirSync} from "node:fs";
 import {execFileSync} from "node:child_process";
+import Database from "better-sqlite3";
 test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({page,request})=>{
  test.setTimeout(240000);
  const api="http://127.0.0.1:17333",evidence=resolve("../../docs/evidencias"),root=resolve("../..");
@@ -28,6 +29,21 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
  await expect(mine.locator('[data-emblem-tier="11"] img')).toBeVisible();
  await expect.poll(()=>mine.locator('[data-emblem-tier="11"] img').evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
  await expect(mine.locator(".user-avatar.preset")).toHaveCount(1);
+ const visualEvidence=resolve("../../.local-tmp/benefit-halo-evidence");mkdirSync(visualEvidence,{recursive:true});
+ const banner=page.getByRole("region",{name:"Boas-vindas ao SOS YouTuber"});
+ // Selecting a banner pauses its clock, so the saved frames show the intended artwork.
+ for(let step=0;step<3;step++){
+  if(await banner.locator('img[src$="time-continuity-v3.webp"]').count())break;
+  await banner.getByRole("button",{name:"Próximo banner",exact:true}).click();
+ }
+ const timeArt=banner.locator('img[src$="time-continuity-v3.webp"]');await expect(timeArt).toBeVisible();
+ await expect.poll(()=>timeArt.evaluate((image:HTMLImageElement)=>image.complete&&image.naturalWidth>0)).toBe(true);
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:960});
+  await expect(banner).toContainText("Seu tempo continua com você.");
+  expect(await banner.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await banner.screenshot({path:resolve(visualEvidence,"carousel-time-"+width+".png"),animations:"disabled"});
+ }
  await page.getByRole("button",{name:/Minha jornada/}).click();
  const journey=page.getByRole("dialog",{name:"Minha jornada"});
  await expect(journey.getByText("24.000 XP acumulados",{exact:true})).toBeVisible();
@@ -103,6 +119,32 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
   expect((await (await request.get(api+"/dashboard",{headers:ah})).json()).wallet.reward).toBe(balance);
  }
  await page.unroute("**/dashboard");await page.keyboard.press("Escape");
+ // Reopen one isolated historical fixture as an unfinished task. No new XP or ledger entry is created.
+ const fixtureDb=new Database(resolve("../../.local-tmp/browser-test.db"));
+ let pendingRound:string;
+ try{
+  const row=fixtureDb.prepare("SELECT p.round_id AS id FROM playlist_watch_progress p JOIN rounds r ON r.id=p.round_id WHERE p.user_id=? AND r.closed_at IS NOT NULL ORDER BY r.sequence DESC LIMIT 1").get(a.user.id) as {id:string}|undefined;
+  expect(row).toBeTruthy();pendingRound=row!.id;
+  fixtureDb.transaction(()=>{
+   fixtureDb.prepare("UPDATE rounds SET closed_at=NULL WHERE id=?").run(pendingRound);
+   fixtureDb.prepare("UPDATE playlist_watch_progress SET finalized_at=NULL,finalize_reason=NULL WHERE round_id=? AND user_id=?").run(pendingRound,a.user.id);
+   fixtureDb.prepare("INSERT OR IGNORE INTO round_participants(round_id,user_id,source,joined_at) VALUES(?,?,'FREE',?)").run(pendingRound,a.user.id,new Date().toISOString());
+  })();
+ }finally{fixtureDb.close();}
+ const pendingDashboard=await (await request.get(api+"/dashboard",{headers:ah})).json();
+ expect(pendingDashboard.viewer.contributionBlockedByPendingTask).toBe(true);
+ expect(pendingDashboard.readyRounds.some((round:{id:string})=>round.id===pendingRound)).toBe(true);
+ await page.reload();await expect(page.getByRole("heading",{name:"Esta fila já foi preenchida.",exact:true})).toBeVisible();
+ for(const width of [1440,390]){
+  await page.setViewportSize({width,height:960});
+  await page.getByRole("button",{name:/Minha jornada/}).click();
+  const pendingJourney=page.getByRole("dialog",{name:"Minha jornada"});
+  await expect(pendingJourney.getByText("24.000 XP acumulados",{exact:true})).toBeVisible();
+  await expect(pendingJourney.getByRole("list",{name:"Ranking de experiência do mês"})).toContainText("Marina Criadora");
+  await page.screenshot({path:resolve(visualEvidence,"journey-pending-task-"+width+".png"),animations:"disabled"});
+  await pendingJourney.getByRole("button",{name:"Fechar minha jornada",exact:true}).click();
+ }
+
  await page.evaluate(token=>{localStorage.setItem("conexao_owner_token",token);localStorage.setItem("conexao_active_role","owner");},owner);await page.reload();
  await page.getByRole("button",{name:"Jornada",exact:true}).click();
  await expect(page.getByRole("heading",{name:"Jornada e recompensas"})).toBeVisible();

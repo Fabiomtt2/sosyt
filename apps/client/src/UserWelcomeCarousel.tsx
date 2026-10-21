@@ -4,7 +4,7 @@ import { ChevronLeft,ChevronRight,Pause,Play } from "lucide-react";
 
 const SLIDES=[
  {art:"community-editorial-v3.webp",kind:"community",eyebrow:"CRIADORES APOIAM CRIADORES",title:"10 vídeos. Uma playlist em comum.",copy:"Compartilhe uma URL do YouTube. Você pode iniciar com os vídeos disponíveis. Com dez vídeos, a playlist completa permite as recompensas; começar antes mantém XP, sem moedas."},
- {art:"time-continuity-v2.webp",kind:"time",eyebrow:"CONTINUIDADE ENTRE SESSÕES",title:"Seu tempo continua com você.",copy:"O player registra os trechos acompanhados e preserva seu progresso. Saltos não contam como tempo assistido. A playlist iniciada incompleta gera XP, sem moedas."},
+ {art:"time-continuity-v3.webp",kind:"time",eyebrow:"CONTINUIDADE ENTRE SESSÕES",title:"Seu tempo continua com você.",copy:"O player registra os trechos acompanhados e preserva seu progresso. Saltos não contam como tempo assistido. A playlist iniciada incompleta gera XP, sem moedas."},
  {art:"messages-editorial-v3.webp",kind:"pass",eyebrow:"SEU ESPAÇO NA COMUNIDADE",title:"Um recado pode aproximar criadores.",copy:"Abra o correio para pedir uma conversa, aceitar amizades e enviar presentes. Você escolhe quem pode falar com você."}
 ] as const;
 
