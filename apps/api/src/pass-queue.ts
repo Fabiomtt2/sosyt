@@ -26,20 +26,24 @@ export function queuePassBalance(db: AppDatabase, userId: string): number {
 }
 
 /** One Passe opens one additional queue, keeping every earlier membership and URL. */
-export function joinNextQueueWithPass(db: AppDatabase, userId: string, referenceId: string) {
+export function joinNextQueueWithPass(db: AppDatabase, userId: string, referenceId: string,targetRoundId?:string) {
   z.string().uuid().parse(referenceId);
   if (!db.prepare("SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL").get(userId))
     fail(404, "Participante não encontrado.", "USER_NOT_FOUND");
   return db.transaction(() => {
     const previous = db.prepare("SELECT result_json AS result FROM queue_pass_requests WHERE user_id=? AND reference_id=?")
       .get(userId, referenceId) as { result: string } | undefined;
-    if (previous) return { queue: JSON.parse(previous.result) as JoinedPassQueue, passesAvailable: queuePassBalance(db, userId), replayed: true };
+    if (previous) {
+      const queue=JSON.parse(previous.result) as JoinedPassQueue;
+      if(targetRoundId&&queue.id!==targetRoundId)fail(409,"Esta referência já foi usada em outra fila.","QUEUE_REFERENCE_CONFLICT");
+      return {queue,passesAvailable:queuePassBalance(db,userId),replayed:true};
+    }
     const unlimited = isRootOwner(db, userId);
     const wallet = db.prepare("SELECT payment_hold AS hold FROM wallets WHERE user_id=?").get(userId) as { hold: number } | undefined;
     if (!unlimited && wallet?.hold) fail(409, "Seu acesso a itens está em análise pela equipe. Fale com o suporte.", "PAYMENT_HOLD");
     if (!unlimited && queuePassBalance(db, userId) < 1)
       fail(409, "Você precisa de um Passe para participar de outra fila.", "PASS_REQUIRED");
-    const target = skipTargetFor(db, userId);
+    const target = skipTargetFor(db, userId,targetRoundId);
     const now = new Date().toISOString();
     if (!unlimited) {
       const debit = db.prepare("UPDATE wallets SET extra_slot_passes=extra_slot_passes-1,updated_at=? WHERE user_id=? AND extra_slot_passes>0")

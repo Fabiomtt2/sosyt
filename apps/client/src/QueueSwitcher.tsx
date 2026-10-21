@@ -3,7 +3,7 @@ import { Layers, Plus, LoaderCircle, LogOut, Ticket } from "lucide-react";
 import { api, type MyQueue, type QueuesState } from "./api";
 
 /** Active memberships remain selectable when another queue is opened or completed. */
-export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedPass, onLeft, administrative = false }: {
+export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedPass, onLeft, administrative = false, onBrowse }: {
   queues: QueuesState;
   onSelect: (roundId: string) => void;
   onChanged: () => void | Promise<void>;
@@ -11,6 +11,7 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedP
   onNeedPass?: () => void;
   onLeft?: (roundId: string) => void;
   administrative?: boolean;
+  onBrowse?: (mode:"VIEW"|"PASS"|"SKIP")=>void;
 }) {
   const references = useRef<Partial<Record<"PASS" | "SKIP", string>>>({});
   const [busy, setBusy] = useState<"PASS" | "SKIP" | "LEAVE" | null>(null);
@@ -22,7 +23,7 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedP
   const canSkip = !administrative && queues.skipsAvailable > 0;
   const canPass = !administrative && queues.passesAvailable > 0;
 
-  if (!mine.length && !queues.available?.length && !canSkip && !canPass && !administrative) return null;
+  if (!mine.length && !queues.available?.length && !canSkip && !canPass && !administrative && !onBrowse) return null;
 
   async function enterWith(item: "PASS" | "SKIP") {
     if (busy) return;
@@ -70,6 +71,7 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedP
       <div className="qs-head">
         <Layers size={16} />
         <strong>{administrative ? "Filas em acompanhamento administrativo" : mine.length > 1 ? `Você está em ${mine.length} filas` : "Suas filas"}</strong>
+        {onBrowse&&<button type="button" className="text-button qs-browse" disabled={!!busy} onClick={()=>onBrowse("VIEW")}>Explorar todas as filas</button>}
       </div>
       <div className="qs-tabs" role="tablist" aria-label="Escolha uma fila">
         {mine.map(queue => (
@@ -91,23 +93,23 @@ export function QueueSwitcher({ queues, onSelect, onChanged, onNeedSkip, onNeedP
           </button>
         ))}
       </div>
-      {Boolean(queues.available?.length) && <div className="qs-directory" aria-label="Todas as filas disponíveis">
+      {!onBrowse&&Boolean(queues.available?.length) && <div className="qs-directory" aria-label="Todas as filas disponíveis">
         <strong>Filas da comunidade</strong>
         {queues.available?.map(queue=><p key={queue.id}>Fila {queue.number} · {10-queue.vacancies}/10 vídeos · {queue.joined?"seu acesso liberado":queue.status==="READY"?"completa":"entrada disponível com Passe ou Pular"}{queue.canResume&&<button type="button" className="text-button" disabled={!!busy} onClick={()=>void resumeQueue(queue.id)}>Retomar minha Fila {queue.number}</button>}</p>)}
       </div>}
       <div className="qs-actions">
         {administrative && <>
-          <button type="button" className="qs-skip" onClick={() => void enterWith("SKIP")} disabled={!!busy}>
+          <button type="button" className="qs-skip" onClick={() => onBrowse?onBrowse("SKIP"):void enterWith("SKIP")} disabled={!!busy}>
             {busy === "SKIP" ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
             Abrir outra fila como administrador
           </button>
           <p className="qs-locked">Acesso administrativo, fora de competição. Esta ação não consome itens.</p>
         </>}
-        {canPass && <button type="button" className="qs-skip" onClick={() => void enterWith("PASS")} disabled={!!busy}>
+        {canPass && <button type="button" className="qs-skip" onClick={() => onBrowse?onBrowse("PASS"):void enterWith("PASS")} disabled={!!busy}>
           {busy === "PASS" ? <LoaderCircle size={15} className="spin" /> : <Ticket size={15} />}
           Usar 1 Passe <span className="qs-skip-count">{queues.passesAvailable} disponíveis</span>
         </button>}
-        {canSkip && <button type="button" className="qs-skip" onClick={() => void enterWith("SKIP")} disabled={!!busy}>
+        {canSkip && <button type="button" className="qs-skip" onClick={() => onBrowse?onBrowse("SKIP"):void enterWith("SKIP")} disabled={!!busy}>
           {busy === "SKIP" ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}
           Usar 1 Pular <span className="qs-skip-count">{queues.skipsAvailable} disponíveis</span>
         </button>}

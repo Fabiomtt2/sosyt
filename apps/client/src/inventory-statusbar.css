@@ -28,3 +28,11 @@
 
 @media(min-width:1200px){.app-shell:has(.global-chat.open)>.inventory-statusbar{width:min(calc(100% - 502px),680px);margin-left:28px;margin-right:474px}}
 @media(max-width:1199px){.app-shell:has(>.inventory-statusbar):has(.global-chat.open) .dashboard{height:calc(100dvh - 203px - min(420px,46dvh));max-height:calc(100dvh - 203px - min(420px,46dvh))}}
+
+/* Item actions and explanations are separate targets; buying never consumes an item. */
+.inventory-status-art{grid-row:1}.inventory-status-label{grid-column:1/-1;padding-right:22px;margin-top:2px}
+.inventory-status-info{position:absolute;right:3px;bottom:3px;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:transparent;color:#9d8094;font:700 .65rem/1 Manrope,sans-serif;cursor:pointer}
+.inventory-status-info:focus-visible{outline:2px solid #995f90;outline-offset:1px;background:#f0e3ed}
+.inventory-status-item:has(.inventory-status-info:focus-visible) .inventory-status-detail{opacity:1;visibility:visible;pointer-events:auto;transform:none}
+
+.journey-launcher>.journey-level-badge{display:inline-flex;flex-shrink:0;white-space:nowrap}.journey-launcher>span:not(.journey-level-badge){min-width:0;flex:1}.journey-inline-progress{display:block;height:6px;width:100%;max-width:300px;border-radius:10px;overflow:hidden;background:#eadce6}.journey-inline-progress>i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#9b718d,#c6a1af)}

@@ -5,6 +5,7 @@ import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { grantItem, ITEM_SKIP, itemQuantity } from "./inventory.js";
 import { joinRound, openRound } from "./queues.js";
+import { hasActiveRoundTask } from "./active-access.js";
 import { normalizePhone } from "./phone.js";
 import { encryptToken } from "./youtube.js";
 
@@ -325,6 +326,50 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     expect(response.json().readyRounds.some((r:{id:string})=>r.id===first)).toBe(false);
     expect(db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE round_id=?").get(first)).toEqual({n:10});expect(ledgerCount(user.id)).toBe(before);
     const denied=await app.inject({method:"POST",url:"/rounds/"+first+"/watch-observation",headers:auth(user.token),payload:observation()});expect(denied.statusCode).toBe(409);
+  });
+
+  it("preview público não concede acesso; Pular libera fila READY sem URL própria uma única vez", async () => {
+    const user = await register();
+    const first = (db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence LIMIT 1").get() as { id: string }).id;
+    const author = randomUUID(), target = openRound(db);
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES (?,?,?,'12',?,?)")
+      .run(author, "Autor de outra fila", "seed-" + author, stamp(), stamp());
+    joinRound(db, target, author); ready(target, author);
+    grantItem(db, { userId: user.id, itemCode: ITEM_SKIP, delta: 2, kind: "OWNER_ADJUST" });
+    const preview = await app.inject({ url: "/queues/" + target + "/preview", headers: auth(user.token) });
+    expect(preview.statusCode, preview.body).toBe(200);
+    expect(preview.json().round.slots).toHaveLength(10);
+    expect(preview.json().joined).toBe(false);
+    expect(preview.body).not.toMatch(/participantPhone|playlist_exports|youtube_playlist_id|private_messages/);
+    expect(hasActiveRoundTask(db, user.id, target)).toBe(false);
+    expect(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=?").get(target, user.id)).toBeUndefined();
+    expect(itemQuantity(db, user.id, ITEM_SKIP)).toBe(2);
+    const prepare = () => app.inject({ method: "POST", url: "/rounds/" + target + "/prepare-playlist", headers: auth(user.token), payload: { acceptPartial: false } });
+    expect((await prepare()).statusCode).toBe(409);
+    const referenceId = randomUUID();
+    const skip = () => app.inject({ method: "POST", url: "/queues/skip", headers: auth(user.token), payload: { referenceId, targetRoundId: target } });
+    const joined = await skip(); expect(joined.statusCode, joined.body).toBe(200);
+    const replay = await skip(); expect(replay.statusCode, replay.body).toBe(200);
+    expect(joined.json().queue.id).toBe(target); expect(replay.json().queue.id).toBe(target);
+    expect(itemQuantity(db, user.id, ITEM_SKIP)).toBe(1);
+    expect(hasActiveRoundTask(db, user.id, target)).toBe(true);
+    expect(db.prepare("SELECT 1 FROM submissions WHERE round_id=? AND user_id=?").get(target, user.id)).toBeUndefined();
+    const dashboard = await app.inject({ url: "/dashboard", headers: auth(user.token) });
+    expect(dashboard.statusCode, dashboard.body).toBe(200);
+    expect(dashboard.json().readyRounds.find((r: { id: string }) => r.id === target))
+      .toMatchObject({ viewerCanParticipate: true, viewerContributed: false });
+    expect(dashboard.json().viewer.contributionBlockedByPendingTask).toBe(true);
+    const prepared = await prepare(); expect(prepared.statusCode, prepared.body).toBe(200);
+    expect(prepared.json()).toMatchObject({ count: 10, rewardEligible: true });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ title: "Vídeo sintético", author_name: "Canal de teste" }), { status: 200, headers: { "content-type": "application/json" } })));
+    const submit = () => app.inject({ method: "POST", url: "/rounds/current/submissions", headers: auth(user.token), payload: { url: "https://youtu.be/E2EQUE00091", expectedRoundId: first } });
+    const blocked = await submit(); expect(blocked.statusCode, blocked.body).toBe(409);
+    expect(blocked.json().code).toBe("ACTIVE_TASK_PENDING");
+    expect(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=?").get(first, user.id)).toBeUndefined();
+    db.prepare("UPDATE wallets SET extra_slot_passes=1 WHERE user_id=?").run(user.id);
+    const pass = await app.inject({ method: "POST", url: "/queues/pass", headers: auth(user.token), payload: { referenceId: randomUUID(), targetRoundId: first } });
+    expect(pass.statusCode, pass.body).toBe(200); expect(pass.json().queue.id).toBe(first);
+    const allowed = await submit(); expect([200, 201], allowed.body).toContain(allowed.statusCode);
   });
 
 });

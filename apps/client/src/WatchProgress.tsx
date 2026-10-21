@@ -1,3 +1,4 @@
+import { WatchPresencePrompt } from "./WatchPresencePrompt";
 import { CompanionPanel } from "./CompanionPanel";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Eye, Heart, MessageCircle, PauseCircle, ShieldCheck } from "lucide-react";
@@ -9,6 +10,8 @@ type PlayerState = -1 | 0 | 1 | 2 | 3 | 5;
 
 type YTPlayer = {
   destroy(): void;
+  pauseVideo?():void;
+  playVideo?():void;
   getCurrentTime(): number;
   getDuration(): number;
   getPlaybackRate(): number;
@@ -149,6 +152,8 @@ export function WatchProgress({
   const [confirmAbandon,setConfirmAbandon]=useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [actionError,setActionError]=useState("");
+  const [presenceChallenge,setPresenceChallenge]=useState<string>();
+  const presencePending=useRef(false);
   const playerHost = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | undefined>(undefined);
   const lastSample = useRef<{ wallMs: number; playerSeconds: number; index: number } | undefined>(undefined);
@@ -196,6 +201,10 @@ export function WatchProgress({
       const saved=await api.observeWatchProgress(roundId,{
         sessionId:watchSessionId,videoIndex,playerSeconds,duration,playbackRate,playing:currentPlayer.getPlayerState()===1,visible:document.visibilityState==="visible"
       });
+      if(saved.presence?.required){
+        presencePending.current=true;setPresenceChallenge(saved.presence.challengeId);
+        currentPlayer.pauseVideo?.();setActive(false);setSyncState("saved");return;
+      }
       const merged=mergeProgress(saved);
       const mergedSignature=JSON.stringify(merged);
       localStorage.setItem(storageKey,mergedSignature);
@@ -284,6 +293,7 @@ export function WatchProgress({
         events: {
           onReady: () => setReady(true),
           onStateChange: ({ data }) => {
+            if(data===1&&presencePending.current){playerRef.current?.pauseVideo?.();setActive(false);return;}
             setActive(data === 1 && document.visibilityState === "visible");
             if(data===1) lastObservationSentAt.current=Number.NEGATIVE_INFINITY;
             else lastSample.current=undefined;
@@ -417,7 +427,7 @@ export function WatchProgress({
 
         <details className="watch-how">
           <summary>Como o acompanhamento funciona?</summary>
-          <p>O SOS considera a reprodução natural no player oficial enquanto esta aba está visível. O servidor limita cada atualização pelo próprio relógio: saltos na linha do tempo, trechos repetidos e duas sessões simultâneas não viram tempo novo.</p>
+          <p>O SOS considera a reprodução natural no player oficial enquanto esta aba está visível. A cada cinco minutos, uma confirmação pausa o player e o crédito até você responder. O servidor limita cada atualização pelo próprio relógio: saltos na linha do tempo, trechos repetidos e duas sessões simultâneas não viram tempo novo.</p>
           <p>{slots.filter(slot=>slot.videoId).length<10?"Nesta seleção parcial, o acompanhamento válido rende XP proporcional, sem moedas. Ampliar a playlist preserva os trechos observados; eles não rendem crédito novamente.":"A cada 20 minutos de tempo real verificado em seleções completas, acumulados entre sessões e filas, 1 moeda interna é registrada uma única vez. O percentual mostra seu progresso, mas não determina a recompensa."}</p>
           <p><strong>Concluir</strong> preserva o percentual atual e inicia o intervalo de 30 minutos. <strong>Abandonar</strong> preserva os registros e aplica 60 minutos antes de novo ingresso gratuito. Outras filas já liberadas continuam acessíveis.</p>
         </details>
@@ -441,6 +451,14 @@ export function WatchProgress({
           <div className="ready-actions"><button className="secondary" disabled={finalizing} onClick={() => setConfirmAbandon(false)}>Continuar assistindo</button><button className="danger-button" disabled={finalizing} onClick={() => void abandonTask()}>{finalizing ? "Salvando e saindo…" : "Sim, abandonar tarefa"}</button></div>
         </div>}
       </section>
+      {presenceChallenge&&<WatchPresencePrompt key={presenceChallenge} onPause={close} onConfirm={async()=>{
+        try{await api.confirmWatchPresence(roundId,presenceChallenge);}
+        catch(cause){await sendObservation();throw cause;}
+        presencePending.current=false;setPresenceChallenge(undefined);lastSample.current=undefined;
+        lastObservationSentAt.current=Number.NEGATIVE_INFINITY;
+        // Seed a paused baseline before allowing playback to resume; the server also disarms its state.
+        await sendObservation();playerRef.current?.playVideo?.();
+      }}/>}
     </div>
   );
 }

@@ -72,4 +72,15 @@ describe("Passe para fila adicional: transação e continuidade", () => {
     expect(joinNextQueueWithPass(db, user, reference).queue).toEqual(first.queue);
     expect(db.prepare("SELECT extra_slot_passes AS n FROM wallets WHERE user_id=?").get(user)).toEqual({ n: 2 });
   });
+  it("Passe escolhe fila OPEN existente e retry não muda o alvo",()=>{
+    const two=openRound(db),three=openRound(db),reference=randomUUID();
+    const result=joinNextQueueWithPass(db,user,reference,three);expect(result.queue.id).toBe(three);expect(queuePassBalance(db,user)).toBe(1);
+    expect(joinNextQueueWithPass(db,user,reference,three).replayed).toBe(true);
+    expect(()=>joinNextQueueWithPass(db,user,reference,two)).toThrow("Esta referência já foi usada em outra fila.");expect(queuePassBalance(db,user)).toBe(1);
+  });
+  it("Passe não concede tarefa de fila READY e não consome ao recusar alvo",()=>{
+    const ready=openRound(db);db.prepare("UPDATE rounds SET status='READY' WHERE id=?").run(ready);
+    expect(()=>joinNextQueueWithPass(db,user,randomUUID(),ready)).toThrow("Use Pular");expect(queuePassBalance(db,user)).toBe(2);expect(myRounds(db,user)).toHaveLength(1);
+  });
+
 });

@@ -25,5 +25,5 @@ export function assertFreeQueueEntryAllowed(db: AppDatabase, userId: string, rou
 
 /** Historical URLs never grant a fresh mutation after leaving or completing a task. */
 export function hasActiveRoundTask(db:AppDatabase,userId:string,roundId:string):boolean {
-  return Boolean(db.prepare("SELECT 1 FROM round_participants rp JOIN rounds r ON r.id=rp.round_id LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id WHERE rp.user_id=? AND r.id=? AND rp.left_at IS NULL AND r.closed_at IS NULL AND (r.status='READY' OR EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=rp.user_id)) AND p.finalized_at IS NULL AND EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id)").get(userId,roundId));
+  return Boolean(db.prepare("SELECT 1 FROM round_participants rp JOIN rounds r ON r.id=rp.round_id LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id WHERE rp.user_id=? AND r.id=? AND rp.left_at IS NULL AND r.closed_at IS NULL AND (r.status='READY' OR EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=rp.user_id)) AND p.finalized_at IS NULL AND (rp.source='SKIP' OR EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id))").get(userId,roundId));
 }

@@ -6,9 +6,9 @@ import "./inventory-statusbar.css";
 
 const quantity=(value?:number)=>typeof value==="number"&&Number.isFinite(value)?value.toLocaleString("pt-BR",{maximumFractionDigits:3}):"—";
 const expiry=(value:string)=>new Date(value).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
-type Props={accountId:string;wallet?:Dashboard["wallet"];skipsAvailable?:number;passesAvailable?:number;subscription?:SuperState};
+type Props={accountId:string;wallet?:Dashboard["wallet"];skipsAvailable?:number;passesAvailable?:number;subscription?:SuperState;onUseSkip?:()=>void;onUsePass?:()=>void;onOpenStore?:()=>void};
 /** Parent supplies confirmed dashboard state; this component never credits or predicts a balance. */
-export function InventoryStatusBar({accountId,wallet,skipsAvailable,passesAvailable,subscription}:Props){
+export function InventoryStatusBar({accountId,wallet,skipsAvailable,passesAvailable,subscription,onUseSkip,onUsePass,onOpenStore}:Props){
  const previous=useRef<InventoryStatusSnapshot|undefined>(undefined),revision=useRef(0),tooltipPrefix=useId();
  const [changes,setChanges]=useState<Array<InventoryStatusChange&{revision:number}>>([]);
  const [expanded,setExpanded]=useState<string>();
@@ -31,10 +31,14 @@ export function InventoryStatusBar({accountId,wallet,skipsAvailable,passesAvaila
   <ul className="inventory-status-items">{entries.map(entry=>{
    const change=changes.find(item=>item.kind===entry.kind),id=tooltipPrefix+"-"+entry.kind;
    return <li key={entry.kind} className={"inventory-status-item status-"+entry.kind+(entry.kind==="super"&&superActive?" is-active":"")+(change?" has-"+change.direction:"")}>
-    <button className="inventory-status-trigger" type="button" aria-label={entry.name+": "+entry.value} aria-describedby={id} aria-expanded={expanded===entry.kind} onClick={()=>setExpanded(value=>value===entry.kind?undefined:entry.kind)} onKeyDown={event=>{if(event.key==="Escape")setExpanded(undefined);}}>
+    <button className="inventory-status-trigger" type="button" aria-label={entry.name+": "+entry.value} aria-describedby={id} onClick={()=>{
+      const action=entry.kind==="skip"?onUseSkip:entry.kind==="pass"?onUsePass:onOpenStore;
+      if(action){setExpanded(undefined);action();}else setExpanded(value=>value===entry.kind?undefined:entry.kind);
+     }} onKeyDown={event=>{if(event.key==="Escape")setExpanded(undefined);}}>
      <span className="inventory-status-art" aria-hidden="true"><CommerceArtwork kind={entry.kind}/></span>
      <strong className="inventory-status-quantity">{entry.value}</strong><span className="inventory-status-label">{entry.name}</span>
     </button>
+    <button type="button" className="inventory-status-info" aria-label={"Detalhes de "+entry.name} aria-controls={id} aria-expanded={expanded===entry.kind} onClick={()=>setExpanded(value=>value===entry.kind?undefined:entry.kind)} onKeyDown={event=>{if(event.key==="Escape")setExpanded(undefined);}}>i</button>
     <span className={"inventory-status-detail"+(expanded===entry.kind?" is-expanded":"")} role="tooltip" id={id}>{entry.details}</span>
     {change&&<span key={change.revision} className={"inventory-status-change is-"+change.direction} aria-hidden="true">{change.label}</span>}
    </li>;

@@ -1,3 +1,5 @@
+import { joinQueueWithSkip } from "./queue-skip.js";
+import { checkWatchPresence,confirmWatchPresence } from "./watch-presence.js";
 import { assertParticipantAccess } from "./participant-access.js";
 import { playlistSelection, preparePlaylistSelection } from "./partial-playlist.js";
 import { registerCommunityRoutes } from "./community-routes.js";
@@ -277,12 +279,11 @@ function cooldownState(db: AppDatabase, userId: string) {
 }
 
 function pendingReadyRound(db: AppDatabase, userId: string) {
-  return db.prepare(`SELECT r.id, r.sequence FROM rounds r
-    JOIN submissions s ON s.round_id = r.id
-    LEFT JOIN playlist_watch_progress p ON p.round_id = r.id AND p.user_id = ?
-    JOIN round_participants rp ON rp.round_id=r.id AND rp.user_id=s.user_id AND rp.left_at IS NULL
-    WHERE r.status = 'READY' AND r.closed_at IS NULL AND s.user_id = ? AND p.finalized_at IS NULL
-    ORDER BY r.sequence ASC LIMIT 1`).get(userId, userId) as { id: string; sequence: number } | undefined;
+  return db.prepare(`SELECT r.id,r.sequence FROM round_participants rp JOIN rounds r ON r.id=rp.round_id
+    LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id
+    WHERE rp.user_id=? AND rp.left_at IS NULL AND r.status='READY' AND r.closed_at IS NULL AND p.finalized_at IS NULL
+    AND (rp.source='SKIP' OR EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id))
+    ORDER BY r.sequence ASC LIMIT 1`).get(userId) as {id:string;sequence:number}|undefined;
 }
 
 function finalizeRoundTask(db: AppDatabase, userId: string, roundId: string, reason: "COMPLETE" | "MANUAL" | "ABANDONED") {
@@ -589,7 +590,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"owner-store-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2"] }));
+  app.get("/health", async () => ({ ok: true,release:"filas-presenca-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -712,13 +713,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     currentPassword: z.string().min(1).max(passwordSchemaMax).optional()
   });
 
-  // AUDITORIA / multi-fila: só as filas DO USUÁRIO. Quem está na Fila 1 não vê a
-  // Fila 2 — a não ser que tenha entrado nela com o item "Pular".
+  // All active queues are readable. Preview never grants participation.
   app.get("/queues/mine", { preHandler: authGuard, config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request) => {
     const mine = myRounds(db, request.user.sub);
     const skips = request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP);
     return {
-      available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,vacancies:vacanciesIn(db,r.id),joined:mine.some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
+      available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,expiresAt:new Date(Date.parse(r.createdAt)+QUEUE_LIFETIME_MS).toISOString(),vacancies:vacanciesIn(db,r.id),joined:mine.some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
       queues: mine.map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
       canSkip: skips > 0,
       canUsePass: queuePassBalance(db,request.user.sub)>0,
@@ -729,9 +729,17 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     };
   });
 
+  app.get("/queues/:id/preview",{preHandler:authGuard},async(request,reply)=>{
+    const id=z.string().uuid().parse((request.params as {id:string}).id);
+    expireRounds(db);
+    const round=activeRounds(db).find(r=>r.id===id);
+    if(!round)return reply.code(404).send({message:"Esta fila encerrou. Consulte as filas atuais."});
+    return {round:roundView(db,id),joined:myRounds(db,request.user.sub).some(r=>r.id===id)};
+  });
+
   app.post("/queues/pass",{preHandler:authGuard,config:{rateLimit:{max:10,timeWindow:"10 minutes"}}},async(request,reply)=>{
-    const {referenceId}=z.object({referenceId:z.string().uuid()}).parse(request.body);
-    return reply.send(joinNextQueueWithPass(db,request.user.sub,referenceId));
+    const {referenceId,targetRoundId}=z.object({referenceId:z.string().uuid(),targetRoundId:z.string().uuid().optional()}).parse(request.body);
+    return reply.send(joinNextQueueWithPass(db,request.user.sub,referenceId,targetRoundId));
   });
   app.post("/queues/:id/resume",{preHandler:authGuard},async(request)=>{
     const roundId=z.string().uuid().parse((request.params as {id:string}).id);
@@ -747,31 +755,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return {ok:true,...cooldownState(db,request.user.sub)};
   });
 
-  // Usa um "Pular": entra na próxima fila livre em que ainda NÃO está; se não houver,
-  // CRIA uma. O item nunca é desperdiçado — consumo e entrada na mesma transação.
-  app.post("/queues/skip", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
-    const {referenceId}=z.object({referenceId:z.string().uuid().optional()}).parse(request.body??{});
-    try {
-      const result = db.transaction(() => {
-        const previous=referenceId ? db.prepare("SELECT result_json FROM queue_skip_requests WHERE user_id=? AND reference_id=?").get(request.user.sub,referenceId) as {result_json:string}|undefined : undefined;
-        if(previous) return JSON.parse(previous.result_json) as {id:string;number:number;status:string;vacancies:number};
-        // AUDITORIA / Teo B2: carteira em revisao nao consome Pular.
-        if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
-        if (request.user.adminRole!=="ROOT_OWNER" && itemQuantity(db, request.user.sub, ITEM_SKIP) < 1) {
-          throw Object.assign(new Error("Você precisa de um item Pular para entrar em outra fila."), { statusCode: 409, code: "SKIP_REQUIRED" });
-        }
-        const target = skipTargetFor(db, request.user.sub);
-        if(request.user.adminRole!=="ROOT_OWNER") consumeItem(db, request.user.sub, ITEM_SKIP, `skip:${referenceId??randomUUID()}:${request.user.sub}`);
-        joinRound(db, target.id, request.user.sub, "SKIP");
-        const joined={ id: target.id, number: target.displayNumber, status: target.status, vacancies: vacanciesIn(db, target.id) };
-        if(referenceId) db.prepare("INSERT INTO queue_skip_requests(user_id,reference_id,result_json,created_at) VALUES (?,?,?,?)").run(request.user.sub,referenceId,JSON.stringify(joined),new Date().toISOString());
-        return joined;
-      })();
-      return reply.send({ queue: result, skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP) });
-    } catch (error) {
-      const e = error as { statusCode?: number; message?: string; code?: string };
-      return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível entrar em outra fila.", code: e.code });
-    }
+  // Stocking an item never grants access. Explicit use chooses a queue and consumes atomically.
+  app.post("/queues/skip",{preHandler:authGuard,config:{rateLimit:{max:10,timeWindow:"10 minutes"}}},async(request,reply)=>{
+    const {referenceId,targetRoundId}=z.object({referenceId:z.string().uuid().optional(),targetRoundId:z.string().uuid().optional()}).parse(request.body??{});
+    return reply.send(joinQueueWithSkip(db,request.user.sub,referenceId??randomUUID(),targetRoundId));
   });
 
   // Presentear item do próprio inventário a outro participante.
@@ -1156,7 +1143,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // AUDITORIA / campanhas: SEASONAL e EVENT so entram nesta lista enquanto a janela
   // definida pelo ROOT estiver aberta. Fora dela, nem aparecem na escolha.
   app.get("/avatars", { preHandler: authGuard }, async (request) => ({
-    avatars: listVisibleCatalog(db).map((r)=>({
+    avatars: listVisibleCatalog(db).filter(r=>r.tier!=="OWNER"||request.user.adminRole==="ROOT_OWNER"||db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role='ROOT_OWNER' AND active=1").get(request.user.sub)).map((r)=>({
       slug:r.slug, tier:r.tier, category:r.category, label:r.label,
       campaign: r.campaignLabel ?? undefined, until: r.visibleUntil ?? undefined,
       locked: request.user.adminRole !== "ROOT_OWNER" && !canUseAvatarTier(db,request.user.sub,r.tier)
@@ -1219,7 +1206,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const open = viewRound ? { id: viewRound.id } : db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence DESC LIMIT 1").get() as { id: string };
     const ready = request.user.adminRole
       ? db.prepare("SELECT r.id FROM rounds r LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=? WHERE r.status='READY' AND r.closed_at IS NULL AND p.finalized_at IS NULL ORDER BY r.sequence DESC LIMIT 8").all(request.user.sub) as Array<{id:string}>
-      : db.prepare("SELECT DISTINCT r.id FROM rounds r JOIN submissions s ON s.round_id=r.id JOIN round_participants rp ON rp.round_id=r.id AND rp.user_id=s.user_id AND rp.left_at IS NULL LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=? WHERE (r.status='READY' OR EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=s.user_id)) AND r.closed_at IS NULL AND s.user_id=? AND p.finalized_at IS NULL ORDER BY r.sequence ASC").all(request.user.sub,request.user.sub) as Array<{id:string}>;
+      : db.prepare("SELECT DISTINCT r.id FROM rounds r JOIN round_participants rp ON rp.round_id=r.id AND rp.user_id=? AND rp.left_at IS NULL LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id WHERE (r.status='READY' OR EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=rp.user_id)) AND r.closed_at IS NULL AND p.finalized_at IS NULL AND (rp.source='SKIP' OR EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id)) ORDER BY r.sequence ASC").all(request.user.sub) as Array<{id:string}>;
     const contributionCount = db.prepare("SELECT COUNT(*) AS count FROM submissions WHERE round_id = ? AND user_id = ?")
       .get(open.id, request.user.sub) as { count: number };
     const connection = db.prepare("SELECT 1 FROM youtube_connections WHERE user_id = ?").get(request.user.sub);
@@ -1258,7 +1245,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         return {
           ...roundView(db,id,Boolean(request.user.adminRole)),
           ...(playlistSelection(db,request.user.sub,id)?{availableSlots:roundView(db,id,Boolean(request.user.adminRole)).slots,slots:(roundView(db,id,Boolean(request.user.adminRole)).slots as unknown[]).slice(0,playlistSelection(db,request.user.sub,id)!.count)}:{}),
-          viewerContributed,
+          viewerContributed,viewerCanParticipate:hasActiveRoundTask(db,request.user.sub,id),
           export:exportRow ? {
             ...exportRow,
             watchProgress: watch ? {
@@ -1280,7 +1267,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       // AUDITORIA / multi-fila: navegacao entre as filas do proprio usuario.
       queues: {
         current: viewRound ? { id: viewRound.id, number: viewRound.displayNumber, status: viewRound.status } : null,
-        available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,vacancies:vacanciesIn(db,r.id),joined:myRounds(db,request.user.sub).some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
+        available: activeRounds(db).map(r=>({id:r.id,number:r.displayNumber,status:r.status,expiresAt:new Date(Date.parse(r.createdAt)+QUEUE_LIFETIME_MS).toISOString(),vacancies:vacanciesIn(db,r.id),joined:myRounds(db,request.user.sub).some(q=>q.id===r.id),canResume:Boolean(db.prepare("SELECT 1 FROM round_participants rp LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id WHERE rp.round_id=? AND rp.user_id=? AND (rp.left_at IS NOT NULL OR p.finalize_reason='ABANDONED') AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')").get(r.id,request.user.sub))})),
         mine: myRounds(db, request.user.sub).map((r) => ({ id: r.id, number: r.displayNumber, status: r.status, vacancies: vacanciesIn(db, r.id) })),
         skipsAvailable: request.user.adminRole==="ROOT_OWNER" ? ROOT_ITEM_QUANTITY : itemQuantity(db, request.user.sub, ITEM_SKIP),
         passesAvailable:queuePassBalance(db,request.user.sub),
@@ -1306,6 +1293,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       | {watchedSecondsJson:string;durationsJson:string;percent:number;observedIntervalsJson?:string;finalizedAt?:string}
       | undefined;
     if(existing?.finalizedAt) return reply.code(409).send({message:"Esta tarefa já foi concluída. O progresso final permanece salvo."});
+
+    const presence=checkWatchPresence(db,request.user.sub);
+    if(presence.required){
+      db.prepare("UPDATE watch_observation_state SET active=0 WHERE user_id=?").run(request.user.sub);
+      return {watchedSeconds:existing?JSON.parse(existing.watchedSecondsJson):Array(10).fill(0),durations:existing?JSON.parse(existing.durationsJson):Array(10).fill(0),percent:existing?.percent??0,acceptedSeconds:0,xpDelta:0,rewardDeltaCoins:0,presence,walletTotal:walletView(db,request.user.sub).total,...watchRewardView(db,request.user.sub),updatedAt:new Date().toISOString()};
+    }
 
     const watchedSeconds=existing ? JSON.parse(existing.watchedSecondsJson) as number[] : Array(10).fill(0);
     const durations=existing ? JSON.parse(existing.durationsJson) as number[] : Array(10).fill(0);
@@ -1428,6 +1421,14 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       xpDelta:result.xpDelta,levelRewards:result.levelRewards,
       walletTotal:walletView(db,request.user.sub).total,...rewards,updatedAt:now,...finalization
     };
+  });
+
+  app.post("/rounds/:id/watch-presence/confirm",{preHandler:authGuard,config:{rateLimit:{max:20,timeWindow:"1 minute"}}},async(request,reply)=>{
+    const roundId=z.string().uuid().parse((request.params as {id:string}).id);
+    if(!hasActiveRoundTask(db,request.user.sub,roundId)||!db.prepare("SELECT 1 FROM playlist_exports WHERE round_id=? AND user_id=? AND status='SUCCESS'").get(roundId,request.user.sub))return reply.code(409).send({code:"ROUND_ACCESS_ENDED",message:"Esta tarefa não está ativa para esta conta."});
+    const {challengeId}=z.object({challengeId:z.string().uuid()}).parse(request.body);
+    if(!confirmWatchPresence(db,request.user.sub,challengeId))return reply.code(409).send({code:"PRESENCE_CHALLENGE_INVALID",message:"A confirmação expirou ou já foi utilizada. Confira a nova solicitação para continuar."});
+    return {ok:true,presence:checkWatchPresence(db,request.user.sub)};
   });
 
   app.put("/rounds/:id/watch-progress", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {

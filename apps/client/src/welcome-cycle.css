@@ -2,3 +2,7 @@
 .welcome-cycle-wrap>div{min-height:0;overflow:hidden}
 .welcome-cycle-wrap.is-ending{grid-template-rows:0fr;opacity:0;pointer-events:none}
 @media(prefers-reduced-motion:reduce){.welcome-cycle-wrap{transition:none}}
+
+/* The art surface is a grid cell, not the legacy 44%-wide absolute overlay. */
+.welcome-cycle-wrap .user-welcome-hero.welcome-carousel.informative-banner .banner-art-surface{width:100%;max-width:none;box-sizing:border-box}
+.welcome-cycle-wrap .user-welcome-hero.welcome-carousel.informative-banner .banner-art-surface>.welcome-carousel-image{max-width:100%;padding:0}

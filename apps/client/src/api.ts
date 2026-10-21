@@ -75,8 +75,9 @@ export const api = {
   superMe: () => request<SuperState>("/super/me"),
   superPins: () => request<{ pins: SuperPin[]; slotsFree: number; slots: number }>("/super/pins"),
   createSuperPin: (body: string) => request<{ id: string; expiresInSeconds: number }>("/super/pins", { method: "POST", body: JSON.stringify({ body }) }),
-  queueSkip: (referenceId?:string) => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST",body:JSON.stringify({referenceId}) }),
-  queuePass: (referenceId:string) => request<{queue:MyQueue;passesAvailable:number;replayed:boolean}>("/queues/pass", {method:"POST",body:JSON.stringify({referenceId})}),
+  queueSkip: (referenceId?:string,targetRoundId?:string) => request<{ queue: MyQueue; skipsAvailable: number }>("/queues/skip", { method: "POST",body:JSON.stringify({referenceId,targetRoundId}) }),
+  queuePass: (referenceId:string,targetRoundId?:string) => request<{queue:MyQueue;passesAvailable:number;replayed:boolean}>("/queues/pass", {method:"POST",body:JSON.stringify({referenceId,targetRoundId})}),
+  queuePreview:(id:string)=>request<{round:Round;joined:boolean}>(`/queues/${encodeURIComponent(id)}/preview`),
   queueResume:(roundId:string)=>request<{ok:true;replayed:boolean}>(`/queues/${encodeURIComponent(roundId)}/resume`,{method:"POST"}),
   queueLeave: (roundId:string) => request<{ok:true}>(`/queues/${encodeURIComponent(roundId)}/leave`, {method:"POST"}),
   giftItem: (toUserId: string, itemCode: string, quantity = 1,referenceId?:string) =>
@@ -107,6 +108,7 @@ export const api = {
     request<WatchProgressState>(`/rounds/${id}/watch-progress`, { method: "PUT", body: JSON.stringify(progress) }),
   observeWatchProgress: (id:string, observation:WatchObservation) =>
     request<WatchObservationResult>(`/rounds/${id}/watch-observation`, { method:"POST", body:JSON.stringify(observation) }),
+  confirmWatchPresence:(id:string,challengeId:string)=>request<{ok:true}>(`/rounds/${id}/watch-presence/confirm`,{method:"POST",body:JSON.stringify({challengeId})}),
   finalizeWatchProgress: (id: string) =>
     request<{ finalizedAt: string; percent: number; cooldownUntil: string; secondsRemaining: number }>(`/rounds/${id}/watch-progress/finalize`, { method: "POST" }),
   abandonWatchProgress: (id: string) =>
@@ -127,7 +129,7 @@ export type AdminAvatarItem = { slug:string; tier:AvatarTier; category:string; l
 export const catalogAvatarUrl = (slug:string) => `${API_URL}/avatars/${slug}`;
 export type PaymentProductCode = string; // AUDITORIA: catálogo configurável no painel
 export type MyQueue = { id: string; number: number; status: string; vacancies: number };
-export type QueuesState = { available?: Array<MyQueue & {joined:boolean;canResume?:boolean}>; current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number; passesAvailable: number; cooldownUntil?: string };
+export type QueuesState = { available?: Array<MyQueue & {joined:boolean;canResume?:boolean;expiresAt?:string}>; current: { id: string; number: number; status: string } | null; mine: MyQueue[]; skipsAvailable: number; passesAvailable: number; cooldownUntil?: string };
 export type ChatRole = "USER" | "SUPER" | "ADMIN" | "OWNER";
 export type SuperState = {
   active:boolean; expiresAt?:string; secondsRemaining:number; autoRenew:boolean; source?:string;
@@ -155,10 +157,11 @@ export type WatchObservation = {
   sessionId:string;videoIndex:number;playerSeconds:number;duration:number;playbackRate:number;playing:boolean;visible:boolean;
 };
 export type WatchRewards = {verifiedSeconds:number;coins:number;secondsToNextReward:number};
+export type WatchPresenceChallenge={required:true;challengeId:string;expiresAt:string};
 export type WatchObservationResult = WatchProgressState & WatchRewards & {
-  acceptedSeconds:number;sessionConflict?:boolean;xpDelta?:number;levelRewards?:Array<{level:number;coins:number;trialDays:number}>;
+  acceptedSeconds:number;presence?:WatchPresenceChallenge|{required:false;confirmedUntil:string};sessionConflict?:boolean;xpDelta?:number;levelRewards?:Array<{level:number;coins:number;trialDays:number}>;
 };
-export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";expiresAt?:string;slots:Slot[];availableSlots?:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
+export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";expiresAt?:string;slots:Slot[];availableSlots?:Slot[];completedAt?:string;viewerContributed?:boolean;viewerCanParticipate?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
 export type UserProfileSummary = {
   activity:{ submissions:number; rounds:number; playlists:number; completedTasks:number };
   adminAccess?:{role:"ROOT_OWNER"|"ADMIN_OWNER"};

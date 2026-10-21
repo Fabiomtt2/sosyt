@@ -40,6 +40,16 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
     const switcher = page.getByRole("region", { name: "Minhas filas" });
     const entered = page.waitForResponse(response => response.url() === api + "/queues/pass" && response.request().method() === "POST");
     await switcher.getByRole("button", { name: /Usar 1 Passe/ }).click();
+    const browser=page.getByRole("dialog",{name:"Explorar filas da comunidade"});
+    await expect(browser).toBeVisible();
+    // Opening the inventory action and choosing a destination do not consume a pass.
+    expect((await (await request.get(api+"/queues/mine",{headers})).json()).passesAvailable).toBe(1);
+    await browser.getByRole("button",{name:/Escolher a próxima fila com vaga/}).click();
+    await browser.getByRole("button",{name:"Usar 1 Passe na próxima fila elegível",exact:true}).click();
+    const passConfirmation=browser.getByRole("alertdialog",{name:"Confirmar uso de Passe"});
+    await expect(passConfirmation).toContainText("consome 1 Passe");
+    await passConfirmation.getByRole("button",{name:"Confirmar uso de 1 Passe",exact:true}).click();
+
     const passResponse = await entered;
     expect(passResponse.status()).toBe(200);
     const referenceId = passResponse.request().postDataJSON().referenceId as string;
