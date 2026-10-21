@@ -252,6 +252,8 @@ export type OwnerParticipant = {
   youtubeChannelId?:string;youtubeChannelTitle?:string;youtubeChannelThumbnailUrl?:string;
 };
 export type ParticipantAdminDetail = {
+  inventory?:Array<{itemCode:string;quantity:number}>;
+  subscription?:SuperState;
   gamification?:GamificationData;
   watchRewards:WatchRewards;
   profile: { name: string; phone: string; groupCode?: string; userId?: string; createdAt?: string; lastSeenAt?: string; cooldownUntil?: string; cooldownReason?: string; avatar?:UserAvatar; youtubeChannel?:{id?:string;title:string;thumbnailUrl?:string} };
@@ -470,6 +472,7 @@ export const ownerApi = {
   participant: (phone: string) => ownerRequest<ParticipantAdminDetail>(`/admin/participants/${phone}`),
   updateParticipant: (currentPhone: string, body: { name: string; phone: string; groupCode: string }) => ownerRequest<{ ok: true; phone: string }>(`/admin/participants/${currentPhone}`, { method: "PATCH", body: JSON.stringify(body) }),
   participantAction: (phone: string, action: "REVOKE" | "RESTORE" | "CLEAR_COOLDOWN" | "REVIEW_ON" | "REVIEW_OFF") => ownerRequest(`/admin/participants/${phone}/action`, { method: "POST", body: JSON.stringify({ action }) }),
+  grantBenefit: (phone:string,body:{benefit:"COINS"|"PASS"|"SKIP"|"SUPER";quantity:number;referenceId:string;reason:string}) => ownerRequest<{ok:true;replayed:boolean;benefit:string;quantity:number}>(`/admin/participants/${phone}/benefits`,{method:"POST",body:JSON.stringify(body)}),
   walletAdjustment: (phone: string, amountCoins: number, reason: string) => ownerRequest(`/admin/participants/${phone}/wallet-adjustment`, { method: "POST", body: JSON.stringify({ amountCoins, reason }) }),
   revoke: (phone: string) => ownerRequest(`/admin/members/${phone}`, { method: "DELETE" }),
   decide: (id: string, status: "APPROVED" | "DECLINED") => ownerRequest(`/admin/requests/${id}/decision`, { method: "POST", body: JSON.stringify({ status }) }),

@@ -59,3 +59,5 @@ jobs:
             docs/evidencias/premium-participant-*.png
             docs/evidencias/queue-continuity-*.png
             docs/evidencias/queue-grid-*.png
+            docs/evidencias/checkout-themed-*.png
+            .local-tmp/benefit-halo-evidence/

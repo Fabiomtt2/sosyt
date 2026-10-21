@@ -1,3 +1,4 @@
+import "./checkout-experience.css";
 import { LevelBadge } from "./GamificationPanel";
 import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useEffect, useState, type FormEvent } from "react";
@@ -10,7 +11,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 const when = (value?: string) => value ? new Date(value).toLocaleString("pt-BR") : "—";
 const coins = (millis = 0) => (millis / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 const money = (cents = 0) => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const product = (code:string) => code==="COINS_LAUNCH" ? "10 moedas + 1 passe bônus" : code==="PASS_SINGLE" ? "1 passe" : "Compra anterior";
+const product = (code:string) => code==="COINS_LAUNCH" ? "10 moedas + 1 passe bônus" : code==="PASS_SINGLE" ? "Passe" : code==="COINS_10" ? "Moedas" : code==="SKIP_1" ? "Pular" : code==="SUPER_30" ? "SUPER · 30 dias" : "Compra";
 
 export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   phone: string;
@@ -22,6 +23,10 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
   const [form,setForm]=useState({name:"",phone:"",groupCode:""});
   const [amount,setAmount]=useState("");
   const [reason,setReason]=useState("");
+  const [benefit,setBenefit]=useState<"COINS"|"PASS"|"SKIP"|"SUPER">("SKIP");
+  const [giftQuantity,setGiftQuantity]=useState(1),[giftReason,setGiftReason]=useState("");
+  const [giftReference,setGiftReference]=useState(()=>crypto.randomUUID());
+  const [giftNotice,setGiftNotice]=useState("");
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
@@ -74,6 +79,17 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
     finally { setBusy(false); }
   }
 
+  async function giveBenefit(event:FormEvent){
+    event.preventDefault();if(busy)return;setBusy(true);setError("");setNotice("");setGiftNotice("");
+    try{
+      await ownerApi.grantBenefit(detail?.profile.phone??phone,{benefit,quantity:giftQuantity,reason:giftReason,referenceId:giftReference});
+      setGiftReference(crypto.randomUUID());setGiftReason("");
+      setGiftNotice(`Presente entregue: +${giftQuantity} ${benefit==="COINS"?"moedas":benefit==="PASS"?"Passe":benefit==="SKIP"?"Pular":"dias de SUPER"}. Não gera receita de venda.`);
+      await load(detail?.profile.phone??phone);onChanged(detail?.profile.phone);
+    }catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível entregar o presente. Você pode tentar novamente.");}
+    finally{setBusy(false);}
+  }
+
   return <div className="modal-backdrop participant-admin-backdrop" onMouseDown={onClose}>
     <section ref={modalRef} className="modal participant-admin-modal" role="dialog" aria-modal="true" aria-label="Administrar participante" onMouseDown={(e)=>e.stopPropagation()}>
       <button className="close" aria-label="Fechar participante" onClick={onClose}>×</button>
@@ -97,6 +113,7 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
           <article><span>Jornada</span><strong>{detail.activity.playlists} playlists</strong><small>{detail.activity.completedTasks} tarefa{detail.activity.completedTasks===1?"":"s"} concluída{detail.activity.completedTasks===1?"":"s"}</small></article>
         </section>
 
+        {detail.profile.userId&&<div className="participant-account-id"><span>ID da conta</span><code>{detail.profile.userId}</code><button type="button" className="secondary compact" onClick={()=>void navigator.clipboard.writeText(detail.profile.userId!).then(()=>setNotice("ID da conta copiado.")).catch(()=>setError("Selecione e copie o ID exibido."))}>Copiar ID</button></div>}
         {detail.gamification?.progress?<p><LevelBadge progress={detail.gamification.progress}/> {detail.gamification.progress.xp} XP · {detail.gamification.progress.rewardCoins} moedas de recompensa</p>:detail.gamification?.administrative?<p>XP administrativo ∞ · fora da competição</p>:null}
       <WatchTimeSummary rewards={detail.watchRewards}/>
 
@@ -115,6 +132,9 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
           {detail.wallet ? <div className="wallet-breakdown">
             <div><CircleDollarSign/><span>Moedas atuais</span><strong>{coins(detail.wallet.promoMillis+detail.wallet.rewardMillis+detail.wallet.purchasedMillis)}</strong></div>
             <div><span>Passes atuais</span><strong>{detail.wallet.extraPasses}</strong></div>
+            <div><span>Pular disponível</span><strong>{detail.inventory?.find(item=>item.itemCode==="SKIP")?.quantity??0}</strong></div>
+            <div><span>SUPER</span><strong>{detail.subscription?.active?"Ativo":"Inativo"}</strong><small>{detail.subscription?.expiresAt?"Validade: "+when(detail.subscription.expiresAt):"Sem assinatura ativa"}</small></div>
+            <div><span>Compradas disponíveis</span><strong>{coins(detail.wallet.purchasedMillis)}</strong></div>
             <div><span>Inicial/promocional</span><strong>{coins(detail.wallet.promoMillis)}</strong></div>
             <div><span>Bônus/recompensas</span><strong>{coins(detail.wallet.rewardMillis)}</strong></div>
             {detail.purchaseTotals&&<><div><span>Moedas compradas · histórico</span><strong>{coins(detail.purchaseTotals.coinsPurchasedMillis)}</strong></div><div><span>Passes comprados</span><strong>{detail.purchaseTotals.passesPurchased}</strong></div><div><span>Passes bônus</span><strong>{detail.purchaseTotals.bonusPasses}</strong></div><div><span>Compras aprovadas</span><strong>{money(detail.purchaseTotals.approvedSpendCents)}</strong></div></>}
@@ -124,6 +144,13 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
             {detail.profile.cooldownUntil && <button className="secondary" disabled={busy} onClick={()=>void action("CLEAR_COOLDOWN","Cooldown liberado pelo Owner.")}><Clock3 size={16}/>Liberar cooldown</button>}
             {detail.wallet && detail.permissions?.canReviewWallet && <button className="secondary" disabled={busy} onClick={()=>void action(detail.wallet?.paymentHold ? "REVIEW_OFF":"REVIEW_ON",detail.wallet?.paymentHold ? "Revisão da carteira encerrada.":"Carteira colocada em revisão.")}>{detail.wallet.paymentHold ? "Encerrar revisão":"Colocar em revisão"}</button>}
           </div>
+          {detail.wallet&&detail.permissions?.canAdjustWallet&&<form className="owner-benefit-form" onSubmit={giveBenefit} aria-label="Conceder presente ao participante">
+            <h3>Um presente da equipe</h3><p>Moedas, Passe, Pular ou dias de SUPER. O presente fica no histórico com sua autoria e não aumenta a receita da loja.</p>
+            <div className="integration-grid"><label>Benefício<select value={benefit} onChange={event=>{const value=event.target.value as typeof benefit;setBenefit(value);setGiftQuantity(value==="SUPER"?30:1);setGiftReference(crypto.randomUUID());}}><option value="SKIP">Pular</option><option value="PASS">Passe</option><option value="COINS">Moedas de presente</option><option value="SUPER">SUPER</option></select></label>
+            <label>{benefit==="SUPER"?"Dias de SUPER":"Quantidade do presente"}<input type="number" min="1" max="3650" value={giftQuantity} onChange={event=>{setGiftQuantity(Number(event.target.value));setGiftReference(crypto.randomUUID());}} required/></label></div>
+            <label>Motivo do presente<input value={giftReason} minLength={5} maxLength={240} onChange={event=>{setGiftReason(event.target.value);setGiftReference(crypto.randomUUID());}} placeholder="Ex.: agradecimento pela participação" required/></label>
+            <button className="primary compact" disabled={busy||!Number.isInteger(giftQuantity)||giftQuantity<1||giftQuantity>3650||giftReason.trim().length<5}>Entregar presente</button>{giftNotice&&<p role="status" aria-live="polite">{giftNotice}</p>}
+          </form>}
           {detail.wallet && detail.permissions?.canAdjustWallet && <form className="admin-adjust-form" onSubmit={adjust}>
             <label>Ajuste de bônus/moedas<input inputMode="decimal" value={amount} onChange={(e)=>setAmount(e.target.value)} placeholder="+2 ou -1" /></label>
             <label>Motivo<input value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="Motivo obrigatório para auditoria" /></label>
@@ -140,7 +167,7 @@ export function ParticipantAdminModal({ phone, groups, onClose, onChanged }: {
           </section>
 
           <section className="participant-ledger">
-            <details><summary>Ver ledger e ajustes recentes</summary><div className="ledger-list">{detail.ledger.map((entry)=><div key={entry.id}><span>{entry.kind}</span><strong>{entry.amountMillis>=0 ? "+":""}{coins(entry.amountMillis)} moedas</strong><small>{when(entry.createdAt)}{entry.actorOwnerName ? ` · ${entry.actorOwnerName}`:""}{entry.note ? ` · ${entry.note}`:""}</small></div>)}</div></details>
+            <details><summary>Ver ledger e ajustes recentes</summary><div className="ledger-list">{detail.ledger.map((entry)=>{let benefitNote:{benefit:string;quantity:number;reason:string}|undefined;try{if(entry.kind==="OWNER_BENEFIT")benefitNote=JSON.parse(entry.note??"{}");}catch{ /* preserve legacy text */ }const label=benefitNote?.benefit==="PASS"?"Passe":benefitNote?.benefit==="SKIP"?"Pular":benefitNote?.benefit==="SUPER"?"dias de SUPER":"moedas";return <div key={entry.id}><span>{benefitNote?"Presente da equipe":entry.kind}</span><strong>{benefitNote?`+${benefitNote.quantity} ${label}`:`${entry.amountMillis>=0?"+":""}${coins(entry.amountMillis)} moedas`}</strong><small>{when(entry.createdAt)}{entry.actorOwnerName ? ` · ${entry.actorOwnerName}`:""}{(benefitNote?.reason??entry.note)?` · ${benefitNote?.reason??entry.note}`:""}</small></div>;})}</div></details>
           </section>
         </>}
 

@@ -1,3 +1,4 @@
+import "./checkout-experience.css";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useEffect, useState, type FormEvent } from "react";
 import { Check, Copy, Gift, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
@@ -63,6 +64,8 @@ export function PurchaseModal({product,productInfo,onClose,onApproved,onTracked,
   return <div className="modal-backdrop purchase-backdrop" onMouseDown={onClose}>
     <section ref={modalRef} className="modal purchase-modal" role="dialog" aria-modal="true" aria-label={"Comprar "+copy.title} onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar compra" onClick={onClose}><X size={20}/></button>
+      <div className="checkout-brand"><span className="checkout-brand-mark">▶</span><div><strong>SOS YOUTUBER</strong><small>Criadores apoiam criadores</small></div><span className="checkout-pix-label">PIX</span></div>
+      <ol className="checkout-steps" aria-label="Etapas da compra"><li aria-current={!pix?"step":undefined}><b>1</b>Seu pedido</li><li aria-current={pix?"step":undefined}><b>2</b>Pagar com Pix</li><li><b>3</b>Receber e aproveitar</li></ol>
       <div className="purchase-hero">
         <div className="purchase-product-art">{productInfo.imageDataUrl?<img className="purchase-product-image" src={productInfo.imageDataUrl} alt=""/>:<CommerceArtwork kind={copy.kind}/>}</div>
         <div><p className="eyebrow dark">{copy.eyebrow}</p><h2>{copy.title}</h2><div className="purchase-price"><strong>{money(productInfo.amountCents)}</strong></div><small className="purchase-server-note">Preço e benefício confirmados pelo servidor</small></div>
@@ -72,7 +75,7 @@ export function PurchaseModal({product,productInfo,onClose,onApproved,onTracked,
         <p><Gift size={17}/><span>{copy.benefit}</span></p>
       </div>
       {!pix ? <form className="purchase-form" onSubmit={create}>
-        <div className="purchase-data-note"><ShieldCheck size={20}/><div><strong>Pagamento identificado e conciliado</strong><span>Seu e-mail e CPF identificam o pagamento no provedor Pix. Esses dois campos não ficam no histórico de compras do SOS.</span></div></div>
+        <div className="purchase-data-note"><ShieldCheck size={20}/><div><strong>Seu próximo passo começa aqui.</strong><span>Informe os dados do pagador para gerar seu Pix. Você continua aqui no SOS; a confirmação chega automaticamente pelo provedor.</span></div></div>
         <label>E-mail do pagador<input type="email" autoComplete="email" value={form.email} onChange={(event)=>setForm({...form,email:event.target.value})} placeholder="Seu e-mail para o pagamento" required/></label>
         <label>CPF do pagador<input inputMode="numeric" autoComplete="off" value={form.cpf} onChange={(event)=>setForm({...form,cpf:event.target.value.replace(/\D/g,"").slice(0,11)})} placeholder="11 números" minLength={11} required/></label>
         {error&&<p className="error" role="alert">{error}</p>}
@@ -83,9 +86,9 @@ export function PurchaseModal({product,productInfo,onClose,onApproved,onTracked,
         {pix.qrCode&&<><div className="pix-copy-head"><p>Pix copia e cola</p><button className="text-button" onClick={()=>void copyPix()}><Copy size={15}/>{copied?"Copiado":"Copiar"}</button></div><textarea readOnly value={pix.qrCode}/></>}
         {pix.providerPaymentId.startsWith("demo_")&&<div className="demo-code"><Sparkles size={20}/><strong>Simulação segura</strong><span>Nenhum dinheiro será movimentado neste ambiente de teste.</span></div>}
         {pix.providerPaymentId.startsWith("demo_")&&<button className="primary" onClick={()=>void demoApprove()} disabled={busy}>Simular confirmação</button>}
-        {!pix.providerPaymentId.startsWith("demo_")&&<p role="status" className="purchase-wait">{pix.status==="PENDING"?"Aguardando confirmação do provedor. Esta tela consulta o servidor automaticamente a cada 10 segundos. Você pode fechar esta janela; o pedido fica salvo.":"Este Pix não foi aprovado. Nenhum crédito foi aplicado."}</p>}
+        {!pix.providerPaymentId.startsWith("demo_")&&<p role="status" className="purchase-wait">{pix.status==="PENDING"?"Tudo pronto para pagar 💛 Copie o código ou escaneie o QR no seu banco. Assim que o pagamento for confirmado, seu benefício chega à carteira. Se precisar sair, o pedido permanece salvo.":"Este Pix não foi aprovado. Nenhum crédito foi aplicado."}</p>}
         {["CANCELLED","REJECTED"].includes(pix.status)&&<button className="secondary" onClick={()=>setPix(undefined)}>Gerar outro Pix</button>}
-        {pix.ticketUrl&&<a className="secondary" href={pix.ticketUrl} target="_blank" rel="noreferrer">Abrir página do pagamento</a>}
+        {pix.ticketUrl&&<details className="checkout-alternative"><summary>Precisa de uma alternativa para pagar?</summary><p>O QR e o código acima permitem concluir pelo aplicativo do seu banco. Se preferir, você também pode abrir o comprovante e as opções do provedor.</p><a className="secondary" href={pix.ticketUrl} target="_blank" rel="noreferrer">Ver pagamento no provedor</a></details>}
         {error&&<p className="error" role="alert">{error}</p>}
         {pix.status==="APPROVED"&&<div className="notice"><Check size={17}/>Pagamento confirmado pelo servidor.</div>}
       </div>}

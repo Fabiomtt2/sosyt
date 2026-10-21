@@ -1099,7 +1099,7 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 .slot-avatar{width:44px;height:44px;font-size:.72rem}
 .slot-contributor>div{display:grid;gap:2px;min-width:0}
 .slot-contributor strong{font:800 .88rem Manrope,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.slot-contributor span{color:#6f6570;font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-contributor>div>span{color:#6f6570;font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .slot-contributor small{display:flex;align-items:center;gap:4px;color:#948a92;font-size:.64rem}
 .slot-video{display:grid;grid-template-columns:92px minmax(0,1fr);gap:11px;padding:9px;border-radius:14px;background:#faf7f4;border:1px solid #eee6e0}
 .slot-video>img,.slot-video>.video-thumb{width:92px;height:58px;border-radius:10px;object-fit:cover}
@@ -1201,7 +1201,7 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
   .user-welcome-hero{min-height:310px;margin:0 -6px 26px;border-radius:22px}
   .wallet-values{grid-template-columns:1fr 1fr}
   .wallet-product-button{grid-template-columns:50px 1fr}.wallet-product-button img{width:50px;height:50px}
-  .slot-contributor span{white-space:normal}.slot-video strong,.slot-video span{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+  .slot-contributor>div>span{white-space:normal}.slot-video strong,.slot-video span{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
   .purchase-hero{grid-template-columns:1fr;text-align:center}.purchase-hero img{width:min(220px,70%);margin:auto}.purchase-price{justify-content:center}
   .avatar-modal-head{grid-template-columns:1fr;text-align:center;padding-right:0}.avatar-preview{margin:auto}.avatar-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.avatar-modal-footer{align-items:stretch;flex-direction:column}.avatar-modal-footer .primary{width:100%}
   .premium-watch-modal{padding:20px 14px}.watch-welcome h2{font-size:1.7rem}.watch-current-creator{grid-template-columns:auto 1fr}.watch-kind-actions{grid-template-columns:1fr}.watch-video-context{grid-template-columns:92px 1fr}.watch-video-context img{width:92px;height:62px}.watch-video-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.watch-current-progress-head,.watch-journey-head{align-items:flex-start}
@@ -1673,12 +1673,13 @@ input:hover, textarea:hover, select:hover { border-color: #cdc5bc; }
 @media(max-width:720px){.auto-group-actions{grid-template-columns:1fr 1fr}.detected-group{grid-column:1/-1}.request-sync-button{grid-column:1/-1}}
 
 /* 06/10/2026 — identidade administrativa sem moldura quadrada */
-.slot-avatar-shell,.account-avatar-shell{position:relative;display:inline-grid;place-items:center;width:max-content;max-width:100%;flex:0 0 auto}
+.slot-avatar-shell,.account-avatar-shell{overflow:visible;border-radius:50%;position:relative;display:inline-grid;place-items:center;width:max-content;max-width:100%;flex:0 0 auto}
 .slot-avatar-shell.has-admin-badge{padding-bottom:9px}
 .slot-avatar-admin-button{width:52px;min-width:52px;min-height:61px;padding:4px;border:0;border-radius:18px;background:transparent;display:grid;place-items:center;overflow:visible;cursor:pointer;color:inherit}
 .slot-avatar-admin-button:hover{background:#fff4f7}
 .slot-avatar-admin-button:focus-visible{outline:2px solid #d7a928;outline-offset:2px}
-.slot-avatar-shell>.slot-avatar{border-radius:50%!important;overflow:hidden!important;box-shadow:0 0 0 2px #fff,0 0 0 3px #eadfe6}
+.slot-avatar-shell>.slot-avatar{border-radius:50%!important;overflow:hidden!important}
+.slot-avatar-shell>.slot-avatar:not(.avatar-tier-owner):not(.avatar-tier-super){box-shadow:0 0 0 2px #fff,0 0 0 3px #eadfe6}
 .admin-badge,.header-admin-badge{
   position:absolute;left:50%;transform:translateX(-50%);z-index:5;white-space:nowrap;
   border-radius:999px;background:linear-gradient(180deg,#fff2a8 0%,#f2bd35 52%,#c98b12 100%);

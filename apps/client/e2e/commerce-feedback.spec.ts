@@ -36,6 +36,10 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
   const store=page.getByRole("dialog",{name:"Loja SOS YouTuber"});
   await store.locator('[data-product-code="'+code+'"]').getByRole("button",{name:"Quero este item"}).click({timeout:30_000});
   const modal=page.getByRole("dialog",{name:/Comprar /});
+  await expect(modal.getByRole("list",{name:"Etapas da compra"})).toBeVisible();
+  await expect(modal.locator(".checkout-brand")).toContainText("SOS YOUTUBER");
+  for(const width of [1440,390]){await page.setViewportSize({width,height:960});expect(await modal.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await page.screenshot({path:resolve(evidence,"checkout-themed-"+width+".png"),animations:"disabled"});}
+  await page.setViewportSize({width:1440,height:960});
   await modal.getByLabel("E-mail do pagador").fill("lia@example.test");
   await modal.getByLabel("CPF do pagador").fill("52998224725");
   // On the low-memory desktop, the trace showed 11 s for action stability before a successful 201 response.

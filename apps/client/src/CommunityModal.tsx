@@ -18,7 +18,7 @@ type GiftConfirmation =
   | { kind: "item"; to: string; name: string; item: string; reference: string };
 const number = (value: number) => value === Number.MAX_SAFE_INTEGER ? "∞" : value.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 const stamp = (value: string) => new Date(value).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const itemName = (code: string) => code === "SKIP" ? "Pular" : code === "PASS" ? "Passe" : code;
+const itemName = (code: string) => code === "SKIP" ? "Pular" : code === "PASS" ? "Passe" : code === "SUPER" ? "SUPER · 30 dias" : code;
 export const notifyCommunityChanged = () => window.dispatchEvent(new Event("sos-community-updated"));
 
 function Person({ user, onClick, compact = false }: { user: ChatSender; onClick?: () => void; compact?: boolean }) {
@@ -35,8 +35,9 @@ function notificationText(notification: Notifications["notifications"][number]) 
   if (notification.kind === "MESSAGE_ACCEPTED") return name + " aceitou conversar com você.";
   if (notification.kind === "FRIEND_REQUEST") return name + " quer fazer parte dos seus amigos.";
   if (notification.kind === "FRIEND_ACCEPTED") return name + " aceitou seu convite de amizade.";
+  if (["COINS_RECEIVED","ITEM_RECEIVED"].includes(notification.kind)&&typeof notification.payload.message==="string")return notification.payload.message;
   if (notification.kind === "COINS_RECEIVED") return name + " enviou moedas para você.";
-  if (notification.kind === "ITEM_RECEIVED") return name + " enviou um presente para você.";
+  if (notification.kind === "ITEM_RECEIVED") return name + " enviou " + (notification.payload.quantity??1) + " " + itemName(String(notification.payload.itemCode??"presente")) + " para você.";
   return typeof notification.payload.message === "string" ? notification.payload.message : "Você tem uma novidade na comunidade.";
 }
 
@@ -106,7 +107,7 @@ export function CommunityModal({ onClose, targetId, currentUserId, wallet, onCha
       const [mail, inventory, superInfo, friendships, updates, requests] = await Promise.all([
         api.mailInbox(), api.queuesMine(), api.superMe(), api.socialOverview(), api.socialNotifications(), api.socialMessageRequests()
       ]);
-      setThreads(mail.threads); setItems(inventory.inventory); setInventoryCounts({skipsAvailable:inventory.skipsAvailable,passesAvailable:inventory.passesAvailable}); setSubscription(superInfo);
+      setThreads(mail.threads); setItems([...inventory.inventory.filter(item=>!["PASS","SUPER"].includes(item.itemCode)),{itemCode:"PASS",quantity:inventory.passesAvailable},...(superInfo.source==="ROOT_OWNER"?[{itemCode:"SUPER",quantity:Number.MAX_SAFE_INTEGER}]:[])]); setInventoryCounts({skipsAvailable:inventory.skipsAvailable,passesAvailable:inventory.passesAvailable}); setSubscription(superInfo);
       setSocial(friendships); setNotifications(updates); setMessageRequests(requests); setLoaded(true);
       notifyCommunityChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não conseguimos atualizar sua comunidade. Tente novamente."); }
