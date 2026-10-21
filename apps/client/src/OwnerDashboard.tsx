@@ -14,6 +14,7 @@ import { OwnerBotPanel } from "./OwnerBotPanel";
 import { OwnerStorePanel } from "./OwnerStorePanel";
 import { OwnerCommsPanel } from "./OwnerCommsPanel";
 import { OwnerAccessPanel } from "./OwnerAccessPanel";
+import { OwnerSelfCredentialPanel } from "./OwnerSelfCredentialPanel";
 import { OwnerAvatarsPanel } from "./OwnerAvatarsPanel";
 import { OwnerAutomationsPanel } from "./OwnerAutomationsPanel";
 import { AvatarModal, UserAvatarView } from "./AvatarModal";
@@ -323,7 +324,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
       {tab === "bot" && <OwnerBotPanel/>}
       {tab === "automations" && data.owner.permissions.canConfigure && <OwnerAutomationsPanel/>}
       {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure} canViewSensitive={data.owner.permissions.canViewSensitive}/>}
-      {tab === "access" && data.owner.permissions.canManageOwners && <OwnerAccessPanel users={data.users}/>}
+      {tab === "access" && (data.owner.permissions.canManageOwners ? <OwnerAccessPanel users={data.users}/> : <OwnerSelfCredentialPanel/>)}
       {tab === "avatars" && data.owner.permissions.canManageOwners && <OwnerAvatarsPanel/>}
       {tab === "groups" && <section className="owner-panel groups-admin-panel">
         <div className="groups-heading"><div><div className="heading-with-help"><h2>Grupos e acesso</h2><button className="help-icon" aria-label="Explicar grupos e acesso" onClick={()=>setHelpTopic("groups")}><HelpCircle size={18}/></button></div><p className="muted">{data.owner.permissions.canConfigure?"Controle habilitação interna, vínculo externo confirmado, verificação e link de entrada de cada grupo.":"Visualização operacional dos grupos. Alterações de vínculo, ativação e configuração são exclusivas de um Owner principal."}</p></div><span className="live-chip"><RefreshCw size={13}/>Painel sincroniza a cada 10 s</span></div>

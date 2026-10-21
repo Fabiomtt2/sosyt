@@ -65,7 +65,7 @@ export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onR
 
       <section className="desk-section desk-account-section">
         <div className="desk-section-title"><Settings2 size={17}/><strong>Meu perfil</strong></div>
-        {data.owner.permissions.canManageOwners&&<button className="owner-menu-link" onClick={()=>go("access")}><span><ShieldCheck size={17}/><b>Minha senha e assinaturas SUPER</b></span><small>Trocar sua senha, redefinir acesso da equipe e conceder SUPER</small></button>}
+        <button className="owner-menu-link" onClick={()=>go("access")}><span><ShieldCheck size={17}/><b>{data.owner.permissions.canManageOwners?"Minha senha e assinaturas SUPER":"Minha credencial administrativa"}</b></span><small>{data.owner.permissions.canManageOwners?"Trocar sua senha, redefinir acesso da equipe e conceder SUPER":"Alterar somente sua própria credencial do painel"}</small></button>
         <ProfilePhotoActions saveAvatar={ownerApi.saveAvatar} clearAvatar={ownerApi.clearAvatar} onChanged={onAvatarChanged}/>
         <button className="desk-action" onClick={onLogout}><LogOut size={17}/><span><strong>Sair do painel Owner</strong><small>Encerra somente esta sessão administrativa.</small></span></button>
       </section>

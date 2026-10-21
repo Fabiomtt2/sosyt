@@ -440,7 +440,7 @@ function ReadyRound({ round, userId, connected, onConnect, onExport, onWatch, bu
   </article>;
 }
 
-function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin:()=>Promise<void> }) {
+function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin:(secret?:string)=>Promise<void> }) {
   const [data, setData] = useState<Dashboard>();
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
@@ -648,8 +648,8 @@ export function App() {
     setActiveRole("user");
   },[setActiveRole]);
 
-  const openAdminPanel=useCallback(async()=>{
-    const result=await api.elevateAdmin();
+  const openAdminPanel=useCallback(async(secret?:string)=>{
+    const result=await api.elevateAdmin(secret);
     localStorage.setItem("conexao_owner_token",result.token);
     setActiveRole("owner");
   },[setActiveRole]);

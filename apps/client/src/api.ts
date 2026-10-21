@@ -98,7 +98,7 @@ export const api = {
   saveAvatar: (avatar: UserAvatar) => request<{ avatar: UserAvatar }>("/profile/avatar", { method:"PUT", body:JSON.stringify(avatar.kind==="CUSTOM" ? {kind:"CUSTOM",dataUrl:avatar.dataUrl} : {kind:"PRESET",presetId:avatar.kind==="CATALOG"?avatar.slug:avatar.presetId}) }),
   clearAvatar: () => request<{ok:true}>("/profile/avatar", { method:"DELETE" }),
   avatarCatalog: () => request<{ avatars: CatalogAvatarItem[] }>("/avatars"),
-  elevateAdmin: () => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST"}),
+  elevateAdmin: (secret?:string) => request<{token:string;role:"owner";ownerRole:"ROOT_OWNER"|"ADMIN_OWNER"}>("/admin/elevate",{method:"POST",...(secret?{body:JSON.stringify({secret})}:{})}),
   deleteAccount: () => request<{ok:true;userId:string;deletedAt:string}>("/profile/account", { method:"DELETE", body:JSON.stringify({confirmation:"DELETE_MY_ACCOUNT"}) }),
   paymentStatus: (id: string) => request<PaymentState>(`/payments/${id}`),
   approveDemoPix: (id: string) => request(`/payments/${id}/demo-approve`, { method: "POST" }),
@@ -441,6 +441,8 @@ export const ownerApi = {
   // correio interno
   // acesso: credenciais, telefone dos owners e SUPER
   credentials: () => ownerRequest<CredentialsState>("/admin/credentials"),
+  ownCredential:()=>ownerRequest<{ownerId:string;name:string;role:"ROOT_OWNER"|"ADMIN_OWNER";configured:boolean;mustChange:boolean}>("/admin/credentials/self"),
+  saveOwnCredential:(body:{currentPassword:string;password:string})=>ownerRequest<{ok:true;message:string}>("/admin/credentials/self",{method:"POST",body:JSON.stringify(body)}),
   // AUDITORIA / avatares gerenciáveis: o Owner sobe a ilustração (já normalizada).
   avatarCatalog:()=>ownerRequest<{avatars:CatalogAvatarItem[]}>("/admin/profile/avatar-catalog"),
   avatarsAdmin: () => ownerRequest<{ avatars: AdminAvatarItem[] }>("/admin/avatars"),

@@ -4,7 +4,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 import { useState } from "react";
 import { BarChart3, CheckCircle2, LogOut, ShieldCheck, Trash2, UserCog, WalletCards, X, Youtube } from "lucide-react";
 import "./owner-credentials.css";
-import { api, ownerApi, type Dashboard, type UserAvatar } from "./api";
+import { ApiError, api, ownerApi, type Dashboard, type UserAvatar } from "./api";
 import { UserAvatarView } from "./AvatarModal";
 import { ProfilePhotoActions } from "./ProfilePhotoActions";
 
@@ -13,9 +13,11 @@ const money=(cents:number)=>(cents/100).toLocaleString("pt-BR",{style:"currency"
 const legacyProductName=(code:string)=>code==="COINS_LAUNCH"?"Pacote anterior de moedas":code==="PASS_SINGLE"?"Passe anterior":code==="COINS_10"?"10 moedas":code==="SKIP_1"?"1 Pular":code==="SUPER_30"?"Assinatura SUPER":code;
 const paymentStatus=(status:string)=>status==="APPROVED"?"Aprovado":status==="PENDING"?"Aguardando pagamento":status==="CANCELLED"?"Cancelado":status==="REJECTED"?"Não aprovado":status;
 
-export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged,onOpenAdmin,onConnectYoutube}:{data:Dashboard;onClose:()=>void;onLogout:()=>void;onDeleted:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;onOpenAdmin:()=>Promise<void>;onConnectYoutube:()=>void}) {
+export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged,onOpenAdmin,onConnectYoutube}:{data:Dashboard;onClose:()=>void;onLogout:()=>void;onDeleted:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;onOpenAdmin:(secret?:string)=>Promise<void>;onConnectYoutube:()=>void}) {
   const [passwordForm,setPasswordForm]=useState({current:"",next:"",confirm:""});
   const [passwordNotice,setPasswordNotice]=useState("");
+  const [adminCredentialRequired,setAdminCredentialRequired]=useState(false);
+  const [adminCredential,setAdminCredential]=useState("");
   const [confirmDelete,setConfirmDelete]=useState(false);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState("");
@@ -27,8 +29,11 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
 
   async function openAdmin(){
     setBusy(true);setError("");
-    try{await onOpenAdmin();}
-    catch(cause){setError(cause instanceof Error?cause.message:"Não foi possível abrir o painel administrativo.");}
+    try{await onOpenAdmin(adminCredentialRequired?adminCredential:undefined);setAdminCredential("");}
+    catch(cause){
+      if(cause instanceof ApiError&&cause.data.code==="CREDENTIAL_REQUIRED")setAdminCredentialRequired(true);
+      else setError(cause instanceof Error?cause.message:"Não foi possível abrir o painel administrativo.");
+    }
     finally{setBusy(false);}
   }
 
@@ -82,6 +87,12 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
         <button className="secondary" onClick={onLogout}><LogOut size={17}/>Sair da minha conta</button>
       </div>
 
+      {adminCredentialRequired&&<form className="account-password-section" aria-label="Confirmar credencial administrativa" onSubmit={event=>{event.preventDefault();void openAdmin();}}>
+        <h3>Abrir painel administrativo</h3>
+        <p>Informe a credencial administrativa definida pelo Owner principal. Ela é diferente da senha de participante.</p>
+        <label>Credencial administrativa<input type="password" autoComplete="current-password" value={adminCredential} onChange={event=>setAdminCredential(event.target.value)} required/></label>
+        <button type="submit" className="primary" disabled={busy||!adminCredential}>{busy?"Confirmando…":"Confirmar e abrir painel"}</button>
+      </form>}
       <WatchTimeSummary rewards={data.watchRewards}/>
       {data.viewer.adminRole==="ROOT_OWNER"&&<details className="account-password-section">
         <summary>Minha credencial Owner</summary>
