@@ -71,11 +71,8 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     const user = await register();
     const first = (db.prepare("SELECT id FROM rounds WHERE status='OPEN' ORDER BY sequence LIMIT 1").get() as { id: string }).id;
     joinRound(db, first, user.id, "FREE");
-    db.prepare("UPDATE wallets SET extra_slot_passes=1 WHERE user_id=?").run(user.id);
-    const bought = await app.inject({ method: "POST", url: "/queues/pass", headers: auth(user.token), payload: { referenceId: randomUUID() } });
-    expect(bought.statusCode, bought.body).toBe(200);
-    const second = bought.json().queue.id as string;
-    expect(second).not.toBe(first);
+    // Historical PASS memberships remain valid after the new same-queue URL policy.
+    const second=openRound(db);joinRound(db,second,user.id,"PASS");
     ready(first, user.id); ready(second, user.id);
     const completed = completedSource === "FREE" ? first : second;
     const remaining = completed === first ? second : first;
@@ -100,7 +97,7 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     expect(db.prepare("SELECT source FROM round_participants WHERE round_id=? AND user_id=?").get(second, user.id)).toEqual({ source: "PASS" });
   });
 
-  it.each(["pass", "skip"] as const)("%s durante intervalo consome uma vez, sem ingresso FREE implícito ou ressurreição no replay", async (method) => {
+  it.each(["skip"] as const)("%s durante intervalo consome uma vez, sem ingresso FREE implícito ou ressurreição no replay", async (method) => {
     const user = await register(); cooldown(user.id);
     // Login de fixture pode ter uma inscrição FREE; ela foi abandonada anteriormente.
     db.prepare("UPDATE round_participants SET left_at=? WHERE user_id=?").run(stamp(), user.id);
@@ -198,7 +195,7 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     expect([200, 201], allowed.body).toContain(allowed.statusCode);
     expect(db.prepare("SELECT source FROM round_participants WHERE user_id=? AND round_id=? AND left_at IS NULL").get(user.id, target)).toEqual({ source: "FREE" });
   });
-  it.each(["pass","skip"] as const)("nova referência %s paga reentrada e retry conserva o débito único",async(method)=>{
+  it.each(["skip"] as const)("nova referência %s paga reentrada e retry conserva o débito único",async(method)=>{
     const user=await register();cooldown(user.id);
     db.prepare("UPDATE wallets SET extra_slot_passes=2 WHERE user_id=?").run(user.id);
     grantItem(db,{userId:user.id,itemCode:ITEM_SKIP,delta:2,kind:"OWNER_ADJUST"});
@@ -366,10 +363,26 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     const blocked = await submit(); expect(blocked.statusCode, blocked.body).toBe(409);
     expect(blocked.json().code).toBe("ACTIVE_TASK_PENDING");
     expect(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=?").get(first, user.id)).toBeUndefined();
-    db.prepare("UPDATE wallets SET extra_slot_passes=1 WHERE user_id=?").run(user.id);
-    const pass = await app.inject({ method: "POST", url: "/queues/pass", headers: auth(user.token), payload: { referenceId: randomUUID(), targetRoundId: first } });
-    expect(pass.statusCode, pass.body).toBe(200); expect(pass.json().queue.id).toBe(first);
+    const extraQueue = await app.inject({ method: "POST", url: "/queues/skip", headers: auth(user.token), payload: { referenceId: randomUUID(), targetRoundId: first } });
+    expect(extraQueue.statusCode, extraQueue.body).toBe(200); expect(extraQueue.json().queue.id).toBe(first);
     const allowed = await submit(); expect([200, 201], allowed.body).toContain(allowed.statusCode);
+  });
+
+  it("Passe só libera +1 URL na fila atual e o envio não consome outro Passe", async()=>{
+    const user=await register(),first=(db.prepare("SELECT id FROM rounds WHERE status='OPEN'").get() as {id:string}).id;
+    joinRound(db,first,user.id);db.prepare("UPDATE wallets SET extra_slot_passes=2 WHERE user_id=?").run(user.id);
+    vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({title:"Vídeo sintético",author_name:"Canal teste"}),{status:200,headers:{"content-type":"application/json"}})));
+    const submit=(id:string)=>app.inject({method:"POST",url:"/rounds/current/submissions",headers:auth(user.token),payload:{url:"https://youtu.be/"+id,expectedRoundId:first}});
+    expect((await submit("E2EPAS00001")).statusCode).toBe(200);
+    const denied=await submit("E2EPAS00002");expect(denied.statusCode).toBeGreaterThanOrEqual(400);
+    expect(db.prepare("SELECT extra_slot_passes AS n FROM wallets WHERE user_id=?").get(user.id)).toEqual({n:2});
+    const ref=randomUUID(),use=()=>app.inject({method:"POST",url:"/queues/pass",headers:auth(user.token),payload:{referenceId:ref,targetRoundId:first}});
+    expect((await use()).statusCode).toBe(200);expect((await use()).json().replayed).toBe(true);
+    const second=await submit("E2EPAS00002");expect([200,201],second.body).toContain(second.statusCode);
+    expect(db.prepare("SELECT extra_slot_passes AS n FROM wallets WHERE user_id=?").get(user.id)).toEqual({n:1});
+    const third=await submit("E2EPAS00003");expect(third.statusCode).toBeGreaterThanOrEqual(400);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM round_participants WHERE user_id=?").get(user.id)).toEqual({n:1});
+    expect(db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE user_id=?").get(user.id)).toEqual({n:2});
   });
 
 });

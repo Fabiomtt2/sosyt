@@ -21,3 +21,7 @@
 @media(prefers-reduced-motion:no-preference){.queue-browser-card,.queue-browser-automatic{transition:background-color .15s ease,border-color .15s ease,box-shadow .15s ease}}
 
 .queue-switcher .qs-head{flex-wrap:wrap}.queue-switcher .qs-browse{margin-left:auto;font-size:.72rem;min-width:0}
+
+.queue-browser-modal,.queue-browser-modal *{box-sizing:border-box;min-width:0}.queue-browser-modal button{white-space:normal;overflow-wrap:anywhere}.queue-browser-preview a{overflow-wrap:anywhere}
+
+.queue-browser-modal>.queue-browser-heading{display:block;height:auto;color:#50334a;position:static;width:auto;min-height:0}.queue-browser-modal>.queue-browser-footer{height:auto;color:#50334a}

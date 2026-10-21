@@ -99,7 +99,6 @@ export function AvatarModal({
   const [catalog,setCatalog]=useState<CatalogAvatarItem[]>([]);
   const ownerCollection=Boolean(presentation?.administrative&&presentation?.unlimitedXp)||catalog.some(item=>item.tier==="OWNER"&&!item.locked);
   const effectiveTier=tier==="OWNER"&&!ownerCollection?"COMMON":tier;
-  const [categoriesOpen,setCategoriesOpen]=useState(false);
   const railRef=useRef<HTMLDivElement>(null);
   const presets=useMemo(()=>Array.from({length:PRESET_COUNT},(_,index)=>`avatar-${String(index+1).padStart(2,"0")}`),[]);
   const activeCategory=AVATAR_CATEGORIES.find((item)=>item.id===category);
@@ -124,14 +123,6 @@ export function AvatarModal({
   },[]);
 
   const modalRef=useModalLifecycle(()=>{if(!busy)onClose();},true,!busy);
-  useEffect(()=>{
-    const key=(event:KeyboardEvent)=>{
-      if(event.key==="ArrowLeft")scrollPresets(-1);
-      if(event.key==="ArrowRight")scrollPresets(1);
-    };
-    document.addEventListener("keydown",key);
-    return()=>{document.removeEventListener("keydown",key);};
-  },[onClose]);
 
   async function choose(presetId:string){
     setBusy(true);setError("");
@@ -171,12 +162,12 @@ export function AvatarModal({
         <UserAvatarView avatar={selected} name={name} presentation={presentation} className="avatar-picker-current"/>
       </div>
       <div className="avatar-tier-tabs" role="group" aria-label="Coleções de avatares">
-        {(["COMMON","SUPER","OWNER"] as const).filter(value=>value!=="OWNER"||ownerCollection).map(value=><button key={value} type="button" aria-pressed={effectiveTier===value} className={effectiveTier===value?"active":""} onClick={()=>{setTier(value);setCategory("ALL");setCategoriesOpen(false);railRef.current?.scrollTo({left:0});}}>{value==="COMMON"?"Comuns":value==="OWNER"?"Owner":"SUPER"}</button>)}
+        {(["COMMON","SUPER","OWNER"] as const).filter(value=>value!=="OWNER"||ownerCollection).map(value=><button key={value} type="button" aria-pressed={effectiveTier===value} className={effectiveTier===value?"active":""} onClick={()=>{setTier(value);setCategory("ALL");railRef.current?.scrollTo({left:0});}}>{value==="COMMON"?"Comuns":value==="OWNER"?"Owner":"SUPER"}</button>)}
       </div>
-      <div className="avatar-collection-heading"><strong>{effectiveTier==="COMMON"?"Sua coleção de avatares":effectiveTier==="SUPER"?"Coleção SUPER":"Coleção Owner"}</strong><button type="button" className="text-button" aria-expanded={categoriesOpen} onClick={()=>setCategoriesOpen(value=>!value)}>{categoriesOpen?"Fechar categorias":"Explorar categorias"}</button></div>
-      {categoriesOpen&&<div className="avatar-category-tabs" role="group" aria-label="Categorias de avatar">
-        {Array.from(new Set(["ALL",...(effectiveTier==="COMMON"?AVATAR_CATEGORIES.map(item=>item.id):[]),...tierCategories])).map(id=><button key={id} type="button" aria-pressed={category===id} className={category===id?"active":""} onClick={()=>{setCategory(id as AvatarCategory);railRef.current?.scrollTo({left:0});}}>{id==="ALL"?"Todos":categoryName(id)}</button>)}
-      </div>}
+      <div className="avatar-collection-heading"><strong>{effectiveTier==="COMMON"?"Sua coleção de avatares":effectiveTier==="SUPER"?"Coleção SUPER":"Coleção Owner"}</strong></div>
+      <label className="avatar-category-select"><span>Categoria</span><select aria-label="Categoria de avatar" value={category} disabled={busy} onChange={(event)=>{setCategory(event.target.value as AvatarCategory);railRef.current?.scrollTo({left:0});}}>
+        {Array.from(new Set(["ALL",...(effectiveTier==="COMMON"?AVATAR_CATEGORIES.map(item=>item.id):[]),...tierCategories])).map(id=><option key={id} value={id}>{id==="ALL"?"Todas as categorias":categoryName(id)}</option>)}
+      </select></label>
       {presetArtReady||catalog.length>0?<div className="avatar-carousel-shell">
         <button className="carousel-arrow avatar-arrow" type="button" onClick={()=>scrollPresets(-1)} aria-label="Avatares anteriores"><ChevronLeft/></button>
         <div className="avatar-rail" ref={railRef} aria-label="Avatares disponíveis">

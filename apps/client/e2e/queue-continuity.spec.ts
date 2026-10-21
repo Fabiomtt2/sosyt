@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { ownerSession } from "./helpers/owner-session";
 
-test("Passe abre outra fila, retry não duplica e sair conserva o link original", async ({ page, request }) => {
+test("Pular abre outra fila, retry não duplica e sair conserva o link original", async ({ page, request }) => {
   test.setTimeout(150_000);
   const api = "http://127.0.0.1:17333";
   const owner = await ownerSession(request);
@@ -20,6 +20,7 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
   try {
     // An inventory fixture only. Entry, consumption and leave use the real HTTP routes.
     db.prepare("UPDATE wallets SET extra_slot_passes=1 WHERE user_id=?").run(member.user.id);
+    db.prepare("INSERT INTO user_items(user_id,item_code,quantity,updated_at) VALUES(?,'SKIP',1,?) ON CONFLICT(user_id,item_code) DO UPDATE SET quantity=1").run(member.user.id,new Date().toISOString());
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto("/?audit=queue-continuity");
     await page.evaluate(token => {
@@ -38,17 +39,17 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
     expect(db.prepare("SELECT source FROM round_participants WHERE round_id=? AND user_id=?").get(original.round_id, member.user.id)).toEqual({ source: "FREE" });
 
     const switcher = page.getByRole("region", { name: "Minhas filas" });
-    const entered = page.waitForResponse(response => response.url() === api + "/queues/pass" && response.request().method() === "POST");
-    await switcher.getByRole("button", { name: /Usar 1 Passe/ }).click();
+    const entered = page.waitForResponse(response => response.url() === api + "/queues/skip" && response.request().method() === "POST");
+    await switcher.getByRole("button", { name: /Usar 1 Pular/ }).click();
     const browser=page.getByRole("dialog",{name:"Explorar filas da comunidade"});
     await expect(browser).toBeVisible();
     // Opening the inventory action and choosing a destination do not consume a pass.
     expect((await (await request.get(api+"/queues/mine",{headers})).json()).passesAvailable).toBe(1);
     await browser.getByRole("button",{name:/Escolher a próxima fila com vaga/}).click();
-    await browser.getByRole("button",{name:"Usar 1 Passe na próxima fila elegível",exact:true}).click();
-    const passConfirmation=browser.getByRole("alertdialog",{name:"Confirmar uso de Passe"});
-    await expect(passConfirmation).toContainText("consome 1 Passe");
-    await passConfirmation.getByRole("button",{name:"Confirmar uso de 1 Passe",exact:true}).click();
+    await browser.getByRole("button",{name:"Usar 1 Pular na próxima fila elegível",exact:true}).click();
+    const passConfirmation=browser.getByRole("alertdialog",{name:"Confirmar uso de Pular"});
+    await expect(passConfirmation).toContainText("consome 1 Pular");
+    await passConfirmation.getByRole("button",{name:"Confirmar uso de 1 Pular",exact:true}).click();
 
     const passResponse = await entered;
     expect(passResponse.status()).toBe(200);
@@ -61,14 +62,14 @@ test("Passe abre outra fila, retry não duplica e sair conserva o link original"
 
     const queues = await (await request.get(api + "/queues/mine", { headers })).json();
     expect(queues.queues.map((queue: { id: string }) => queue.id).sort()).toEqual([original.round_id, paid.id].sort());
-    expect(queues.passesAvailable).toBe(0);
-    expect(db.prepare("SELECT source FROM round_participants WHERE round_id=? AND user_id=?").get(paid.id, member.user.id)).toEqual({ source: "PASS" });
+    expect(queues.passesAvailable).toBe(1);
+    expect(db.prepare("SELECT source FROM round_participants WHERE round_id=? AND user_id=?").get(paid.id, member.user.id)).toEqual({ source: "SKIP" });
     const ledgerSnapshot = () => db.prepare("SELECT id,kind,amount_millis,reference_id FROM wallet_ledger WHERE user_id=? ORDER BY id").all(member.user.id);
     const beforeRetry = ledgerSnapshot();
-    const retried = await request.post(api + "/queues/pass", { headers, data: { referenceId } });
+    const retried = await request.post(api + "/queues/skip", { headers, data: { referenceId } });
     expect(retried.status()).toBe(200);
     expect((await retried.json()).queue.id).toBe(paid.id);
-    expect((await (await request.get(api + "/queues/mine", { headers })).json()).passesAvailable).toBe(0);
+    expect((await (await request.get(api + "/queues/mine", { headers })).json()).passesAvailable).toBe(1);
     expect(ledgerSnapshot()).toEqual(beforeRetry);
     expect(db.prepare("SELECT COUNT(*) AS n FROM round_participants WHERE user_id=? AND left_at IS NULL").get(member.user.id)).toEqual({ n: 2 });
 

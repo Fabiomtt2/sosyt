@@ -30,7 +30,7 @@ const schema = z.object({
   OWNER_ADMIN_SECRET: z.string().min(32).optional(),
   OWNER_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
   OWNER_ALERT_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),
-  OWNER_FABIO_NAME: z.string().trim().min(2).max(80).default("Fabio0"),
+  OWNER_FABIO_NAME: z.string().trim().min(2).max(80).default("Fábio"),
   OWNER_FABIO_ID: z.string().trim().min(3).max(80).default("fabio0"),
   OWNER_FABIO_SECRET: z.string().min(1).optional(),
   OWNER_FABIO_WHATSAPP: z.string().regex(/^[1-9]\d{7,14}$/).optional(),

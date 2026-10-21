@@ -447,7 +447,7 @@ export function WatchProgress({
 
         {confirmAbandon && <div className="completion-warning abandon-warning" role="alert">
           <strong>Abandonar esta tarefa em {percent}%?</strong>
-          <p>Seu progresso, sua playlist e as recompensas por tempo já registradas continuam salvos. O abandono aplica 60 minutos antes de novo ingresso gratuito. Outras filas já liberadas permanecem acessíveis; Passe/Pular permite outro acesso.</p>
+          <p>Seu progresso, sua playlist e as recompensas por tempo já registradas continuam salvos. O abandono aplica 60 minutos antes de novo ingresso gratuito. Outras filas já liberadas permanecem acessíveis; Pular permite outro acesso.</p>
           <div className="ready-actions"><button className="secondary" disabled={finalizing} onClick={() => setConfirmAbandon(false)}>Continuar assistindo</button><button className="danger-button" disabled={finalizing} onClick={() => void abandonTask()}>{finalizing ? "Salvando e saindo…" : "Sim, abandonar tarefa"}</button></div>
         </div>}
       </section>

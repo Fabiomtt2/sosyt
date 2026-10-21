@@ -23,7 +23,7 @@ export function InventoryStatusBar({accountId,wallet,skipsAvailable,passesAvaila
  },[accountId,coins,passes,skips,administrative,superActive,superExpiresAt]);
  const entries=[
   {kind:"coins" as const,name:"Moedas",value:quantity(coins),details:wallet?`Compradas: ${quantity(wallet.purchased)}. Recompensas: ${quantity(wallet.reward)}. Iniciais: ${quantity(wallet.promo)}. Cada URL usa 1 moeda.`:"Atualizando saldo confirmado."},
-  {kind:"pass" as const,name:"Passe",value:administrative?"ADMIN":quantity(passes),details:administrative?"Acesso administrativo sem consumo de Passe.":"Abre outra fila ou permite uma contribuição extra. Salvar a URL também usa 1 moeda."},
+  {kind:"pass" as const,name:"Passe",value:administrative?"ADMIN":quantity(passes),details:administrative?"Acesso administrativo sem consumo de Passe.":"Libera +1 campo de URL na mesma fila. Salvar a URL também usa 1 moeda."},
   {kind:"skip" as const,name:"Pular",value:administrative?"ADMIN":quantity(skips),details:administrative?"Acesso administrativo sem consumo de Pular.":"Abre outra fila e mantém sua participação e o progresso na atual. Não conclui vídeos por você."},
   {kind:"super" as const,name:"SUPER",value:administrative?"ADMIN":subscription?superActive?"Ativo":"Inativo":"—",details:administrative?"Benefícios SUPER incluídos no acesso administrativo.":superExpiresAt?`${superActive?"Ativo até":"Validade registrada"}: ${expiry(superExpiresAt)}.`:superActive?"SUPER ativo nesta conta.":"Sem assinatura SUPER ativa."}
  ];

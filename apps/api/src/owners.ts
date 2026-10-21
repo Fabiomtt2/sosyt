@@ -9,7 +9,7 @@ export const eligibleRootOwnerName = eligibleAdminName;
 export function ownerNameMatches(configuredName: string, candidate: string) {
   const configured = normalizeOwnerName(configuredName);
   const provided = normalizeOwnerName(candidate);
-  return provided === configured || (configured.endsWith("0") && provided === configured.slice(0, -1));
+  return provided === configured || (configured.endsWith("0") && provided === configured.slice(0, -1)) || (provided.endsWith("0") && configured === provided.slice(0, -1));
 }
 
 /**

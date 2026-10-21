@@ -4,7 +4,7 @@ import { assertParticipantAccess } from "./participant-access.js";
 import { playlistSelection, preparePlaylistSelection } from "./partial-playlist.js";
 import { registerCommunityRoutes } from "./community-routes.js";
 import { giftCoins } from "./coin-transfers.js";
-import { joinNextQueueWithPass, queuePassBalance } from "./pass-queue.js";
+import { joinNextQueueWithPass, queuePassBalance, extraUrlAllowance } from "./pass-queue.js";
 import { hasActiveRoundTask,assertFreeQueueEntryAllowed } from "./active-access.js";
 import { resolveStoredPhone } from "./phone-identity.js";
 import { scheduleBotAutomations, dispatchBotAutomations, recordBotAutomationEvent } from "./bot-automation-runtime.js";
@@ -590,7 +590,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"filas-presenca-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2"] }));
+  app.get("/health", async () => ({ ok: true,release:"filas-passe-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -1260,7 +1260,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
           } : undefined
         };
       }),
-      viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&isParticipant(db,viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound, contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
+      viewer: { contributionBlockedByPendingTask:Boolean(pendingReadyRound(db,request.user.sub))&&!request.user.adminRole&&!(viewRound?.status==="OPEN"&&isParticipant(db,viewRound.id,request.user.sub)), contributionAllowance:request.user.adminRole?ROOT_ITEM_QUANTITY:effectiveSuper(db,request.user.sub).uploadsPerRound+extraUrlAllowance(db,request.user.sub,open.id), contributionsInOpenRound: contributionCount.count, youtubeConnected: Boolean(connection), adminRole:request.user.adminRole },
       profile: profileSummary(db,request.user.sub),
       watchRewards: watchRewardView(db,request.user.sub),
       gamification:gamificationData(db,request.user.sub),
@@ -1513,7 +1513,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         // AUDITORIA / multi-fila: a contribuição vai para a fila DO USUÁRIO (aquela em
         // que ele já está), nunca para "a fila mais nova do sistema".
         const priorOpen=myRounds(db,request.user.sub).some(round=>round.status==="OPEN"&&(!body.expectedRoundId||round.id===body.expectedRoundId));
-        if(pending&&!administrativeParticipant&&!priorOpen)throw Object.assign(new Error("Conclua sua tarefa atual ou use Passe/Pular para liberar outra fila."),{statusCode:409,code:"ACTIVE_TASK_PENDING"});
+        if(pending&&!administrativeParticipant&&!priorOpen)throw Object.assign(new Error("Conclua sua tarefa atual ou use Pular para liberar outra fila."),{statusCode:409,code:"ACTIVE_TASK_PENDING"});
         const mine = currentRoundFor(db, request.user.sub,body.expectedRoundId,administrativeParticipant);
         if (!mine) throw new Error("Nenhuma fila disponível no momento. Tente novamente em instantes.");
         const open = { id: mine.id, sequence: mine.displayNumber };
@@ -1526,13 +1526,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         // AUDITORIA / SUPER: assinatura viva libera ate 5 videos por fila (comum: 1).
         // Esgotada a cota, o passe comprado continua valendo como posicao extra.
         const superAllowance = effectiveSuper(db, request.user.sub).uploadsPerRound;
-        if (previous.count >= superAllowance && !administrativeParticipant) {
-          const changed = db.prepare("UPDATE wallets SET extra_slot_passes = extra_slot_passes - 1 WHERE user_id = ? AND extra_slot_passes > 0")
-            .run(request.user.sub);
-          if (!changed.changes) throw new Error(superAllowance > 1
-            ? `Você já usou suas ${superAllowance} posições SUPER nesta fila. Um passe comprado libera mais uma.`
-            : "Você já contribuiu neste ciclo. Uma compra aprovada libera uma posição extra.");
-        }
+        if(previous.count>=superAllowance+extraUrlAllowance(db,request.user.sub,open.id)&&!administrativeParticipant)throw Object.assign(new Error("Você já usou os campos liberados nesta fila. Use 1 Passe no inventário para liberar +1 URL aqui."),{statusCode:409,code:"EXTRA_URL_REQUIRED"});
         debitContribution(db, request.user.sub);
         const submissionId = randomUUID();
         const now = new Date().toISOString();

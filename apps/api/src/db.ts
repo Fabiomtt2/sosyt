@@ -71,7 +71,7 @@ export async function backupBeforeQueuePassMigration(filename:string):Promise<st
   if(filename===":memory:"||!existsSync(filename))return;
   const source=new Database(filename,{readonly:true,fileMustExist:true});
   try{
-    if(["queue_pass_requests","social_blocks","community_config","community_preferences","friendships","community_notifications","community_audit","coin_transfers","direct_message_requests","playlist_selections","playlist_selection_history","participant_access_restrictions","participant_access_audit","watch_presence"].every(name=>source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)))return;
+    if(["queue_pass_requests","social_blocks","community_config","community_preferences","friendships","community_notifications","community_audit","coin_transfers","direct_message_requests","playlist_selections","playlist_selection_history","participant_access_restrictions","participant_access_audit","watch_presence","queue_contribution_allowances"].every(name=>source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)))return;
     const folder=join(dirname(filename),"backups");mkdirSync(folder,{recursive:true,mode:0o700});
     const destination=join(folder,"pre-queue-pass-"+Date.now()+"-"+randomUUID()+".sqlite");
     await source.backup(destination);chmodSync(destination,0o600);
@@ -538,9 +538,10 @@ export function createDatabase(filename: string): AppDatabase {
     seed.run("COINS_10","10 moedas","10 moedas para salvar URLs na fila. Cada moeda salva uma URL.",2000,10000,0,1,1,"coins-10",now);
     // Pacote antigo com bônus inativo; passe avulso mantém identidade própria.
     seed.run("COINS_LAUNCH","Pacote de lançamento","10 moedas + 1 passe bônus (legado).",2000,10000,1,0,90,"coins-launch-10",now);
-    seed.run("PASS_SINGLE","1 passe","Use 1 Passe para abrir outra fila ou fazer uma contribuição extra na mesma fila. Salvar cada URL também usa 1 moeda.",2000,0,1,1,4,"pass-single",now);
+    seed.run("PASS_SINGLE","1 passe","Use 1 Passe no inventário para liberar +1 campo de URL na mesma fila. Salvar essa URL usa 1 moeda. Somente Pular permite entrar em outra fila.",2000,0,1,1,4,"pass-single",now);
+    db.prepare("UPDATE store_products SET description=? WHERE code='PASS_SINGLE' AND description=?").run("Use 1 Passe no inventário para liberar +1 campo de URL na mesma fila. Salvar essa URL usa 1 moeda. Somente Pular permite entrar em outra fila.","Use 1 Passe para abrir outra fila ou fazer uma contribuição extra na mesma fila. Salvar cada URL também usa 1 moeda.");
     // Update only the obsolete default description; preserve customized copy and all prices/quantities.
-    db.prepare("UPDATE store_products SET description=? WHERE code='PASS_SINGLE' AND description=?").run("Use 1 Passe para abrir outra fila ou fazer uma contribuição extra na mesma fila. Salvar cada URL também usa 1 moeda.","Uma contribuição extra na mesma fila. Salvar a URL também usa 1 moeda.");
+    db.prepare("UPDATE store_products SET description=? WHERE code='PASS_SINGLE' AND description=?").run("Use 1 Passe no inventário para liberar +1 campo de URL na mesma fila. Salvar essa URL usa 1 moeda. Somente Pular permite entrar em outra fila.","Uma contribuição extra na mesma fila. Salvar a URL também usa 1 moeda.");
     // Item "Pular": permite entrar em outra fila sem ter concluido 100% da atual.
     db.prepare(`INSERT OR IGNORE INTO store_products (code,title,description,amount_cents,credits_millis,extra_passes,active,sort_order,item_reference,grants_item,grants_item_qty,updated_at)
       VALUES ('SKIP_1','1 Pular','Entre em outra fila sem precisar concluir 100% da atual. Você continua participando das duas e pode alternar entre elas.',2000,0,0,1,2,'skip-1','SKIP',1,?)`).run(now);

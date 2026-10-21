@@ -9,7 +9,7 @@ export function WatchPresencePrompt({onConfirm,onPause}:{onConfirm:()=>Promise<v
   if(busy)return;setBusy(true);setError("");
   try{await onConfirm();}catch(cause){setError(cause instanceof Error?cause.message:"Não conseguimos confirmar agora. Tente novamente.");}finally{setBusy(false);}
  }
- return <div className="watch-presence-backdrop"><section ref={node=>{modal.current=node;}} className="watch-presence-prompt" role="dialog" aria-modal="true" aria-labelledby="watch-presence-heading">
+ return <div className="watch-presence-backdrop" onMouseDown={event=>event.stopPropagation()}><section ref={node=>{modal.current=node;}} className="watch-presence-prompt" role="dialog" aria-modal="true" aria-labelledby="watch-presence-heading">
   <span className="watch-presence-eye" aria-hidden="true"><Eye size={30}/></span>
   <p className="eyebrow dark">UMA PAUSA PARA CONTINUAR</p>
   <h2 id="watch-presence-heading">Você continua por aqui?</h2>
