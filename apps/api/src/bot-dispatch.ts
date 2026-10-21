@@ -74,7 +74,7 @@ export function renderAutomation(db: AppDatabase, event: string, vars: Record<st
     const meta = automationMeta(event as never);
     if (settings.text === meta.defaultText) {
       const variant = pickEventVariant(db, event);
-      if (variant) base = variant;
+      if (variant && Array.from(variant.matchAll(/\{(\w+)\}/g),m=>m[1]).every(key=>vars[key]!==undefined)) base = variant;
     }
   } catch { /* evento sem meta: usa o texto como veio */ }
   return {

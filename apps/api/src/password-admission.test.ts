@@ -19,7 +19,7 @@ describe("senha recebida abre conta antes da adesão ao grupo",()=>{
   const user=ensureSelfServiceAccount(db,config,phone,"Pessoa Sintetica");
   const row=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+user.userId) as {payload:string};
   const body=JSON.parse(decryptToken(JSON.parse(row.payload).encryptedNotification,config)).text.body as string;
-  const password=/é: ([A-Za-z0-9]{14})\./u.exec(body)?.[1];
+  const password=/(?:Sua senha:\s*|^)([A-Za-z0-9]{14})(?=\s|$)/u.exec(body)?.[1];
   expect(password).toBeTruthy();return {...user,password};
  }
  it("PN brasileiro sem nono dígito aceita forma do formulário, permite trocar senha e não libera fila sem grupo",async()=>{

@@ -62,7 +62,8 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
     if(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(userId))return {created:false,queued:false,reason:"PASSWORD_ALREADY_SET"};
     if(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId))return {created:false,queued:false,reason:"DELIVERY_STATE_CONFLICT"};
     const password=generateBotPassword();
-    const body="Oi, "+user.name+"! Seu acesso ao SOS YouTuber está pronto. Sua senha para entrar com este WhatsApp é: "+password+". Guarde-a em um lugar seguro e troque-a após entrar. Não compartilhe sua senha com outras pessoas. Para recuperar o acesso, fale comigo neste mesmo WhatsApp.";
+    const instructions="Olá, "+user.name+"! Seu acesso ao SOS YouTuber está pronto.\n\nEntre em "+config.WEB_APP_URL+" usando este WhatsApp.\n\nSua senha:\n\nA próxima mensagem contém somente a senha, para facilitar a cópia.\n\nGuarde-a com cuidado e troque-a ao entrar. Não compartilhe sua senha.";
+    const body=wa.mode==="EVOLUTION"?password:"Olá, "+user.name+"! Seu acesso ao SOS YouTuber está pronto.\n\nSua senha:\n\n"+password+"\n\nEntre em "+config.WEB_APP_URL+" com este WhatsApp. Troque a senha ao entrar e não a compartilhe.";
     const result=queueBotNotification(db,config,user.phone,body,"bot-password:"+userId,
       settings.templateName?{name:settings.templateName,language:settings.templateLanguage}:undefined,{encryptPayload:true,deliveryClass:"TRANSACTIONAL",event:"BOT_PASSWORD"});
     if(!result.queued||!result.outboxId)return {created:false,queued:false,reason:result.reason??"DELIVERY_UNAVAILABLE"};
@@ -70,6 +71,12 @@ export function ensureBotPassword(db:AppDatabase,config:Config,userId:string,pro
     if(!outbox)return {created:false,queued:false,reason:"OUTBOX_NOT_FOUND"};
     const envelope=JSON.parse(outbox.payload) as {encryptedNotification?:unknown};
     if(typeof envelope.encryptedNotification!=="string")throw Object.assign(new Error("O envio de senha exige armazenamento cifrado."),{statusCode:503,code:"PASSWORD_ENCRYPTION_REQUIRED"});
+    if(wa.mode==="EVOLUTION"){
+      const intro=queueBotNotification(db,config,user.phone,instructions,"bot-password-info:"+randomUUID(),undefined,{encryptPayload:true,deliveryClass:"TRANSACTIONAL",event:"BOT_PASSWORD_INFO"});
+      if(!intro.queued||!intro.outboxId)throw new Error("Não foi possível preparar as instruções de acesso.");
+      // Instructions precede the isolated credential even when queued within one millisecond.
+      db.prepare("UPDATE whatsapp_outbox SET created_at=? WHERE id=?").run(new Date(Date.now()-1).toISOString(),intro.outboxId);
+    }
     const stamp=new Date().toISOString();
     db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,locked_until,updated_at) VALUES(?,?,1,0,NULL,?)").run(userId,hashPassword(password),stamp);
     db.prepare("INSERT INTO bot_password_deliveries(user_id,outbox_id,created_at) VALUES(?,?,?)").run(userId,result.outboxId,stamp);

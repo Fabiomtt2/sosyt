@@ -2,6 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {createDatabase,type AppDatabase} from "./db.js";
 import {loadConfig,type Config} from "./config.js";
 import {queueBotNotification,queueGroupAutomation,flushWhatsAppOutbox} from "./whatsapp.js";
+import {saveBotSettings} from "./bot.js";
 import {captureQueueEvent} from "./bot-queue-snapshot.js";
 import {announceToGroups} from "./bot-announce.js";
 describe('durable interactive priority and current queue facts',()=>{
@@ -68,6 +69,17 @@ describe('durable interactive priority and current queue facts',()=>{
   await flushWhatsAppOutbox(db,config,10);
   expect(sent).toHaveLength(6);expect(sent[5].text).toContain('Boa noite');
   expect(db.prepare("SELECT COUNT(*) AS n FROM evolution_delivery_attempts").get()).toEqual({n:6});
+ });
+
+ it('group-only suppresses stale private reward jobs, keeps gifts in-app and preserves human replies',async()=>{
+  queueBotNotification(db,config,person,'Recompensa antiga','old-reward',undefined,{deliveryClass:'REWARD',event:'LEVEL_UP'});
+  saveBotSettings(db,{features:{COMMUNITY_GROUP_ONLY:true}});
+  expect(queueBotNotification(db,config,person,'Dados da compra','private-purchase',undefined,{deliveryClass:'TRANSACTIONAL',event:'PURCHASE_CONFIRMED'})).toMatchObject({queued:false,reason:'COMMUNITY_IN_APP_ONLY'});
+  queueBotNotification(db,config,person,'Admin: Como posso ajudar?','requested-help',undefined,{deliveryClass:'TRANSACTIONAL',event:'HUMAN_FALLBACK'});
+  await flushWhatsAppOutbox(db,config,10);
+  expect(sent).toHaveLength(1);expect(sent[0].text).toContain('Admin:');
+  expect(db.prepare("SELECT status,last_error FROM whatsapp_outbox WHERE dedupe_key='old-reward'").get()).toEqual({status:'FAILED',last_error:'COMMUNITY_GROUP_ONLY'});
+  expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key='private-purchase'").get()).toBeUndefined();
  });
 
 });

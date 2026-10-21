@@ -4,6 +4,9 @@ import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { readWhatsAppIntegration } from "./integrations.js";
 import { queueBotNotification } from "./whatsapp.js";
+import { automationMeta } from "./bot-automations.js";
+import { featureEnabled } from "./bot.js";
+import { pickEventVariant } from "./bot-variants.js";
 import { automationSettings } from "./bot-automation-store.js";
 
 // This bridge consumes real gamification events. It never claims all Claude automations are wired.
@@ -66,7 +69,7 @@ function settingsOf(db:AppDatabase):GamificationBotSettings {
 export function readGamificationBot(db:AppDatabase) {
   return {
     settings:settingsOf(db),catalog:GAMIFICATION_BOT_EVENTS.map(event=>({event,label:labels[event],placeholders:[...placeholders]})),
-    runtime:{wired:true,transport:"SELECTED_DM",note:"Os cinco eventos usam o motor selecionado: Evolution no modo puro; Meta no Oficial/HYBRID+. A fila acompanha a conexão e o recibo real de entrega."},
+    runtime:{wired:true,transport:featureEnabled(db,"COMMUNITY_GROUP_ONLY")?"GROUP_AND_INBOX":"SELECTED_DM",note:featureEnabled(db,"COMMUNITY_GROUP_ONLY")?"Níveis são celebrados no grupo confirmado. Presentes e compras ficam na caixa de correio; senha e suporte continuam privados.":"Os cinco eventos usam o motor selecionado: Evolution no modo puro; Meta no Oficial/HYBRID+. A fila acompanha a conexão e o recibo real de entrega."},
     deliveries:db.prepare(`SELECT d.event_id AS eventId,e.event,d.user_id AS userId,u.name,d.status,d.reason,d.mail_id AS mailId,d.outbox_id AS outboxId,d.checked_at AS checkedAt,d.created_at AS createdAt
       FROM gamification_notification_deliveries d JOIN gamification_bot_events e ON e.id=d.event_id LEFT JOIN users u ON u.id=d.user_id
       ORDER BY d.created_at DESC,d.rowid DESC LIMIT 100`).all()
@@ -128,7 +131,8 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
       if(!settings.enabled||!rule.enabled){setState("WAITING","EVENT_DISABLED");waiting++;continue;}
       let payload:Record<string,unknown>;
       try{payload=JSON.parse(event.payload);}catch{setState("SKIPPED","INVALID_EVENT");continue;}
-      const body=event.body??notificationBody(rule.text,event.name??"Participante",payload);
+      const levelVariant=event.event==="LEVEL_UP"&&(rule.text===texts.LEVEL_UP||rule.text===automationMeta("LEVEL_UP").defaultText)?pickEventVariant(db,"LEVEL_UP"):undefined;
+      const body=event.body??notificationBody(levelVariant??rule.text,event.name??"Participante",payload);
       db.prepare("UPDATE gamification_notification_deliveries SET body=COALESCE(body,?) WHERE event_id=?").run(body,event.id);
       if(rule.internalEnabled&&!event.mailId){
         const mailId="gamification:"+event.id;
@@ -136,6 +140,7 @@ export function dispatchGamificationEvents(db:AppDatabase,config:Config) {
         db.prepare("UPDATE gamification_notification_deliveries SET mail_id=? WHERE event_id=?").run(mailId,event.id);
         internalDelivered+=inserted.changes;
       }
+      if(featureEnabled(db,"COMMUNITY_GROUP_ONLY")&&event.event!=="LEVEL_UP"){setState("INTERNAL_ONLY","COMMUNITY_GROUP_ONLY");continue;}
       if(!rule.whatsappEnabled){setState("WAITING","WHATSAPP_DISABLED");waiting++;continue;}
       // AUDITORIA / Evolution cobre tudo: avisos saem pelo motor nao-oficial em EVOLUTION.
       if(wa.mode==="EVOLUTION"){

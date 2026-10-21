@@ -1,6 +1,9 @@
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 import { createDatabase,type AppDatabase } from "./db.js";
 import { loadConfig,type Config } from "./config.js";
+import { dailyVariantCount } from "./bot-motivational.js";
+import { EVENT_VARIANTS } from "./bot-variants.js";
+import { saveBotSettings } from "./bot.js";
 import { saveAutomationSettings } from "./bot-automation-store.js";
 import { recordBotAutomationEvent,ensureBotAutomationRuntime,dispatchBotAutomations,scheduleBotAutomations,botAutomationRuntimeStatus } from "./bot-automation-runtime.js";
 import { setOptOut } from "./bot-inbound.js";
@@ -201,6 +204,28 @@ describe("runtime de automações: fatos reais, privacidade e recibos",()=>{
     scheduleBotAutomations(db,config);
     vi.setSystemTime(new Date(Date.now()+3600_000));scheduleBotAutomations(db,config);
     expect(db.prepare("SELECT COUNT(*) AS n FROM bot_automation_events WHERE event='MONTHLY_TOP'").get()).toEqual({n:1});
+  });
+
+  it("modo só grupos envia recompensa ao grupo confirmado e mantém suporte privado",()=>{
+    saveBotSettings(db,{features:{COMMUNITY_GROUP_ONLY:true}});
+    db.prepare("INSERT INTO group_memberships(phone,group_code,approved_at,source) VALUES('5571999990001','1',?,'TEST')").run(time);
+    recordBotAutomationEvent(db,{event:"COINS_EARNED",sourceId:"group-reward",userId:"ana",vars:{nome:"Ana",moedas:2,total:3}});
+    welcome();const transport=fake();dispatchBotAutomations(db,config,new Date(),transport);
+    expect(transport.dm).not.toHaveBeenCalled();expect(transport.group).toHaveBeenCalledTimes(1);expect(transport.group.mock.calls[0][2]).toBe("12345678901@g.us");
+    expect(botAutomationRuntimeStatus(db).events).toContainEqual({event:"WELCOME_DM",status:"SKIPPED",reason:"COMMUNITY_GROUP_ONLY",total:1});
+    recordBotAutomationEvent(db,{event:"SUPPORT_AUTO",sourceId:"help-request",userId:"ana",vars:{nome:"Ana"}});
+    dispatchBotAutomations(db,config,new Date(),transport);expect(transport.dm).toHaveBeenCalledTimes(1);
+  });
+  it("runtime usa variantes já existentes sem repetir e conserva texto Owner",()=>{
+    const transport=fake();
+    for(let i=0;i<3;i++)recordBotAutomationEvent(db,{event:"QUEUE_OPEN",sourceId:"rotation:"+i,vars:{fila:7,link:config.WEB_APP_URL}});
+    dispatchBotAutomations(db,config,new Date(),transport);
+    const bodies=transport.group.mock.calls.map(call=>call[3]);expect(new Set(bodies).size).toBe(3);
+    for(const body of bodies){expect(body).not.toMatch(/\{\w+\}/);expect(body.toLowerCase()).toContain("7");}
+    saveAutomationSettings(db,"QUEUE_OPEN",{text:"Mensagem especial: fila {fila}."});
+    recordBotAutomationEvent(db,{event:"QUEUE_OPEN",sourceId:"custom",vars:{fila:8,link:config.WEB_APP_URL}});dispatchBotAutomations(db,config,new Date(),transport);
+    expect(transport.group.mock.calls.at(-1)?.[3]).toBe("Mensagem especial: fila 8.");
+    expect(dailyVariantCount("MORNING")+dailyVariantCount("NIGHT")+Object.values(EVENT_VARIANTS).reduce((n,pool)=>n+pool.length,0)).toBeGreaterThanOrEqual(400);
   });
 
 });

@@ -17,6 +17,7 @@ export type BotMode = z.infer<typeof botModeSchema>;
 //  'messaging' roda em OFFICIAL ou EVOLUTION ou HYBRID;
 //  'group'     exige EVOLUTION ou HYBRID (Meta oficial não gerencia grupos reais).
 export const BOT_FEATURES = [
+  { code: "COMMUNITY_GROUP_ONLY", label: "Avisos da comunidade só nos grupos; senha e suporte continuam privados", engine: "group", defaultOn: false },
   { code: "LOGIN_CODE",     label: "Enviar código de acesso (OTP) por WhatsApp",        engine: "messaging", defaultOn: true },
   { code: "OWNER_ALERTS",   label: "Avisar Owners sobre novas solicitações",            engine: "messaging", defaultOn: true },
   { code: "DECISION_NOTICE",label: "Avisar participante sobre aprovação/recusa",        engine: "messaging", defaultOn: true },

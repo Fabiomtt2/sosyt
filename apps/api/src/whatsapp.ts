@@ -103,6 +103,17 @@ export function queueBotNotification(db:AppDatabase,config:Config,phone:string,b
   // respeita mais a pessoa, nao o que fala mais.
   const deliveryClass:DeliveryClass=options?.deliveryClass??"ENGAGEMENT";
   const event=options?.event??dedupeKey;
+  if(featureEnabled(db,"COMMUNITY_GROUP_ONLY")){
+    // Financial details and gifts stay in the account inbox. Never publish them to a group.
+    if(["PURCHASE_CONFIRMED","ITEM_RECEIVED","OWNER_BENEFIT"].includes(event)||event.startsWith("GAMIFICATION_"))return {queued:false,reason:"COMMUNITY_IN_APP_ONLY"};
+    if(["LEVEL_UP","COINS_EARNED","STREAK_MILESTONE"].includes(event)){
+      const group=db.prepare(`SELECT g.whatsapp_group_id AS jid FROM groups g JOIN group_memberships m ON m.group_code=g.code
+        WHERE m.phone=? AND g.enabled=1 AND g.whatsapp_group_id IS NOT NULL ORDER BY CAST(g.code AS INTEGER),g.code LIMIT 1`).get(phone) as {jid:string}|undefined;
+      if(!group)return {queued:false,reason:"NO_CONFIRMED_GROUP"};
+      return queueGroupAutomation(db,config,group.jid,body.replace(/(?:\+?\d[\s().-]*){8,15}/g,"[dado privado]"),dedupeKey+":group:"+group.jid,{event,deliveryClass:"ENGAGEMENT",expiresAt:new Date(Date.now()+86_400_000).toISOString()});
+    }
+  }
+
   const verdict=canDeliver(db,phone,deliveryClass);
   if(!verdict.allowed) {
     recordSuppressed(db,phone,event,verdict.reason);
@@ -561,6 +572,12 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
           return {deferred:true as const};
         }
         const group=stored._transport==="EVOLUTION_GROUP";
+        const communityEvent=String(stored._event??"");
+        if(!group&&featureEnabled(db,"COMMUNITY_GROUP_ONLY")&&(["WELCOME_DM","SUPER_EXPIRING","INACTIVITY_NUDGE","LEVEL_UP","COINS_EARNED","STREAK_MILESTONE","PURCHASE_CONFIRMED","ITEM_RECEIVED","OWNER_BENEFIT"].includes(communityEvent)||communityEvent.startsWith("GAMIFICATION_"))){
+          db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error='COMMUNITY_GROUP_ONLY',lease_until=NULL WHERE id=?").run(row.id);
+          return {deferred:true as const};
+        }
+
         const groupState=group?db.prepare("SELECT enabled FROM groups WHERE whatsapp_group_id=?").get(row.recipient) as {enabled:number}|undefined:undefined;
         if(queuedAutomationDisabled(db,stored)||(groupState&&groupState.enabled!==1)){
           db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error=?,lease_until=NULL WHERE id=?")

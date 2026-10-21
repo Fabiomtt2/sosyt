@@ -36,7 +36,7 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
  function issuedPassword(userId:string){
   const row=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId) as {payload:string};
   expect(row.payload).not.toContain('"body"');
-  const body=payloadBody(row.payload),password=/é: ([A-Za-z0-9]{14})\./u.exec(body)?.[1];
+  const body=payloadBody(row.payload),password=/(?:Sua senha:\s*|^)([A-Za-z0-9]{14})(?=\s|$)/u.exec(body)?.[1];
   expect(password).toBeTruthy();return password!;
  }
  async function signup(){
@@ -102,7 +102,7 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   await inbound("oi");
   const greeting=(db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-1:greeting'").get() as {payload:string}).payload;
   expect(payloadBody(greeting)).toMatch(/Como prefere ser chamado/);
-  expect(payloadBody(greeting)).toContain("1️⃣");
+  expect(payloadBody(greeting)).toContain("\n1. ENTRAR");
   await inbound("Continuar");
   expect(db.prepare("SELECT 1 FROM users WHERE phone=?").get(phone)).toBeUndefined();
   await inbound("Pessoa Sintetica");

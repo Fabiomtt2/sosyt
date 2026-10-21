@@ -31,7 +31,7 @@ describe("senha automática do bot após prova de identidade",()=>{
   const payload=JSON.parse(decryptToken(encrypted.encryptedNotification,config));
   expect(payload).toMatchObject({type:"template",template:{name:"sos_acesso_aprovado"}});
   const body=payload.template.components[0].parameters[0].text as string;
-  const generated=/é: ([A-Za-z0-9]{14})\./.exec(body)?.[1];expect(generated).toBeTruthy();expect(verifyPassword(generated!,row.hash)).toBe(true);
+  const generated=/(?:Sua senha:\s*|^)([A-Za-z0-9]{14})(?=\s|$)/.exec(body)?.[1];expect(generated).toBeTruthy();expect(verifyPassword(generated!,row.hash)).toBe(true);
   expect(row.mustChange).toBe(1);expect(outbox.payload).not.toContain(generated!);expect(outbox.payload).not.toContain("Ana");
   const again=ensureBotPassword(db,config,userId,true);expect(again.created).toBe(false);
   expect(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId)).toEqual({hash:row.hash});
@@ -79,15 +79,18 @@ describe("senha automática do bot após prova de identidade",()=>{
   const res=ensureBotPassword(db,config,userId,true);
   expect(res).toEqual({created:true,queued:true});
   // enfileirado como payload cifrado de TEXTO (Evolution nao usa template Meta)
-  const outbox=db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string};
+  const outbox=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key=?").get("bot-password:"+userId) as {payload:string};
   const envelope=JSON.parse(outbox.payload) as {encryptedNotification?:string};
   expect(typeof envelope.encryptedNotification).toBe("string");
   const payload=JSON.parse(decryptToken(envelope.encryptedNotification!,config));
   expect(payload.type).toBe("text");
-  expect(payload.text.body).toMatch(/senha para entrar/);
+  expect(payload.text.body).toMatch(/^[A-Za-z0-9]{14}$/);
+  const info=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE 'bot-password-info:%'").get() as {payload:string};
+  const intro=JSON.parse(decryptToken(JSON.parse(info.payload).encryptedNotification,config)).text.body;
+  expect(intro).toContain("\n\nSua senha:\n\n");expect(intro).not.toContain(payload.text.body);
   // a senha gravada confere e nao vaza no outbox
   const row=db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string};
-  const gen=/é: ([A-Za-z0-9]{14})\./.exec(payload.text.body)?.[1];
+  const gen=/(?:Sua senha:\s*|^)([A-Za-z0-9]{14})(?=\s|$)/.exec(payload.text.body)?.[1];
   expect(gen).toBeTruthy();expect(verifyPassword(gen!,row.hash)).toBe(true);
   expect(outbox.payload).not.toContain(gen!);
  });
@@ -100,7 +103,7 @@ describe("senha automática do bot após prova de identidade",()=>{
   expect(ensureBotPassword(db,config,userId,true).created).toBe(true);
   const primeiraHash=(db.prepare("SELECT password_hash AS hash FROM user_passwords WHERE user_id=?").get(userId) as {hash:string}).hash;
   const corpoDe=(payload:string)=>JSON.parse(decryptToken((JSON.parse(payload) as {encryptedNotification:string}).encryptedNotification,config)).template.components[0].parameters[0].text as string;
-  const senhaDe=(payload:string)=>/é: ([A-Za-z0-9]{14})\./.exec(corpoDe(payload))?.[1];
+  const senhaDe=(payload:string)=>/(?:Sua senha:\s*|^)([A-Za-z0-9]{14})(?=\s|$)/.exec(corpoDe(payload))?.[1];
   const primeiraSenha=senhaDe((db.prepare("SELECT payload FROM whatsapp_outbox").get() as {payload:string}).payload);
 
   // o caminho antigo recusava para sempre; a reemissao resolve

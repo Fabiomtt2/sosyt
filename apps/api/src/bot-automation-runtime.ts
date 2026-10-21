@@ -1,3 +1,4 @@
+import { renderAutomation } from "./bot-dispatch.js";
 import {captureQueueEvent} from "./bot-queue-snapshot.js";
 import { createHash } from "node:crypto";
 import type { AppDatabase } from "./db.js";
@@ -117,10 +118,18 @@ function materialize(db: AppDatabase,config: Config,at: Date) {
     const vars = JSON.parse(row.vars) as Variables;
     const used = Array.from(settings.text.matchAll(/\{(\w+)\}/g),m=>m[1]);
     if (used.some(key=>vars[key] === undefined)) {finish("FAILED","MISSING_EVENT_DATA");continue;}
-    const targets = recipientsFor(db,config,row,settings.target);
+    if(featureEnabled(db,"COMMUNITY_GROUP_ONLY")&&["WELCOME_DM","SUPER_EXPIRING","INACTIVITY_NUDGE"].includes(row.event)){finish("SKIPPED","COMMUNITY_GROUP_ONLY");continue;}
+     const groupOnly=featureEnabled(db,"COMMUNITY_GROUP_ONLY")&&["COINS_EARNED","LEVEL_UP","STREAK_MILESTONE"].includes(row.event);
+     let targets = recipientsFor(db,config,row,settings.target);
+     if(groupOnly){
+       const member=row.userId?db.prepare("SELECT phone FROM users WHERE id=? AND deleted_at IS NULL").get(row.userId) as {phone:string}|undefined:undefined;
+       const group=member?db.prepare("SELECT g.whatsapp_group_id AS address FROM groups g JOIN group_memberships m ON m.group_code=g.code WHERE m.phone=? AND g.enabled=1 AND g.whatsapp_group_id IS NOT NULL ORDER BY CAST(g.code AS INTEGER),g.code LIMIT 1").get(member.phone) as {address:string}|undefined:undefined;
+       targets=group?[{address:group.address,target:"GROUP"}]:[];
+     }
     if (!targets.length) {finish("SKIPPED","NO_ELIGIBLE_RECIPIENT");continue;}
-    const group = settings.target === "GROUP" || settings.target === "ALL_GROUPS";
-    const text = renderTemplate(settings.text,vars), body = group ? groupSafeBody(text) : text;
+    const group = groupOnly || settings.target === "GROUP" || settings.target === "ALL_GROUPS";
+    const rendered=renderAutomation(db,row.event,vars);
+    const text="skipped" in rendered?renderTemplate(settings.text,vars):rendered.text, body = group ? groupSafeBody(text) : text;
     const delays = group ? spreadFanOut(targets.length) : targets.map(()=>0);
     for (const [index,target] of targets.entries()) {
       const id = idFor(row.id+":"+target.address);
