@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import {productKind,productExplanation} from "./commerce";
 import { InventoryOverview } from "./UserWallet";
 import { CommerceArtwork } from "./CommerceArtwork";
-import { Coins, History, Package, ShieldCheck, Sparkles, Ticket, X } from "lucide-react";
+import { History, ShieldCheck, Sparkles, X } from "lucide-react";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { api, type Dashboard } from "./api";
 
@@ -36,14 +36,14 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
     : "As compras ficam disponíveis quando o Owner concluir a configuração do Pix. Suas moedas e recompensas atuais continuam normais.";
 
   return <div className="modal-backdrop store-backdrop premium-store-backdrop" onMouseDown={()=>{if(!tradingLock.current)onClose();}}>
-    <section ref={modalRef} className="modal store-modal store-modal-v2 store-editorial premium-store" role="dialog" aria-modal="true" aria-label="Loja SOS YouTuber" onMouseDown={(event)=>event.stopPropagation()}>
+    <section ref={modalRef} className="modal store-modal store-modal-v2 store-editorial premium-store store-catalog" role="dialog" aria-modal="true" aria-label="Loja SOS YouTuber" onMouseDown={(event)=>event.stopPropagation()}>
       <button className="close" aria-label="Fechar loja" disabled={Boolean(trading)} onClick={onClose}><X size={20}/></button>
 
       <div className="store-head store-head-v2">
         <div className="store-title-copy">
           <p className="eyebrow dark">LOJA SOS YOUTUBER</p>
-          <h2>Um impulso para<br/>sua jornada.</h2>
-          <p>Seu apoio tem valor. Escolha um benefício e continue no seu ritmo — comprar é opcional.</p>
+          <h2>Escolha seu próximo impulso.</h2>
+          <p>Mais possibilidades para criar e colaborar. Conheça cada benefício e escolha no seu tempo.</p>
         </div>
         <div className="store-balance" aria-label="Saldo atual">
           <span>Você tem agora</span>
@@ -53,13 +53,12 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
       </div>
 
       {data.subscription?.active&&<p className="store-super-status"><Sparkles size={16}/> {data.subscription.source==="ROOT_OWNER"?"Privilégios SUPER incluídos no seu acesso ADMIN":"SUPER ativo"+(data.subscription.expiresAt?" até "+new Date(data.subscription.expiresAt).toLocaleDateString("pt-BR"):"")}</p>}
-      <div className="store-products store-products-v2">
+      <div className="store-products store-products-v2" aria-label="Vitrine de benefícios">
         {products.length===0 && <p className="muted">Nenhum item disponível na loja no momento.</p>}
         {products.map((item)=>(
-          <article key={item.code} className={"store-product store-product-v2 coins-product"+((item.subscriptionDays??0)>0?" store-product--super":"")} data-product-code={item.code}>
+          <article key={item.code} className={"store-product store-product-v2 store-kind-"+productKind(item)+((item.subscriptionDays??0)>0?" store-product--super":"")} data-product-code={item.code}>
             <div className="store-product-visual coins-visual">
-              {/* AUDITORIA: a ilustracao vem do painel. Sem imagem definida, um
-                  marcador neutro mantem o layout inteiro enquanto o Owner decide. */}
+              {/* Custom catalog art takes precedence; each built-in benefit has its own raster illustration. */}
               {item.imageDataUrl
                 ? <img className="store-editorial-art" src={item.imageDataUrl} alt={item.title}/>
                 : <CommerceArtwork kind={productKind(item)}/>}
@@ -70,10 +69,10 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
               <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para abrir outra fila ou fazer uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
               {productExplanation(item)&&<details className="store-product-how"><summary>Como usar este benefício</summary><p>{productExplanation(item)}</p></details>}
               <ul className="store-product-benefits">
-                {item.credits>0 && <li><Coins size={15}/> {item.credits} moedas</li>}
-                {item.extraPasses>0 && <li><Ticket size={15}/> {item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
-                {!item.subscriptionDays && item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li><Package size={15}/> {item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
-                {(item.subscriptionDays ?? 0)>0 && <li><Sparkles size={15}/> {item.subscriptionDays} dias de assinatura</li>}
+                {item.credits>0 && <li>{item.credits} moedas</li>}
+                {item.extraPasses>0 && <li>{item.extraPasses} passe{item.extraPasses>1?"s":""}</li>}
+                {!item.subscriptionDays && item.grantsItem && (item.grantsItemQty ?? 0)>0 && <li>{item.grantsItemQty} {item.grantsItem==="SKIP"?"Pular":item.grantsItem}</li>}
+                {(item.subscriptionDays ?? 0)>0 && <li>{item.subscriptionDays} dias de assinatura</li>}
               </ul>
               <div className="store-buy-row"><strong className="store-price">{money(item.amountCents)}</strong><button className="primary" disabled={blocked||Boolean(trading)} onClick={()=>onChoose(item.code)}>Quero este item</button></div>
               {data.gamification?.redemptionEnabled&&item.credits===0&&!item.subscriptionDays&&(item.grantsItem==="SKIP"||item.extraPasses===1)&&<div className="store-reward-trade">
@@ -88,8 +87,8 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
       {redemptionReceipt&&<RedemptionCelebration receipt={redemptionReceipt} onClose={()=>setRedemptionReceipt(undefined)}/>}
       {notice&&<p role="status">{notice}</p>}
       <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
-        <span><Coins size={16}/><b>1 moeda</b> salva 1 URL</span>
-        <span><Ticket size={16}/><b>Passe</b> abre outra fila ou permite contribuição extra</span><span><Package size={16}/><b>Pular</b> abre outra fila e mantém a atual</span><span><Sparkles size={16}/><b>SUPER</b> tem duração e privilégios próprios</span>
+        <span><b>1 moeda</b> salva 1 URL</span>
+        <span><b>Passe</b> abre outra fila ou permite contribuição extra</span><span><b>Pular</b> abre outra fila e mantém a atual</span><span><b>SUPER</b> tem duração e privilégios próprios</span>
       </div>
 
       <div className={data.commerce.pixAvailable?"store-payment-state ready":"store-payment-state pending"}>

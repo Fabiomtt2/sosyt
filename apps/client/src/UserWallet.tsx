@@ -1,4 +1,6 @@
-import { Coins, ShoppingBag, Ticket, Package, Sparkles } from "lucide-react";
+import "./store-catalog.css";
+import { ShoppingBag } from "lucide-react";
+import { CommerceArtwork } from "./CommerceArtwork";
 import type { Dashboard, SuperState } from "./api";
 
 const number = (value?:number) => value === undefined ? "—" : value.toLocaleString("pt-BR", {maximumFractionDigits:3});
@@ -11,10 +13,10 @@ export function InventoryOverview({wallet,skipsAvailable,passesAvailable,subscri
   const administrative = subscription?.source === "ROOT_OWNER";
   const passes = passesAvailable ?? wallet?.extraPasses;
   return <section className="inventory-overview wallet-values" aria-label={label}>
-    <div className="wallet-value coins-value" data-purchase-anchor={purchaseAnchors?"coins":undefined}><span className="wallet-value-icon"><Coins size={19}/></span><div><strong>{number(wallet?.total)}</strong><span>Moedas</span>{wallet&&<small className="wallet-coin-sources">Compradas {number(wallet.purchased)} · Recompensas {number(wallet.reward)} · Iniciais {number(wallet.promo)}</small>}</div></div>
-    <div className="wallet-value passes-value"><span className="wallet-value-icon"><Ticket size={19}/></span><div><strong>{administrative?"ADMIN":number(passes)}</strong><span>Passe</span><small>{administrative?"Acesso sem consumo":"Outra fila ou contribuição extra"}</small></div></div>
-    <div className="wallet-value skips-value"><span className="wallet-value-icon"><Package size={19}/></span><div><strong>{administrative?"ADMIN":number(skipsAvailable)}</strong><span>Pular</span><small>{administrative?"Acesso sem consumo":"Outra fila, mantendo a atual"}</small></div></div>
-    <div className={"wallet-value super-value"+(subscription?.active?" is-active":"")}><span className="wallet-value-icon"><Sparkles size={19}/></span><div><strong>{administrative?"ADMIN":subscription?subscription.active?"Ativo":"Inativo":"—"}</strong><span>SUPER</span><small>{administrative?"Privilégio administrativo":subscription?.expiresAt?(subscription.active?"Até ":"Validade registrada: ")+date(subscription.expiresAt):subscription?.active?"Ativo nesta conta":subscription?"Sem assinatura ativa":"Atualizando assinatura"}</small></div></div>
+    <div className="wallet-value coins-value" data-purchase-anchor={purchaseAnchors?"coins":undefined}><span className="wallet-value-icon wallet-benefit-art" aria-hidden="true"><CommerceArtwork kind="coins"/></span><div><strong>{number(wallet?.total)}</strong><span>Moedas</span>{wallet&&<small className="wallet-coin-sources">Compradas {number(wallet.purchased)} · Recompensas {number(wallet.reward)} · Iniciais {number(wallet.promo)}</small>}</div></div>
+    <div className="wallet-value passes-value"><span className="wallet-value-icon wallet-benefit-art" aria-hidden="true"><CommerceArtwork kind="pass"/></span><div><strong>{administrative?"ADMIN":number(passes)}</strong><span>Passe</span><small>{administrative?"Acesso sem consumo":"Outra fila ou contribuição extra"}</small></div></div>
+    <div className="wallet-value skips-value"><span className="wallet-value-icon wallet-benefit-art" aria-hidden="true"><CommerceArtwork kind="skip"/></span><div><strong>{administrative?"ADMIN":number(skipsAvailable)}</strong><span>Pular</span><small>{administrative?"Acesso sem consumo":"Outra fila, mantendo a atual"}</small></div></div>
+    <div className={"wallet-value super-value"+(subscription?.active?" is-active":"")}><span className="wallet-value-icon wallet-benefit-art" aria-hidden="true"><CommerceArtwork kind="super"/></span><div><strong>{administrative?"ADMIN":subscription?subscription.active?"Ativo":"Inativo":"—"}</strong><span>SUPER</span><small>{administrative?"Privilégio administrativo":subscription?.expiresAt?(subscription.active?"Até ":"Validade registrada: ")+date(subscription.expiresAt):subscription?.active?"Ativo nesta conta":subscription?"Sem assinatura ativa":"Atualizando assinatura"}</small></div></div>
   </section>;
 }
 
