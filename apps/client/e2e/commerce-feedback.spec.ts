@@ -107,7 +107,7 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await request.post(server+"/payments/"+coins.pix.id+"/demo-approve",{headers:auth});
  expect((await (await request.get(server+"/dashboard",{headers:auth})).json()).wallet.total).toBe(20);
  const pass=await buy("PASS_SINGLE");
- await expect(pass.modal).toContainText("contribuição extra na mesma fila");
+ await expect(pass.modal).toContainText("+1 campo de URL na mesma fila");
  await pass.modal.getByRole("button",{name:"Simular confirmação"}).click();
  await expect(celebration).toContainText("1 passe");await expect(statusbar.getByRole("button",{name:"Passe: 1",exact:true})).toBeVisible();await celebration.getByLabel("Fechar confirmação").click();
  const skip=await buy("SKIP_1");

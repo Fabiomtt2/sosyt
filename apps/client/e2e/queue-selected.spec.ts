@@ -29,7 +29,7 @@ test("taskbar Pular escolhe fila pronta e prévia não consome nem concede acess
   const evidence=resolve("../../.local-tmp/benefit-halo-evidence");mkdirSync(evidence,{recursive:true});
   for(const width of [1440,390]){await page.setViewportSize({width,height:960});await browser.locator(".queue-browser-footer").scrollIntoViewIfNeeded();expect(await browser.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);await page.screenshot({path:resolve(evidence,"selected-queue-"+width+".png"),animations:"disabled"});}
   await browser.getByRole("button",{name:"Usar 1 Pular na Fila "+number,exact:true}).click();
-  const confirmation=browser.getByRole("alertdialog",{name:"Confirmar uso de Pular"});await expect(confirmation).toContainText("acompanhar");
+  const confirmation=browser.getByRole("alertdialog",{name:"Confirmar uso de Pular"});await expect(confirmation).toContainText("acompanhamento dos 10 vídeos");
   expect((await (await request.get(server+"/queues/mine",{headers})).json()).skipsAvailable).toBe(2);
   const used=page.waitForResponse(r=>r.url()===server+"/queues/skip"&&r.request().method()==="POST");
   await confirmation.getByRole("button",{name:"Confirmar uso de 1 Pular",exact:true}).click();const response=await used;expect(response.status()).toBe(200);expect(response.request().postDataJSON().targetRoundId).toBe(round);

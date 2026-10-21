@@ -48,7 +48,8 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
   expect(await banner.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
   // An image squeezed inside a second 44% wrapper must not pass as a full-column illustration.
   expect((await timeArt.boundingBox())!.width).toBeGreaterThan(200);
-  await page.evaluate(()=>window.scrollTo(0,0));await banner.scrollIntoViewIfNeeded();
+  // Position the whole banner explicitly; scrollIntoViewIfNeeded accepts partially visible content.
+  await banner.evaluate(el=>el.scrollIntoView({block:"center",behavior:"instant"}));
   await expect.poll(()=>banner.evaluate(el=>{const rect=el.getBoundingClientRect();return rect.top>=-1&&rect.bottom<=innerHeight+1;})).toBe(true);
   await banner.screenshot({path:resolve(visualEvidence,"carousel-time-"+width+".png"),animations:"disabled"});
   if(reopenChat)await page.getByRole("button",{name:"Expandir sala da comunidade",exact:true}).click();
