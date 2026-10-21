@@ -435,7 +435,12 @@ describe("regressões de domínio e segurança", () => {
     expect((await app.inject({ method: "POST", url: `/payments/${payment.json().id}/demo-approve`, headers: headers(user.token) })).statusCode).toBe(200);
     expect((await dashboard(user.token)).wallet.extraPasses).toBe(1);
     expect((await submit(user.token, "dQw4w9WgXcQ")).statusCode).toBe(409); // mesmo vídeo não repete
-    expect((await submit(user.token, "9bZkp7q19f0")).statusCode).toBe(201); // passe libera a extra
+    expect((await submit(user.token,"9bZkp7q19f0")).statusCode).toBe(409); // Compra somente estoca o Passe.
+    const ownRound=(await dashboard(user.token)).openRound.id;
+    const used=await app.inject({method:"POST",url:"/queues/pass",headers:headers(user.token),payload:{referenceId:"729fa750-223c-44d8-8d17-b5d057d5d3f1",targetRoundId:ownRound}});
+    expect(used.statusCode).toBe(200);
+    expect(used.json().queue.id).toBe(ownRound);
+    expect((await submit(user.token, "9bZkp7q19f0")).statusCode).toBe(201); // Uso explícito libera +1 URL na mesma fila.
     expect((await submit(user.token, "next0000001")).statusCode).toBe(409); // só uma extra
     expect((await dashboard(user.token)).wallet.extraPasses).toBe(0);
   });

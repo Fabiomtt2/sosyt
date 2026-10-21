@@ -226,7 +226,7 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
       <div className="journey-block-heading"><Coins size={20} aria-hidden="true"/><div><h3>Escolha como usar suas recompensas</h3><p>Troque suas moedas de recompensa por uma ajuda na próxima fila.</p></div></div>
       <div className="journey-redemption-grid">{([
         { code: "SKIP", label: "Pular", help: "Entre em outra fila sem encerrar a que acompanha." },
-        { code: "PASS", label: "Passe", help: "Abra outra fila ou envie uma contribuição extra na mesma fila." }
+        { code: "PASS", label: "Passe", help: "Libere +1 campo de URL na mesma fila pelo inventário." }
       ] as const).map((item) => <div className="journey-redemption-card" key={item.code}><span className="journey-item-icon"><CommerceArtwork kind={item.code==="PASS"?"pass":"skip"}/></span><div><h4>{item.label}</h4><p>{item.help}</p><small>{number(data.redemption[item.code])} moedas de recompensa</small></div><button type="button" className="journey-secondary" disabled={Boolean(busy) || data.redemptionEnabled===false || progress.rewardCoins < data.redemption[item.code]} onClick={() => void redeem(item.code)}>{busy === item.code ? <LoaderCircle size={17} className="spin"/> : "Trocar"}</button></div>)}</div>
       <p className="journey-redemption-note"><ShieldCheck size={16} aria-hidden="true"/><span>Moedas compradas ficam fora desta troca. Seus itens aparecem no inventário após a confirmação.</span></p>
     </div>

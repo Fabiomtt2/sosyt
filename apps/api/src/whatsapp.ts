@@ -2,6 +2,7 @@ import {groupCodeFromSubject} from "./group-name.js";
 import {botPhoneAccessBlocked} from "./bot-account-access.js";
 import {currentQueueEventBody,type QueueEventSnapshot} from "./bot-queue-snapshot.js";
 import { botProgressReply } from "./bot-progress-replies.js";
+import { declinesBotSensitiveAction, localBotFallback } from "./bot-local-intents.js";
 import { encryptToken, decryptToken } from "./youtube.js";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -739,7 +740,15 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(msg.from) as { stage: string } | undefined;
 
             // AUDITORIA / toda entrada e classificada; nenhuma fica sem resposta.
-            const intent = classifyInbound(text, { awaitingName: conversation?.stage === "WAITING_NAME" });
+            const explicitIntent = classifyInbound(text, { awaitingName: conversation?.stage === "WAITING_NAME" });
+            const accessBlocked = botPhoneAccessBlocked(db,msg.from);
+            // Local NLU is a last resort, never a replacement for names, commands,
+            // opt-out, the human relay or an authoritative engine response.
+            const declinedAction = (explicitIntent === "HUMAN" || explicitIntent === "RESEND_CODE") && declinesBotSensitiveAction(text);
+            const localRoute = declinedAction
+              ? {intent:"HELP" as const,explanation:"Tudo bem. Não abri um atendimento nem alterei sua senha por esta mensagem. Envie MENU para ver as opções. Se quiser uma pessoa, escreva Tenho dúvidas; para solicitar uma nova senha de participante, responda 3."}
+              : accessBlocked ? undefined : localBotFallback(text, explicitIntent, conversation?.stage === "WAITING_NAME");
+            const intent = localRoute?.intent ?? explicitIntent;
 
             // Opt-out e opt-in sao atendidos na hora, antes de qualquer fluxo: quem
             // pede para parar e continua recebendo bloqueia o numero, e bloqueio
@@ -781,7 +790,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                 : "Este número é o atendimento humano configurado. Os chamados recebidos trazem instruções para RESPONDER e ENCERRAR."}},`${msg.id}:human`,expires,runtimeConfig);
               continue;
             }
-            if(botPhoneAccessBlocked(db,msg.from)){
+            if(accessBlocked){
               queue(db,msg.from,{type:"text",text:{preview_url:false,body:"Seu acesso foi pausado pela administração. Sua conta e seu histórico continuam preservados. O bot não pode liberar o acesso nem gerar outra senha. Se quiser falar com a equipe, escreva Tenho dúvidas."}},`${msg.id}:access-blocked`,expires,runtimeConfig);
               continue;
             }
@@ -946,8 +955,8 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                   ? `${account.name}, sua conta está criada. 💛 ${membership ? `Seu vínculo com o grupo SOS YOUTUBER ${membership.code} está confirmado.` : "Sua entrada no grupo ainda está sendo confirmada; isso é separado da criação da conta."} Entre em ${runtimeConfig.WEB_APP_URL} com seu WhatsApp e senha. Se precisar de uma nova senha, responda *3*.`
                   : "Ainda não concluímos seu cadastro. 💛 Responda *1* para começar; vou pedir como prefere ser chamado e preparar seu acesso."
                 : undefined;
-              const liveProgress=botProgressReply(db,msg.from,text);
-              const padrao=status ?? liveProgress ?? replyFor(intent) ?? replyFor("UNKNOWN")!;
+              const liveProgress=botProgressReply(db,msg.from,localRoute?.progressCommand ?? text);
+              const padrao=status ?? liveProgress ?? localRoute?.explanation ?? replyFor(intent) ?? replyFor("UNKNOWN")!;
               // AUDITORIA / O TEXTO DO OWNER NAO PODE ENGOLIR O MENU. supportReply devolve
               // o texto customizado de SUPPORT_AUTO quando existe — e isso sobrepunha
               // TODAS as respostas: "oi" deixava de abrir o menu, "2" nao explicava mais

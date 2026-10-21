@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type AppDatabase } from "./db.js";
-import { activeRounds, closeRound, closeRoundIfFullyConsumed, isParticipant, joinRound, leaveRound, myRounds, openRound, QueueEntryError, skipTargetFor } from "./queues.js";
+import { activeRounds, closeRound, closeRoundIfFullyConsumed, isParticipant, joinRound, leaveRound, myRounds, openRound, QUEUE_LIFETIME_MS, QueueEntryError, skipTargetFor } from "./queues.js";
 
 // These tests exercise queue persistence and navigation, not watch-credit issuance.
 describe("queue convergence: stable labels and preserved work", () => {
@@ -61,7 +61,7 @@ describe("queue convergence: stable labels and preserved work", () => {
     expect(activeRounds(db)).toEqual(after);
   });
 
-  it("waits for all active unfinished members, then closes after the last leaves", () => {
+  it("keeps the queue visible after completion and departure until its 72-hour expiry", () => {
     const round = initial();
     joinRound(db, round, "a"); joinRound(db, round, "b", "PASS");
     db.prepare("UPDATE rounds SET status='READY' WHERE id=?").run(round);
@@ -70,7 +70,7 @@ describe("queue convergence: stable labels and preserved work", () => {
     expect(myRounds(db, "a")).toEqual([]);
     expect(myRounds(db, "b").map(row => row.id)).toEqual([round]);
     leaveRound(db, round, "b");
-    expect(isParticipant(db, round, "a")).toBe(false);
+    expect(isParticipant(db, round, "a")).toBe(true);
     expect(closeRoundIfFullyConsumed(db, round)).toBe(false);
     expect(db.prepare("SELECT finalized_at FROM playlist_watch_progress WHERE round_id=? AND user_id='a'").get(round)).toEqual({ finalized_at: stamp });
   });
@@ -83,7 +83,10 @@ describe("queue convergence: stable labels and preserved work", () => {
     db.prepare("UPDATE rounds SET status='READY' WHERE id=?").run(round);
     leaveRound(db, round, "b");
     expect(label(round)).toBe(1);
-    expect(closeRoundIfFullyConsumed(db, round)).toBe(true);
+    expect(closeRoundIfFullyConsumed(db, round)).toBe(false);
+    db.prepare("UPDATE rounds SET created_at=? WHERE id=?").run(new Date(Date.now()-QUEUE_LIFETIME_MS-1).toISOString(),round);
+    expect(closeRoundIfFullyConsumed(db,round)).toBe(true);
+    expect(db.prepare("SELECT finalized_at FROM playlist_watch_progress WHERE round_id=? AND user_id='a'").get(round)).toEqual({finalized_at:stamp});
   });
 
   it("preserves paid source while active and preserves URL/progress/ledger on reentry", () => {

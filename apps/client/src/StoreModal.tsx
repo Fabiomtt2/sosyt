@@ -66,7 +66,7 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
             <div className="store-product-copy store-product-copy-v2">
               {(item.subscriptionDays??0)>0&&<span className="store-super-highlight"><Sparkles size={14}/> Experiência SUPER</span>}
               <h3>{item.title}</h3>
-              <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para abrir outra fila ou fazer uma contribuição extra.":"Confira os benefícios deste item antes de comprar.")}</p>
+              <p>{item.description || (item.credits>0?item.credits+" moedas para suas contribuições.":item.subscriptionDays?"Assinatura por "+item.subscriptionDays+" dias, com benefícios SUPER.":item.grantsItem==="SKIP"?"Participe de outra fila sem perder sua participação na atual.":item.extraPasses>0?item.extraPasses+" passe para liberar +1 URL na mesma fila.":"Confira os benefícios deste item antes de comprar.")}</p>
               {productExplanation(item)&&<details className="store-product-how"><summary>Como usar este benefício</summary><p>{productExplanation(item)}</p></details>}
               <ul className="store-product-benefits">
                 {item.credits>0 && <li>{item.credits} moedas</li>}
@@ -88,7 +88,7 @@ export function StoreModal({data,onClose,onChoose,onChanged}:{data:Dashboard;onC
       {notice&&<p role="status">{notice}</p>}
       <div className="store-meaning-row" aria-label="Como funcionam os benefícios">
         <span><b>1 moeda</b> salva 1 URL</span>
-        <span><b>Passe</b> abre outra fila ou permite contribuição extra</span><span><b>Pular</b> abre outra fila e mantém a atual</span><span><b>SUPER</b> tem duração e privilégios próprios</span>
+        <span><b>Passe</b> libera +1 URL na mesma fila</span><span><b>Pular</b> abre outra fila e mantém a atual</span><span><b>SUPER</b> tem duração e privilégios próprios</span>
       </div>
 
       <div className={data.commerce.pixAvailable?"store-payment-state ready":"store-payment-state pending"}>

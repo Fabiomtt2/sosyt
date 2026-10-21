@@ -58,10 +58,16 @@ export function resolveGroupForPhone(db:AppDatabase,phone:string):{groupCode?:st
 }
 
 export function hasMembership(db: AppDatabase, phone: string, group?: string): boolean {
-  const member = db.prepare("SELECT m.group_code FROM group_memberships m JOIN groups g ON g.code = m.group_code WHERE m.phone = ? AND m.revoked_at IS NULL AND g.enabled = 1").get(phone) as { group_code: string } | undefined;
-  if (!member || (group && member.group_code!==group)) return false;
+  const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
+  if(user&&isParticipantBlocked(db,user.id))return false;
+  // The admission table has one primary group per phone. Additional memberships
+  // come from verified external proofs, not duplicate admission rows.
+  const external=verifiedGroupCodes(db,phone);
+  if(group?external.includes(group):external.length>0)return true;
+  const member=db.prepare("SELECT m.group_code FROM group_memberships m JOIN groups g ON g.code=m.group_code WHERE m.phone=? AND m.revoked_at IS NULL AND g.enabled=1 AND (? IS NULL OR m.group_code=?)").get(phone,group??null,group??null) as {group_code:string}|undefined;
+  if(!member)return false;
   const verification=groupVerificationState(db,phone,member.group_code);
-  return !verification.required || verification.accessReady;
+  return !verification.required||verification.accessReady;
 }
 
 function avatarFromProfileRow(db:AppDatabase,row?:{kind:string;preset?:string;image?:Buffer;mime?:string}) {
@@ -437,10 +443,10 @@ export async function registerOwnerRoutes(
         p.provider,p.status,p.amount_cents AS amountCents,p.credits_millis AS creditsMillis,p.extra_passes AS extraPasses,
         p.created_at AS createdAt,p.approved_at AS approvedAt
         FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.created_at DESC LIMIT 200`).all() : [],
-      deletedAccounts: db.prepare(`SELECT user_id AS userId,group_code AS groupCode,deleted_at AS deletedAt,source,
+      deletedAccounts: root ? db.prepare(`SELECT user_id AS userId,group_code AS groupCode,deleted_at AS deletedAt,source,
         submissions_count AS submissionsCount,rounds_count AS roundsCount,approved_payment_cents AS approvedPaymentCents,
         coins_purchased_millis AS coinsPurchasedMillis,passes_purchased AS passesPurchased
-        FROM account_deletions ORDER BY deleted_at DESC LIMIT 200`).all()
+        FROM account_deletions ORDER BY deleted_at DESC LIMIT 200`).all() : []
     };
   });
   app.get("/admin/profile/avatar-catalog",{preHandler:ownerGuard},async()=>({
@@ -1239,6 +1245,24 @@ export async function registerOwnerRoutes(
 
   // AUDITORIA: o ADMIN NAO compartilha a credencial do ROOT. O bot gera uma senha
   // propria, entregue UMA vez ao ROOT para repassar, com troca obrigatoria depois.
+  // Delegated administrators may change only their own credential. This response
+  // deliberately excludes the Root/team list, billing and integration settings.
+  app.get("/admin/credentials/self", { preHandler: ownerGuard }, async(request)=>{
+    const me=resolveOwnerContext(request)!;
+    return {ownerId:me.id,name:me.name,role:me.role,...credentialState(db,me.id)};
+  });
+  app.post("/admin/credentials/self", { preHandler: ownerGuard }, async(request,reply)=>{
+    const me=resolveOwnerContext(request)!;
+    const body=z.object({currentPassword:z.string().min(1).max(128),password:z.string().min(10).max(128)}).strict().parse(request.body);
+    // An existing administrative session alone must not let an attacker replace
+    // an ADMIN credential without knowing its current value.
+    if(!verifyCredential(db,me.id,body.currentPassword))return reply.code(403).send({message:"Confirme sua credencial administrativa atual."});
+    db.transaction(()=>{
+      setCredential(db,me.id,body.password,{mustChange:false});
+      auditCredentialChange(db,{phone:me.phone,targetId:me.id,kind:"OWNER",action:"SET",actorId:me.id,actorName:me.name,reason:"Alteração da própria credencial administrativa."});
+    })();
+    return {ok:true,message:"Sua credencial administrativa foi salva.",state:credentialState(db,me.id)};
+  });
   app.post("/admin/credentials/generate", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const body = z.object({ ownerId: z.string().min(1) }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Informe o administrador." });

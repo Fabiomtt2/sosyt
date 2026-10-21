@@ -20,8 +20,8 @@ export function playlistSelection(db:AppDatabase,userId:string,roundId:string){
 export function preparePlaylistSelection(db:AppDatabase,userId:string,roundId:string,acceptPartial:boolean,videoCount?:number){
  z.string().uuid().parse(roundId);
  return db.transaction(()=>{
-  const eligible=db.prepare("SELECT 1 FROM rounds r JOIN round_participants rp ON rp.round_id=r.id LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id WHERE r.id=? AND rp.user_id=? AND rp.left_at IS NULL AND r.closed_at IS NULL AND (p.finalized_at IS NULL OR (p.finalize_reason IN ('COMPLETE','MANUAL') AND EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=rp.user_id AND ps.reward_eligible=0))) AND EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id)").get(roundId,userId);
-  if(!eligible)throw Object.assign(new Error("Entre e contribua nesta fila antes de iniciar a playlist."),{statusCode:409,code:"ROUND_ACCESS_ENDED"});
+  const eligible=db.prepare("SELECT 1 FROM rounds r JOIN round_participants rp ON rp.round_id=r.id LEFT JOIN playlist_watch_progress p ON p.round_id=r.id AND p.user_id=rp.user_id WHERE r.id=? AND rp.user_id=? AND rp.left_at IS NULL AND r.closed_at IS NULL AND (p.finalized_at IS NULL OR (p.finalize_reason IN ('COMPLETE','MANUAL') AND EXISTS(SELECT 1 FROM playlist_selections ps WHERE ps.round_id=r.id AND ps.user_id=rp.user_id AND ps.reward_eligible=0))) AND (rp.source='SKIP' OR EXISTS(SELECT 1 FROM submissions s WHERE s.round_id=r.id AND s.user_id=rp.user_id))").get(roundId,userId);
+  if(!eligible)throw Object.assign(new Error("Contribua nesta fila ou use um Pular para liberar o acompanhamento."),{statusCode:409,code:"ROUND_ACCESS_ENDED"});
   const previous=playlistSelection(db,userId,roundId);
   const videos=(db.prepare("SELECT video_id AS id FROM submissions WHERE round_id=? ORDER BY slot").all(roundId) as {id:string}[]).map(v=>v.id);
   if(!videos.length)throw Object.assign(new Error("Esta fila ainda não tem vídeos."),{statusCode:409});

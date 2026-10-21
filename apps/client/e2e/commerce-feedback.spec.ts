@@ -34,7 +34,7 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  const celebration=page.getByRole("status",{name:"Compra confirmada"});
  const statusbar=page.getByRole("region",{name:"Inventário da conta"});
  const statusEvidence=resolve("../../.local-tmp/benefit-halo-evidence");mkdirSync(statusEvidence,{recursive:true});
- await expect(statusbar.getByRole("button")).toHaveCount(4);
+ await expect(statusbar.locator(".inventory-status-trigger")).toHaveCount(4);
  await expect(statusbar.getByRole("button",{name:"Moedas: 10",exact:true})).toBeVisible();
  await expect(statusbar.locator(".inventory-status-change")).toHaveCount(0);
 
@@ -97,17 +97,17 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
   await page.setViewportSize({width,height:960});await statusbar.scrollIntoViewIfNeeded();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   await expect(statusbar.getByRole("button",{name:"SUPER: Inativo",exact:true})).toBeVisible();
-  await statusbar.getByRole("button",{name:"Moedas: 20",exact:true}).click();
+  await statusbar.getByRole("button",{name:"Detalhes de Moedas",exact:true}).click();
   await expect(statusbar.getByRole("tooltip").filter({hasText:"Compradas: 10"})).toBeVisible();
   await page.screenshot({path:resolve(statusEvidence,"inventory-topbar-"+width+".png"),animations:"disabled"});
-  await statusbar.getByRole("button",{name:"Moedas: 20",exact:true}).click();
+  await statusbar.getByRole("button",{name:"Detalhes de Moedas",exact:true}).click();
  }
  await page.setViewportSize({width:1440,height:960});
 
  await request.post(server+"/payments/"+coins.pix.id+"/demo-approve",{headers:auth});
  expect((await (await request.get(server+"/dashboard",{headers:auth})).json()).wallet.total).toBe(20);
  const pass=await buy("PASS_SINGLE");
- await expect(pass.modal).toContainText("contribuição extra na mesma fila");
+ await expect(pass.modal).toContainText("+1 campo de URL na mesma fila");
  await pass.modal.getByRole("button",{name:"Simular confirmação"}).click();
  await expect(celebration).toContainText("1 passe");await expect(statusbar.getByRole("button",{name:"Passe: 1",exact:true})).toBeVisible();await celebration.getByLabel("Fechar confirmação").click();
  const skip=await buy("SKIP_1");

@@ -4,8 +4,8 @@ import { assertFreeQueueEntryAllowed } from "./active-access.js";
 // novas filas usam o menor número livre. Ao fechar uma fila, a última fila
 // pode ocupar a lacuna sem renumerar as intermediárias (1 fecha: 3 vira 1,
 // 2 continua 2). Se restar apenas a 2, ela permanece 2 até uma nova ocupar 1.
-// Participantes navegam apenas nas filas em que entraram, gratuitamente ou
-// com Pular/Passe; as contribuições anteriores permanecem intactas.
+// Todas as filas podem ser consultadas. Tarefas exigem inscrição/contribuição
+// ou acesso Pular; as contribuições anteriores permanecem intactas.
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 
@@ -81,32 +81,27 @@ export function expireRounds(db:AppDatabase,now=Date.now()):number{
  })();
 }
 
-/** Fecha quando todos concluíram ou abandonaram; nunca por um único usuário. */
+/** Completion is personal. Queues stay visible for their full 72-hour lifetime. */
 export function closeRoundIfFullyConsumed(db: AppDatabase, roundId: string): boolean {
-  const round = db.prepare("SELECT status, closed_at AS closedAt FROM rounds WHERE id=?").get(roundId) as { status: string; closedAt?: string } | undefined;
-  if (!round || round.closedAt) return false;
-  if(round.status!=="READY")return false;
-  const pending = db.prepare(`SELECT COUNT(*) AS n FROM round_participants rp
-    LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id
-    WHERE rp.round_id=? AND rp.left_at IS NULL AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')`).get(roundId) as { n: number };
-  if (pending.n > 0) return false;
-  closeRound(db, roundId);
-  return true;
+  const round=db.prepare("SELECT created_at AS createdAt,closed_at AS closedAt FROM rounds WHERE id=?").get(roundId) as {createdAt:string;closedAt?:string}|undefined;
+  if(!round||round.closedAt||Date.parse(round.createdAt)+QUEUE_LIFETIME_MS>Date.now())return false;
+  expireRounds(db);
+  return Boolean(db.prepare("SELECT 1 FROM rounds WHERE id=? AND closed_at IS NOT NULL").get(roundId));
 }
 
 // ---------- participação ----------
 
 export class QueueEntryError extends Error {
   readonly statusCode = 409;
-  constructor(readonly code: "QUEUE_CLOSED" | "QUEUE_ALREADY_COMPLETED", message: string) {
+  constructor(readonly code: "QUEUE_CLOSED" | "QUEUE_ALREADY_COMPLETED" | "QUEUE_ALREADY_JOINED" | "QUEUE_FULL" | "QUEUE_NOT_OPEN", message: string) {
     super(message);
     this.name = "QueueEntryError";
   }
 }
 
 export function joinRound(db: AppDatabase, roundId: string, userId: string, source: "FREE" | "SKIP" | "PASS" = "FREE"): void {
-  const round = db.prepare("SELECT closed_at AS closedAt FROM rounds WHERE id=?").get(roundId) as { closedAt: string | null } | undefined;
-  if (!round || round.closedAt) throw new QueueEntryError("QUEUE_CLOSED", "Esta fila já foi encerrada.");
+  const round = db.prepare("SELECT closed_at AS closedAt,created_at AS createdAt FROM rounds WHERE id=?").get(roundId) as { closedAt: string | null;createdAt:string } | undefined;
+  if (!round || round.closedAt || Date.parse(round.createdAt)+QUEUE_LIFETIME_MS<=Date.now()) throw new QueueEntryError("QUEUE_CLOSED", "Esta fila já foi encerrada.");
   const progress = db.prepare("SELECT finalized_at AS finalizedAt FROM playlist_watch_progress WHERE round_id=? AND user_id=?")
     .get(roundId, userId) as { finalizedAt: string | null } | undefined;
   if (progress?.finalizedAt) throw new QueueEntryError("QUEUE_ALREADY_COMPLETED", "Você já concluiu esta fila.");
@@ -199,11 +194,20 @@ export function currentRoundViewFor(db: AppDatabase, userId: string, preferId?: 
  * Destino do "Pular": a próxima fila OPEN com vaga em que o usuário AINDA não
  * está; se não houver, cria uma nova. Não consome o item — quem consome é a rota.
  */
-export function skipTargetFor(db: AppDatabase, userId: string): QueueRow {
+export function skipTargetFor(db: AppDatabase, userId: string,targetRoundId?:string,allowReady=false): QueueRow {
+  if(targetRoundId){
+    const selected=activeRounds(db).find(round=>round.id===targetRoundId);
+    if(!selected||Date.parse(selected.createdAt)+QUEUE_LIFETIME_MS<=Date.now())throw new QueueEntryError("QUEUE_CLOSED","Esta fila já encerrou seu prazo de três dias.");
+    if(db.prepare("SELECT 1 FROM round_participants WHERE round_id=? AND user_id=? AND left_at IS NULL").get(targetRoundId,userId))throw new QueueEntryError("QUEUE_ALREADY_JOINED","Você já tem acesso a esta fila. Abra-a sem gastar outro item.");
+    if(db.prepare("SELECT 1 FROM playlist_watch_progress WHERE round_id=? AND user_id=? AND finalized_at IS NOT NULL").get(targetRoundId,userId))throw new QueueEntryError("QUEUE_ALREADY_COMPLETED","Você já concluiu esta fila. O histórico continua disponível para consulta.");
+    if(selected.status!=="OPEN"&&!(allowReady&&selected.status==="READY"))throw new QueueEntryError("QUEUE_NOT_OPEN","O Passe abre uma fila com vagas. Use Pular para acompanhar uma fila já completa.");
+    if(selected.status==="OPEN"&&vacanciesIn(db,selected.id)<1)throw new QueueEntryError("QUEUE_FULL","Esta fila acabou de ser preenchida. Atualize antes de escolher.");
+    return selected;
+  }
   const mineIds = new Set((db.prepare(`SELECT rp.round_id AS id FROM round_participants rp
     LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id
     WHERE rp.user_id=? AND (rp.left_at IS NULL OR p.finalized_at IS NOT NULL)`).all(userId) as Array<{ id: string }>).map(row => row.id));
-  const candidate = activeRounds(db).find((r) => r.status === "OPEN" && !mineIds.has(r.id) && vacanciesIn(db, r.id) > 0);
+  const candidate = activeRounds(db).find((r) => r.status === "OPEN" && Date.parse(r.createdAt)+QUEUE_LIFETIME_MS>Date.now() && !mineIds.has(r.id) && vacanciesIn(db, r.id) > 0);
   if (candidate) return candidate;
   const id = openRound(db);
   return db.prepare(`SELECT id,sequence,status,display_number AS displayNumber,created_at AS createdAt,closed_at AS closedAt

@@ -62,6 +62,24 @@ describe("tempo verificado de acompanhamento",()=>{
       .run(new Date(Date.now()-millis).toISOString(),userId);
   }
 
+  it("confirmação periódica pausa crédito, rejeita replay e não credita o intervalo parado",async()=>{
+    const user=await register(),roundId=await readyRound(user.userId),sessionId=randomUUID();
+    const base={sessionId,videoIndex:0,duration:100,playbackRate:1,playing:true,visible:true};
+    await observe(user.token,roundId,{...base,playerSeconds:0});ageState(user.userId,5000);
+    const earned=await observe(user.token,roundId,{...base,playerSeconds:5});expect(earned.json().acceptedSeconds).toBeGreaterThan(4);
+    db.prepare("UPDATE watch_presence SET next_check_at=? WHERE user_id=?").run(Date.now()-1,user.userId);ageState(user.userId,5000);
+    const paused=await observe(user.token,roundId,{...base,playerSeconds:10});expect(paused.statusCode).toBe(200);
+    expect(paused.json().presence.required).toBe(true);expect(paused.json().acceptedSeconds).toBe(0);expect(paused.json().watchedSeconds).toEqual(earned.json().watchedSeconds);
+    const challengeId=paused.json().presence.challengeId;
+    const url=`/rounds/${roundId}/watch-presence/confirm`;
+    expect((await app.inject({method:"POST",url,headers:auth(user.token),payload:{challengeId:randomUUID()}})).statusCode).toBe(409);
+    expect((await app.inject({method:"POST",url,headers:auth(user.token),payload:{challengeId}})).statusCode).toBe(200);
+    expect((await app.inject({method:"POST",url,headers:auth(user.token),payload:{challengeId}})).statusCode).toBe(409);
+    ageState(user.userId,5000);const baseline=await observe(user.token,roundId,{...base,playerSeconds:20});expect(baseline.json().acceptedSeconds).toBe(0);
+    ageState(user.userId,5000);const resumed=await observe(user.token,roundId,{...base,playerSeconds:25});expect(resumed.json().acceptedSeconds).toBeGreaterThan(4);
+    expect(resumed.json().watchedSeconds[0]).toBe(10);
+  });
+
   it("usa relógio do servidor, rejeita seek e não conta trecho repetido",async()=>{
     const user=await register(),roundId=await readyRound(user.userId),sessionId=randomUUID();
     const base={sessionId,videoIndex:0,duration:100,playbackRate:1,playing:true,visible:true};

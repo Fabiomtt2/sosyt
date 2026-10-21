@@ -49,7 +49,7 @@ input:focus, textarea:focus { border-color: #e72b3b; box-shadow: 0 0 0 4px #e72b
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .app-shell { min-height: 100vh; }
-header { height: 76px; background: #111827; color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 max(24px, calc((100vw - 1180px) / 2)); }
+.app-shell > header { height: 76px; background: #111827; color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 max(24px, calc((100vw - 1180px) / 2)); }
 .logo { display: flex; align-items: center; gap: 5px; font-size: 1.08rem; }
 .logo > span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: var(--red); margin-right: 7px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
@@ -142,7 +142,7 @@ footer { margin-top: 42px; border-top: 1px solid var(--line); padding-top: 22px;
 @media(max-width:520px){.owner-heading{flex-direction:column}.owner-heading label{width:100%}.metrics-grid{gap:10px}.metrics-grid article{padding:16px}.metrics-grid strong{font-size:26px}.metrics-grid small{font-size:11px}.owner-panel{padding:16px}.request-actions label{width:100%}.request-actions select{width:100%}.owner-tabs button{padding:10px 14px}.owner-inline-form{flex-direction:column;align-items:stretch}.owner-inline-form label{min-width:0}.owner-shell .profile div{display:none}}
 .entry-slot{flex-wrap:wrap}.slot-entry-form{grid-column:1/-1;display:grid;gap:12px;width:100%;padding:12px 0 0}.slot-entry-form label{font-size:12px}.slot-entry-form input{width:100%}.slot .video-link{display:block;font-size:11px;line-height:1.5;color:#a02b4b;overflow-wrap:anywhere;word-break:break-all;margin:8px 0}.slot.filled .slot-main{min-width:0}.slot.filled .slot-main>div:last-child{min-width:0}.slot .primary{margin-top:10px}.cycle-details{width:100%;grid-column:1/-1;order:3}.cycle-details summary{font-size:13px;font-weight:700;color:#a02b4b;cursor:pointer;padding:12px 0}.cycle-details .board{margin-top:16px}.ready-card{flex-wrap:wrap}.ready-card .cycle-details{flex-basis:100%}
 
-@media(max-width:520px){header{padding:0 12px}.logo{font-size:.9rem}.header-actions{gap:6px}.owner-shell .profile{gap:5px;padding:5px}.owner-tabs{min-width:0;max-width:100%}.owner-panel{min-width:0}}
+@media(max-width:520px){.app-shell > header{padding:0 12px}.logo{font-size:.9rem}.header-actions{gap:6px}.owner-shell .profile{gap:5px;padding:5px}.owner-tabs{min-width:0;max-width:100%}.owner-panel{min-width:0}}
 
 .creation-progress{grid-column:1/-1;margin:0;font-size:13px;color:#655a63}.modal progress{width:100%;accent-color:#ef2540}
 
@@ -178,7 +178,7 @@ button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
 }
 .primary:hover, .intro-join:hover, .wallet button:hover { transform: translateY(-1px); }
 .secondary:hover, .owner-tabs button:hover, .group-chip:hover { transform: translateY(-1px); }
-header {
+.app-shell > header {
   background: linear-gradient(135deg, #111827 0%, #182033 100%);
   border-bottom: 1px solid #ffffff0c;
   box-shadow: 0 10px 30px #17203310;

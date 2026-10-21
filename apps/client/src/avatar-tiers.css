@@ -8,3 +8,9 @@
 .avatar-lightbox .user-avatar.avatar-lightbox-image.avatar-classic-native{width:80px;height:80px;min-width:80px;min-height:80px;flex:0 0 80px;margin:18px}
 .avatar-classic-caption{margin:0;max-width:240px;font-size:.76rem;line-height:1.5;text-align:center;color:#806c79}
 .avatar-tier-tabs button:focus-visible{outline:3px solid #ab83bb;outline-offset:3px}
+
+/* Native category picker stays compact and preserves keyboard/type-ahead navigation. */
+.avatar-modal-compact .avatar-category-select{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;margin:0 0 12px;padding:10px 12px;background:#f7efe8;border:1px solid #e3d4dc;border-radius:14px;color:#65475f;font-size:.78rem;font-weight:700}
+.avatar-modal-compact .avatar-category-select select{width:100%;min-width:0;min-height:44px;padding:8px 12px;border:1px solid #cbb6c6;border-radius:10px;background:#fffaf5;color:#54384f;font:inherit;text-transform:capitalize;cursor:pointer}
+.avatar-modal-compact .avatar-category-select select:focus-visible{outline:3px solid #ab83bb;outline-offset:2px}
+@media(max-width:420px){.avatar-modal-compact .avatar-category-select{gap:8px;padding:8px}.avatar-modal-compact .avatar-category-select select{font-size:.75rem}}

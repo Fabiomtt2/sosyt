@@ -40,9 +40,19 @@ test("jornada, níveis, trocas e presentes convergem com Owner e chats",async({p
  await expect.poll(()=>timeArt.evaluate((image:HTMLImageElement)=>image.complete&&image.naturalWidth>0)).toBe(true);
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:960});
+  const collapseChat=page.getByRole("button",{name:"Recolher sala da comunidade",exact:true});
+  const reopenChat=width===390&&await collapseChat.isVisible();
+  if(reopenChat)await collapseChat.click();
   await expect(banner).toContainText("Seu tempo continua com você.");
+  await banner.scrollIntoViewIfNeeded();
   expect(await banner.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  // An image squeezed inside a second 44% wrapper must not pass as a full-column illustration.
+  expect((await timeArt.boundingBox())!.width).toBeGreaterThan(200);
+  // Position the whole banner explicitly; scrollIntoViewIfNeeded accepts partially visible content.
+  await banner.evaluate(el=>el.scrollIntoView({block:"center",behavior:"instant"}));
+  await expect.poll(()=>banner.evaluate(el=>{const rect=el.getBoundingClientRect();return rect.top>=-1&&rect.bottom<=innerHeight+1;})).toBe(true);
   await banner.screenshot({path:resolve(visualEvidence,"carousel-time-"+width+".png"),animations:"disabled"});
+  if(reopenChat)await page.getByRole("button",{name:"Expandir sala da comunidade",exact:true}).click();
  }
  await page.getByRole("button",{name:/Minha jornada/}).click();
  const journey=page.getByRole("dialog",{name:"Minha jornada"});

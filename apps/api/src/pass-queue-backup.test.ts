@@ -27,6 +27,9 @@ it("backup anterior ao Passe captura WAL e permanece intacto após migração id
   // The new playlist archive also requires a snapshot before its first migration.
   expect(await backupBeforeQueuePassMigration(filename)).toBeTruthy();
   db.exec("CREATE TABLE playlist_selection_history(id TEXT)");
+  expect(await backupBeforeQueuePassMigration(filename)).toBeTruthy();
+  db.exec("CREATE TABLE watch_presence(id TEXT)");
+
   expect(await backupBeforeQueuePassMigration(filename)).toBeUndefined();
   expect(db.prepare("SELECT name FROM users WHERE id='synthetic'").get()).toEqual({name:"Estado anterior preservado"});
  }finally{db.close();rmSync(folder,{recursive:true,force:true});}

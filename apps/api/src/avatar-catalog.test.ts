@@ -66,6 +66,7 @@ describe("catálogo de avatares", () => {
     expect((await setAvatar(common.token, ownerSlug)).statusCode).toBe(403);
     const list = (await app.inject({ method: "GET", url: "/avatars", headers: auth(common.token) })).json().avatars as Array<{ slug: string; locked: boolean }>;
     expect(list.find((a) => a.slug === superSlug)?.locked).toBe(true);
+    expect(list.some(a=>a.slug===ownerSlug)).toBe(false);
 
     const sup = await register("71994000005"); grantSuper(db, sup.id, { days: 30, source: "GIFT" });
     expect((await setAvatar(sup.token, superSlug)).statusCode).toBe(200);
