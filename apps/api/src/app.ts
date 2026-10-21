@@ -45,8 +45,8 @@ import { enqueueGroupJoin } from "./bot-group-join.js";
 import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState, verifiedGroupCodes } from "./group-verification.js";
-import { registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
-import { effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, initializeWhatsAppIntegration } from "./integrations.js";
+import { queueBotNotification, registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
+import { readPaymentIntegration, effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, initializeWhatsAppIntegration } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
@@ -358,7 +358,7 @@ async function backfillActiveSubmissionMetadata(db:AppDatabase,apiKey?:string) {
   }));
 }
 
-function settlePayment(db: AppDatabase, paymentId: string): boolean {
+function settlePayment(db: AppDatabase, paymentId: string, config:Config): boolean {
   return db.transaction(() => {
     const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId) as {
       id: string; user_id: string; status: string; credits_millis: number; extra_passes: number;
@@ -386,6 +386,11 @@ function settlePayment(db: AppDatabase, paymentId: string): boolean {
     // Idempotente pelo id do pagamento — webhook reenviado nao estende de novo.
     if (bought?.days && bought.days > 0) {
       grantSuper(db, payment.user_id, { days: bought.days, source: "PURCHASE", autoRenew: true, referenceId: payment.id });
+    }
+    const person=db.prepare("SELECT phone FROM users WHERE id=? AND deleted_at IS NULL").get(payment.user_id) as {phone:string}|undefined;
+    if(person){
+      const benefits=[payment.credits_millis>0?`+${payment.credits_millis/1000} moedas`:"",payment.extra_passes>0?`+${payment.extra_passes} Passe`:"",bought?.grantsItem&&bought.qty>0&&!bought.days?`+${bought.qty} ${bought.grantsItem==="SKIP"?"Pular":bought.grantsItem}`:"",bought?.days?`+${bought.days} dias de SUPER`:""].filter(Boolean).join(" · ");
+      queueBotNotification(db,config,person.phone,`Compra confirmada! 💛 ${benefits}. Seu benefício já chegou à carteira do SOS. Obrigado por apoiar a comunidade!`,"purchase-confirmed:"+payment.id,undefined,{deliveryClass:"TRANSACTIONAL",event:"PURCHASE_CONFIRMED"});
     }
     return true;
   })();
@@ -776,7 +781,13 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       assertNotSelf(request.user.sub, body.data.toUserId);
       assertRecipientActive(db, body.data.toUserId);
       if(request.user.adminRole!=="ROOT_OWNER") assertNoPaymentHold(db,request.user.sub);
-      return reply.send(giftItem(db, request.user.sub, body.data.toUserId, body.data.itemCode, body.data.quantity,request.user.adminRole==="ROOT_OWNER",body.data.referenceId));
+      const result=db.transaction(()=>{
+        const gift=giftItem(db,request.user.sub,body.data.toUserId,body.data.itemCode,body.data.quantity,request.user.adminRole==="ROOT_OWNER",body.data.referenceId);
+        const person=getUser(db,body.data.toUserId)!,sender=getUser(db,request.user.sub)!;
+        const label=body.data.itemCode==="SKIP"?"Pular":body.data.itemCode==="PASS"?"Passe":body.data.itemCode==="SUPER"?"SUPER · 30 dias":body.data.itemCode;
+        queueBotNotification(db,config,String(person.phone),`${sender.name} enviou um presente para você! 💛 +${body.data.quantity} ${label} já está na sua carteira do SOS.`,"item-gift:"+gift.reference,undefined,{deliveryClass:"TRANSACTIONAL",event:"ITEM_RECEIVED"});
+        return gift;
+      })();return reply.send(result);
     }
     catch (error) {
       if(error instanceof WalletGuardError) return reply.code(error.statusCode).send({ message: error.message, code: error.code });
@@ -1224,7 +1235,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const paymentRuntime=effectivePaymentConfig(db,config);
     const demoPayments=paymentRuntime.provider==="DISABLED" && config.PAYMENTS_DEV_MODE && config.NODE_ENV!=="production";
     const commerce={
-      pixAvailable:paymentRuntime.provider!=="DISABLED" || demoPayments,
+      pixAvailable:readPaymentIntegration(db,config).ready || demoPayments,
       provider:demoPayments ? "DEMO" as const : paymentRuntime.provider,
       products:listStoreProducts(db,{activeOnly:true}).map((item)=>({
         code:item.code,title:item.title,amountCents:item.amountCents,credits:item.creditsMillis/1000,
@@ -1595,6 +1606,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const paymentConfig = effectivePaymentConfig(db,config);
     const provider = paymentConfig.provider === "DISABLED" && config.PAYMENTS_DEV_MODE && config.NODE_ENV !== "production" ? "DEMO" : paymentConfig.provider;
     if (provider === "DISABLED") return reply.code(409).send({ message:"O Owner ainda não configurou um provedor Pix ativo." });
+    if(provider!=="DEMO"&&!readPaymentIntegration(db,config).ready)return reply.code(409).send({message:"Os pagamentos estão sendo preparados. Falta concluir a configuração segura do provedor; nenhuma cobrança foi criada."});
     const product=getActiveStoreProduct(db,body.product);
     if (!product) return reply.code(409).send({ message:"Este item não está disponível na loja." });
     db.prepare(`INSERT INTO payments (id, user_id, provider, product_code, status, amount_cents, credits_millis, extra_passes, product_benefits_json, created_at)
@@ -1607,7 +1619,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         : await createPixPayment(paymentConfig, { paymentId, email: body.email, cpf: body.cpf, name: String(user.name), product });
       db.prepare(`UPDATE payments SET provider_payment_id = ?, status = ?, qr_code = ?, qr_code_base64 = ?, ticket_url = ? WHERE id = ?`)
         .run(pix.providerPaymentId, pix.status === "APPROVED" ? "PENDING" : pix.status, pix.qrCode ?? null, pix.qrCodeBase64 ?? null, pix.ticketUrl ?? null, paymentId);
-      if (pix.status === "APPROVED") settlePayment(db, paymentId);
+      if (pix.status === "APPROVED") settlePayment(db, paymentId,config);
       return reply.code(201).send({ id: paymentId, userId:request.user.sub, ...pix, provider, product:product.code, credits:product.creditsMillis/1000, extraPasses:product.extraPasses, receipt:paymentReceipt(db,request.user.sub,paymentId) });
     } catch (error) {
       db.prepare("UPDATE payments SET status = 'REJECTED' WHERE id = ?").run(paymentId);
@@ -1620,7 +1632,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     const id = z.string().uuid().parse((request.params as { id: string }).id);
     const owned = db.prepare("SELECT id FROM payments WHERE id = ? AND user_id = ? AND provider = 'DEMO'").get(id, request.user.sub);
     if (!owned) return reply.code(404).send({ message: "Pagamento não encontrado." });
-    settlePayment(db, id);
+    settlePayment(db, id,config);
     return { ok: true };
   });
 
@@ -1633,7 +1645,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       throw Object.assign(new Error("Pagamento não corresponde ao pedido registrado."), { statusCode: 409 });
     }
     if (result.status === "APPROVED") {
-      settlePayment(db, local.id);
+      settlePayment(db, local.id,config);
     } else if (result.status === "CANCELLED" && local.approved_at) {
       db.transaction(() => {
         db.prepare("UPDATE payments SET status = 'CANCELLED' WHERE id = ?").run(local.id);

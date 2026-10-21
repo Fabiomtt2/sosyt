@@ -5,7 +5,8 @@ import { assertSocialInteractionAllowed } from "./social-blocks.js";
 // já usa e que a auditoria verificou como sólido).
 import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
-import { isRootOwner } from "./super.js";
+import { isRootOwner, grantSuper, SUPER_DAYS } from "./super.js";
+import {notifyCommunity} from "./social.js";
 
 export const ITEM_SKIP = "SKIP";
 
@@ -90,9 +91,25 @@ export function giftItem(db: AppDatabase, fromUserId: string, toUserId: string, 
       return {reference,itemCode,quantity};
     }
     assertSocialInteractionAllowed(db,fromUserId,toUserId);
+    if(itemCode==="SUPER"&&!unlimited)throw err(403,"Uma assinatura SUPER em uso não pode ser transferida. O Root pode conceder SUPER como presente.");
+    if(itemCode==="PASS"||itemCode==="SUPER"){
+      const stamp=new Date().toISOString();
+      if(itemCode==="PASS"){
+        if(!unlimited){
+          const debit=db.prepare("UPDATE wallets SET extra_slot_passes=extra_slot_passes-?,updated_at=? WHERE user_id=? AND extra_slot_passes>=?").run(quantity,stamp,fromUserId,quantity);
+          if(!debit.changes)throw err(409,"Você não tem esse Passe disponível.",{code:"ITEM_INSUFFICIENT"});
+        }
+        if(!isRootOwner(db,toUserId))db.prepare("UPDATE wallets SET extra_slot_passes=extra_slot_passes+?,updated_at=? WHERE user_id=?").run(quantity,stamp,toUserId);
+      }else grantSuper(db,toUserId,{days:SUPER_DAYS*quantity,source:"GIFT",referenceId:"gift-super:"+reference,note:"Presente de "+fromUserId});
+      for(const [id,delta,kind,note] of [[fromUserId,-quantity,"GIFT_OUT","Presente para "+toUserId],[toUserId,quantity,"GIFT_IN","Presente de "+fromUserId]] as const)
+        db.prepare("INSERT INTO item_grants(id,user_id,item_code,delta,kind,reference_id,note,created_at) VALUES(?,?,?,?,?,?,?,?)").run(randomUUID(),id,itemCode,delta,kind,reference,note,stamp);
+      notifyCommunity(db,{userId:toUserId,kind:"ITEM_RECEIVED",actorId:fromUserId,referenceId:reference,payload:{itemCode,quantity,days:itemCode==="SUPER"?SUPER_DAYS*quantity:undefined}});
+      return {reference,itemCode,quantity};
+    }
     if(!unlimited) grantItem(db, { userId: fromUserId, itemCode, delta: -quantity, kind: "GIFT_OUT", referenceId: reference, note: `Presente para ${toUserId}` });
     if(unlimited) db.prepare("INSERT INTO item_grants (id,user_id,item_code,delta,kind,reference_id,note,created_at) VALUES (?,?,?,?,?,?,?,?)").run(randomUUID(),fromUserId,itemCode,-quantity,"GIFT_OUT",reference,"Presente ROOT_OWNER para "+toUserId,new Date().toISOString());
     grantItem(db, { userId: toUserId, itemCode, delta: quantity, kind: "GIFT_IN", referenceId: reference, note: `Presente de ${fromUserId}` });
+    notifyCommunity(db,{userId:toUserId,kind:"ITEM_RECEIVED",actorId:fromUserId,referenceId:reference,payload:{itemCode,quantity}});
     return { reference, itemCode, quantity };
   })();
 }

@@ -1,3 +1,4 @@
+import {saveWhatsAppIntegration,savePaymentIntegration} from "./integrations.js";
 import { requestDirectConversation,respondDirectConversation } from "./social.js";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {randomUUID} from "node:crypto";
@@ -93,6 +94,27 @@ describe("compras confirmadas e identidade SUPER",()=>{
   expect(fetch).toHaveBeenCalledTimes(2);
   expect((await app.inject({method:"GET",url:"/payments/"+id,headers:headers(user.token)})).json().receipt.credits).toBe(10);
  });
+ it("não cria cobrança nem anuncia Pix quando falta a assinatura do webhook",async()=>{
+  const user=await member();
+  // Token stored without webhook is incomplete, even though the provider was selected.
+  savePaymentIntegration(db,loadConfig({NODE_ENV:"test",DATABASE_PATH:":memory:",JWT_SECRET:"commerce-jwt-32-characters-for-test"}),{provider:"MERCADO_PAGO",environment:"PRODUCTION",mercadoPagoAccessToken:"synthetic-valid-access-token-for-test"});
+  const fetch=vi.spyOn(globalThis,'fetch');
+  const dashboard=await app.inject({url:'/dashboard',headers:headers(user.token)});expect(dashboard.json().commerce.pixAvailable).toBe(false);
+  const result=await app.inject({method:'POST',url:'/payments/pix',headers:headers(user.token),payload:{product:'SKIP_1',email:'synthetic@example.test',cpf:'52998224725'}});
+  expect(result.statusCode,result.body).toBe(409);expect(db.prepare('SELECT COUNT(*) AS n FROM payments').get()).toEqual({n:0});expect(fetch).not.toHaveBeenCalled();
+ });
+ it("compra e presente de Pular avisam pelo mesmo bot uma única vez",async()=>{
+  const config=loadConfig({NODE_ENV:"test",DATABASE_PATH:":memory:",JWT_SECRET:"commerce-jwt-32-characters-for-test"});
+  saveWhatsAppIntegration(db,config,{mode:'EVOLUTION',evolutionUrl:'https://example.test',evolutionInstance:'synthetic',evolutionApiKey:'synthetic-key',evolutionPhone:'5571999990988',evolutionWebhookSecret:'synthetic-webhook-secret-32'});
+  const a=await member(),b=await member('5571999990302','Bia');
+  const created=await app.inject({method:'POST',url:'/payments/pix',headers:headers(a.token),payload:{product:'SKIP_1',email:'synthetic@example.test',cpf:'52998224725'}});expect(created.statusCode,created.body).toBe(201);
+  const id=created.json().id;for(let n=0;n<2;n++)expect((await app.inject({method:'POST',url:'/payments/'+id+'/demo-approve',headers:headers(a.token)})).statusCode).toBe(200);
+  const referenceId=randomUUID();for(let n=0;n<2;n++){const result=await app.inject({method:'POST',url:'/inventory/gift',headers:headers(a.token),payload:{toUserId:b.id,itemCode:'SKIP',quantity:1,referenceId}});expect(result.statusCode,result.body).toBe(200);}
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE dedupe_key LIKE '%purchase-confirmed:%'").get()).toEqual({n:1});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE dedupe_key LIKE '%item-gift:%'").get()).toEqual({n:1});
+  expect(db.prepare('SELECT COUNT(*) AS n FROM payments').get()).toEqual({n:1});
+ });
+
 });
 
 it("atualização de banco antigo adiciona Pular/SUPER preservando produtos configurados",()=>{
@@ -111,6 +133,8 @@ it("atualização de banco antigo adiciona Pular/SUPER preservando produtos conf
    expect((db.prepare("SELECT COUNT(*) AS n FROM store_products").get() as {n:number}).n).toBe(5);db.close();
   }
  }finally{rmSync(dir,{recursive:true,force:true});}
+
+
 });
 
 function requestId(request:{id?:string}):string {

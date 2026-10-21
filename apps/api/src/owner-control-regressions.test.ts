@@ -41,4 +41,19 @@ describe("controle Owner integrado: delegação e suspensão sem grupo",()=>{
   expect((await app.inject({url:"/dashboard",headers:headers(user.token)})).statusCode).toBe(403);
  });
  it("participante sem membership não é elegível para promoção",async()=>{const user=fixture("Sem Vínculo","5571999990104",false);const result=await app.inject({method:"POST",url:"/admin/owners",headers:headers(root),payload:{userId:user.id}});expect(result.statusCode,result.body).toBe(409);});
+ it.each([['COINS',10],['PASS',2],['SKIP',3],['SUPER',30]] as const)("Root concede %s uma vez, com autoria e sem receita",async(benefit,quantity)=>{
+  const user=fixture("Presente Sintético","5571999990191",true),referenceId=randomUUID();
+  const payload={benefit,quantity,referenceId,reason:"Presente sintético de participação"},url="/admin/participants/"+user.phone+"/benefits";
+  for(let n=0;n<2;n++){const res=await app.inject({method:"POST",url,headers:headers(root),payload});expect(res.statusCode,res.body).toBe(200);expect(res.json().replayed).toBe(n===1);}
+  const wallet=db.prepare("SELECT purchased_millis,reward_millis,extra_slot_passes FROM wallets WHERE user_id=?").get(user.id);
+  expect(wallet).toMatchObject({purchased_millis:0,reward_millis:benefit==='COINS'?10000:0,extra_slot_passes:benefit==='PASS'?2:0});
+  if(benefit==='SKIP')expect(db.prepare("SELECT quantity FROM user_items WHERE user_id=? AND item_code='SKIP'").get(user.id)).toEqual({quantity:3});
+  if(benefit==='SUPER'){expect(db.prepare("SELECT source FROM super_subscriptions WHERE user_id=?").get(user.id)).toEqual({source:'GIFT'});expect(db.prepare("SELECT COUNT(*) AS n FROM super_events WHERE user_id=?").get(user.id)).toEqual({n:1});}
+  expect(db.prepare("SELECT COUNT(*) AS n FROM payments").get()).toEqual({n:0});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM wallet_ledger WHERE kind='OWNER_BENEFIT' AND reference_id=? AND actor_owner_id='fabio'").get(referenceId)).toEqual({n:1});
+  expect(db.prepare("SELECT COUNT(*) AS n FROM community_notifications WHERE user_id=? AND reference_id=?").get(user.id,referenceId)).toEqual({n:1});
+  expect((await app.inject({method:'POST',url,headers:headers(root),payload:{...payload,quantity:quantity+1}})).statusCode).toBe(409);
+  expect((await app.inject({method:'POST',url,headers:headers(user.token),payload:{...payload,referenceId:randomUUID()}})).statusCode).toBe(401);
+ });
+
 });

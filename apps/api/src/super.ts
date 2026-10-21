@@ -72,7 +72,7 @@ export function effectiveSuper(db: AppDatabase, userId: string): SuperState {
  * Concede/renova. Renovar **soma** ao tempo restante em vez de substituir — quem
  * renova antes do fim não perde os dias que já pagou.
  */
-export function grantSuper(db: AppDatabase, userId: string, opts: { days?: number; source: string; autoRenew?: boolean; referenceId?: string }): SuperState {
+export function grantSuper(db: AppDatabase, userId: string, opts: { days?: number; source: string; autoRenew?: boolean; referenceId?: string; note?:string }): SuperState {
   const days = opts.days ?? SUPER_DAYS;
   const now = Date.now();
   return db.transaction(() => {
@@ -89,8 +89,8 @@ export function grantSuper(db: AppDatabase, userId: string, opts: { days?: numbe
       ON CONFLICT(user_id) DO UPDATE SET expires_at=excluded.expires_at,auto_renew=excluded.auto_renew,
         source=excluded.source,revoked_at=NULL,updated_at=excluded.updated_at`)
       .run(userId, new Date(now).toISOString(), expiresAt, opts.autoRenew ? 1 : 0, opts.source, new Date(now).toISOString());
-    db.prepare("INSERT INTO super_events (id,user_id,kind,days,reference_id,created_at) VALUES (?,?,?,?,?,?)")
-      .run(randomUUID(), userId, "GRANT", days, opts.referenceId ?? null, new Date(now).toISOString());
+    db.prepare("INSERT INTO super_events (id,user_id,kind,days,reference_id,note,created_at) VALUES (?,?,?,?,?,?,?)")
+      .run(randomUUID(), userId, "GRANT", days, opts.referenceId ?? null, JSON.stringify({source:opts.source,detail:opts.note}), new Date(now).toISOString());
     return superState(db, userId);
   })();
 }

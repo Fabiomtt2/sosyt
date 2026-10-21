@@ -1,3 +1,4 @@
+import {grantOwnerBenefit} from "./owner-benefits.js";
 import { isParticipantBlocked, setParticipantAccess } from "./participant-access.js";
 import { humanSupportNumber } from "./bot-human-handoff.js";
 import { openHumanRelay } from "./bot-human-relay.js";
@@ -688,7 +689,7 @@ export async function registerOwnerRoutes(
     if (!body.success) return reply.code(400).send({ message: "Informe o participante." });
     if (!db.prepare("SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL").get(body.data.userId)) return reply.code(404).send({ message: "Participante não encontrado." });
     // Doacao do Owner: fonte registrada como GIFT para distinguir de compra.
-    return { ok: true, state: grantSuper(db, body.data.userId, { days: body.data.days ?? SUPER_DAYS, source: "GIFT", autoRenew: body.data.autoRenew ?? false }) };
+    return { ok: true, state: grantSuper(db, body.data.userId, { days: body.data.days ?? SUPER_DAYS, source: "GIFT", note:"Concedido por "+resolveOwnerContext(request)!.name, autoRenew: body.data.autoRenew ?? false }) };
   });
   app.post("/admin/super/revoke", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const me = resolveOwnerContext(request)!;
@@ -816,6 +817,8 @@ export async function registerOwnerRoutes(
       membership,
       request: participantRequest,
       wallet,
+      inventory:user?db.prepare("SELECT item_code AS itemCode,quantity FROM user_items WHERE user_id=? AND quantity>0").all(user.id):[],
+      subscription:user?superState(db,user.id):undefined,
       purchases,
       purchaseTotals,
       ledger,
@@ -919,6 +922,19 @@ export async function registerOwnerRoutes(
     return { ok:true };
   });
 
+  app.post("/admin/participants/:phone/benefits",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const phone=phoneSchema.parse((request.params as {phone:string}).phone);
+    const body=z.object({benefit:z.enum(["COINS","PASS","SKIP","SUPER"]),quantity:z.number().int().min(1).max(3650),referenceId:z.string().uuid(),reason:z.string().trim().min(5).max(240)}).parse(request.body);
+    const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
+    if(!user)return reply.code(404).send({message:"Participante não encontrado."});
+    const actor=resolveOwnerContext(request)!;
+    return db.transaction(()=>{
+      const result=grantOwnerBenefit(db,{...body,userId:user.id,actorId:actor.id,actorName:actor.name});
+      if(!result.replayed){const label=body.benefit==="COINS"?"moedas":body.benefit==="PASS"?"Passe":body.benefit==="SKIP"?"Pular":"dias de SUPER";
+        queueBotNotification(db,config,phone,`Um presente chegou! 💛 ${actor.name} concedeu +${body.quantity} ${label} para você. Seu benefício já está disponível na carteira do SOS.`,"owner-benefit:"+body.referenceId,undefined,{deliveryClass:"TRANSACTIONAL",event:"OWNER_BENEFIT"});}
+      return result;
+    })();
+  });
   app.post("/admin/participants/:phone/wallet-adjustment", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const phone = phoneSchema.parse((request.params as { phone: string }).phone);
     const body = z.object({ amountCoins:z.number().min(-1000).max(1000).refine((value)=>value!==0), reason:z.string().trim().min(5).max(240) }).parse(request.body);
