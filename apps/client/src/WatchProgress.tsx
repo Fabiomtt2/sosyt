@@ -241,8 +241,7 @@ export function WatchProgress({
     try {
       await sendObservation();
       const result=await api.finalizeWatchProgress(roundId);
-      finalizedHandled.current=true;
-      onFinalized(result.cooldownUntil);
+      if(result.cooldownUntil){finalizedHandled.current=true;onFinalized(result.cooldownUntil);}else onClose();
     } catch(cause) {
       setActionError(cause instanceof Error?cause.message:"Não foi possível concluir a tarefa agora.");
     } finally {
@@ -426,7 +425,7 @@ export function WatchProgress({
         {actionError && <p className="error banner" role="alert">{actionError}</p>}
 
         {!confirmFinish && !confirmAbandon && <div className="watch-exit-actions">
-          <button className="secondary watch-finish-button" disabled={finalizing} onClick={() => setConfirmFinish(true)}>Concluir por aqui</button>
+          <button className="secondary watch-finish-button" disabled={finalizing} onClick={() => slots.filter(slot=>slot.videoId).length<10?close():setConfirmFinish(true)}>{slots.filter(slot=>slot.videoId).length<10?"Pausar e aguardar mais vídeos":"Concluir por aqui"}</button>
           <button className="text-danger-button abandon-task-button" disabled={finalizing} onClick={() => setConfirmAbandon(true)}>Abandonar tarefa</button>
         </div>}
 

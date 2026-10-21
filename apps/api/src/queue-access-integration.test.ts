@@ -271,7 +271,7 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     expect((await app.inject({url:"/queues/mine",headers:auth(user.token)})).json().queues.map((q:{id:string})=>q.id)).toContain(first);
   });
 
-  it("playlist parcial exige confirmação e congela vídeos sem autorizar slots futuros",async()=>{
+  it("playlist parcial exige confirmação e amplia para dez sem perder histórico ou repetir XP",async()=>{
     const user=await register();const first=(db.prepare("SELECT id FROM rounds WHERE status='OPEN'").get() as {id:string}).id;joinRound(db,first,user.id);
     db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES(?,?,1,?,'https://youtu.be/E2EQUE00001','E2EQUE00001',?,10)").run(randomUUID(),first,user.id,stamp());
     const prepare=(acceptPartial:boolean)=>app.inject({method:"POST",url:"/rounds/"+first+"/prepare-playlist",headers:auth(user.token),payload:{acceptPartial}});
@@ -287,11 +287,33 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     db.prepare("UPDATE watch_observation_state SET observed_at=? WHERE user_id=?").run(new Date(Date.now()-10_000).toISOString(),user.id);
     const before=(db.prepare("SELECT reward_millis AS n FROM wallets WHERE user_id=?").get(user.id) as {n:number}).n;
     const end=await app.inject({method:"POST",url:"/rounds/"+first+"/watch-observation",headers:auth(user.token),payload:{...observation(),duration:10,sessionId,playerSeconds:10,playing:false}});
-    expect(end.statusCode,end.body).toBe(200);expect(end.json().xpDelta).toBeGreaterThan(0);expect(end.json().rewardDeltaCoins).toBe(0);expect(end.json().percent).toBe(100);expect(end.json().finalizedAt).toBeTruthy();
-    expect(db.prepare("SELECT closed_at AS closed FROM rounds WHERE id=?").get(first)).toEqual({closed:expect.any(String)});
-    const replacement=(await app.inject({url:"/dashboard",headers:auth(user.token)})).json().openRound;expect(replacement.number).toBe(1);expect(replacement.id).not.toBe(first);
+    expect(end.statusCode,end.body).toBe(200);expect(end.json().xpDelta).toBeGreaterThan(0);expect(end.json().rewardDeltaCoins).toBe(0);expect(end.json().percent).toBe(100);expect(end.json().finalizedAt).toBeUndefined();
+    expect(db.prepare("SELECT closed_at AS closed FROM rounds WHERE id=?").get(first)).toEqual({closed:null});
+    const current=(await app.inject({url:"/dashboard",headers:auth(user.token)})).json().openRound;expect(current.id).toBe(first);
     expect(db.prepare("SELECT reward_millis AS n FROM wallets WHERE user_id=?").get(user.id)).toEqual({n:before});
     expect(db.prepare("SELECT verified_millis AS n FROM watch_time_totals WHERE user_id=?").get(user.id)).toEqual({n:1199000});
+    for(let slot=2;slot<=10;slot++)db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,created_at,video_duration_seconds) VALUES(?,?,?,?,?,?,?,10)").run(randomUUID(),first,slot,user.id,"https://youtu.be/E2EQUE000"+String(slot).padStart(2,"0"),"E2EQUE000"+String(slot).padStart(2,"0"),stamp());
+    db.prepare("UPDATE rounds SET status='READY' WHERE id=?").run(first);
+    const dashboardFull=(await app.inject({url:"/dashboard",headers:auth(user.token)})).json().readyRounds.find((r:{id:string})=>r.id===first);
+    expect(dashboardFull.slots).toHaveLength(1);expect(dashboardFull.availableSlots.filter((v:{videoId?:string})=>v.videoId)).toHaveLength(10);
+    // An active export cannot be archived underneath a remote request.
+    db.prepare("INSERT INTO export_locks(round_id,user_id,owner,expires_at) VALUES(?,?,'test-lock',?)").run(first,user.id,new Date(Date.now()+60000).toISOString());
+    expect((await prepare(false)).statusCode).toBe(409);
+    db.prepare("DELETE FROM export_locks WHERE round_id=?").run(first);
+    const full=await prepare(false);expect(full.statusCode,full.body).toBe(200);expect(full.json()).toMatchObject({count:10,rewardEligible:true});
+    expect((await prepare(false)).json()).toEqual(full.json());
+    const history=db.prepare("SELECT export_json AS exported,selection_json AS selection,progress_json AS progress FROM playlist_selection_history WHERE round_id=?").all(first) as {exported:string;selection:string;progress:string}[];
+    expect(history).toHaveLength(1);expect(JSON.parse(history[0].exported).youtube_playlist_id).toBe("synthetic-playlist");expect(JSON.parse(history[0].selection).count).toBe(1);expect(JSON.parse(history[0].progress).percent).toBe(100);
+    expect(()=>db.prepare("DELETE FROM playlist_selection_history").run()).toThrow("Immutable playlist history");
+    expect(db.prepare("SELECT youtube_playlist_id AS id,status,added_count AS count FROM playlist_exports WHERE round_id=? AND user_id=?").get(first,user.id)).toEqual({id:null,status:"PENDING",count:0});
+    const smaller=await app.inject({method:"POST",url:"/rounds/"+first+"/prepare-playlist",headers:auth(user.token),payload:{acceptPartial:true,videoCount:1}});expect(smaller.statusCode).toBe(409);
+    db.prepare("UPDATE playlist_exports SET youtube_playlist_id='synthetic-full',status='SUCCESS',added_count=10 WHERE round_id=? AND user_id=?").run(first,user.id);
+    const observe=(videoIndex:number,playerSeconds:number)=>app.inject({method:"POST",url:"/rounds/"+first+"/watch-observation",headers:auth(user.token),payload:{...observation(),duration:10,sessionId,videoIndex,playerSeconds}});
+    await observe(0,0);db.prepare("UPDATE watch_observation_state SET observed_at=? WHERE user_id=?").run(new Date(Date.now()-10000).toISOString(),user.id);
+    const replay=await observe(0,10);expect(replay.statusCode,replay.body).toBe(200);expect(replay.json().acceptedSeconds).toBe(0);expect(replay.json().xpDelta).toBe(0);expect(replay.json().rewardDeltaCoins).toBe(0);
+    await observe(9,0);db.prepare("UPDATE watch_observation_state SET observed_at=? WHERE user_id=?").run(new Date(Date.now()-10000).toISOString(),user.id);
+    const fresh=await observe(9,10);expect(fresh.statusCode,fresh.body).toBe(200);expect(fresh.json().xpDelta).toBeGreaterThan(0);expect(fresh.json().rewardDeltaCoins).toBe(1);
+
   });
 
   it("HTTP expires72h queues without deleting URLs or granting new rewards",async()=>{

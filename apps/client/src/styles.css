@@ -2331,3 +2331,5 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .automations-panel fieldset label{display:inline-flex;align-items:center;gap:8px}
 .automations-panel fieldset legend{max-width:100%;padding:0 5px}
 .automations-panel .automation-preview p,.automations-panel .automation-audit-diff{overflow-wrap:anywhere}
+
+.playlist-size-choice{display:grid;gap:8px;margin:18px 0;font-weight:700}.playlist-size-choice select{width:100%;padding:12px;border:1px solid #dbcbd8;border-radius:12px;background:#fffaf2;color:#4e2948;font:inherit}

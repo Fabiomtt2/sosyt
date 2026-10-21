@@ -38,7 +38,7 @@ test("Owner concede os quatro benefícios sem receita e halos da fila ficam circ
   const id=randomUUID(),stamp=new Date().toISOString(),sequence=(db.prepare('SELECT COALESCE(MAX(sequence),0)+1 AS n FROM rounds').get() as {n:number}).n;
   db.prepare("INSERT INTO rounds(id,sequence,display_number,status,created_at) VALUES(?,?,901,'OPEN',?)").run(id,sequence,stamp);
   for(const [index,userId,role] of [[1,admin.user.id,'ROOT_OWNER'],[2,member.user.id,null]] as const){
-   db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,admin_role,created_at,video_title) VALUES(?,?,?,?,?,?,?,?,?)").run(randomUUID(),id,index,userId,'https://youtu.be/HALO000000'+index,'HALO000000'+index,role,stamp,'Retrato e presença na comunidade');
+   db.prepare("INSERT INTO submissions(id,round_id,slot,user_id,youtube_url,video_id,author_admin_role,created_at,video_title) VALUES(?,?,?,?,?,?,?,?,?)").run(randomUUID(),id,index,userId,'https://youtu.be/HALO000000'+index,'HALO000000'+index,role,stamp,'Retrato e presença na comunidade');
    db.prepare("INSERT INTO round_participants(round_id,user_id,source,joined_at) VALUES(?,?,'FREE',?)").run(id,userId,stamp);
   }
   await page.evaluate(token=>{localStorage.setItem('conexao_token',token);localStorage.setItem('conexao_active_role','user');sessionStorage.setItem('sos-chat-open','false');},admin.token);await page.reload();

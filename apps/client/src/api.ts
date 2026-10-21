@@ -37,7 +37,7 @@ export type GoogleIdentityRequest={id:string;name:string;phone:string;email:stri
 export type CompanionDevice={id:string;label:string;createdAt:string;lastSeenAt?:string;signal?:string;playerMatches:number;authorized:number};
 export const api = {
   levelEmblems:()=>request<{emblems:LevelEmblem[]}>("/level-emblems"),
-  preparePlaylist:(id:string,acceptPartial:boolean)=>request<{count:number;rewardEligible:boolean}>("/rounds/"+encodeURIComponent(id)+"/prepare-playlist",{method:"POST",body:JSON.stringify({acceptPartial})}),
+  preparePlaylist:(id:string,acceptPartial:boolean,videoCount?:number)=>request<{count:number;rewardEligible:boolean}>("/rounds/"+encodeURIComponent(id)+"/prepare-playlist",{method:"POST",body:JSON.stringify({acceptPartial,videoCount})}),
   passwordLogin:(phone:string,password:string)=>request<{token:string;mustChangePassword:boolean}>("/auth/password/login",{method:"POST",body:JSON.stringify({phone,password})}),
   setPassword:(newPassword:string,currentPassword?:string)=>request("/auth/password/set",{method:"POST",body:JSON.stringify({newPassword,currentPassword})}),
   gamification:()=>request<GamificationData & {enabled:boolean}>("/gamification/me"),
@@ -158,7 +158,7 @@ export type WatchRewards = {verifiedSeconds:number;coins:number;secondsToNextRew
 export type WatchObservationResult = WatchProgressState & WatchRewards & {
   acceptedSeconds:number;sessionConflict?:boolean;xpDelta?:number;levelRewards?:Array<{level:number;coins:number;trialDays:number}>;
 };
-export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";expiresAt?:string;slots:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
+export type Round = { id:string;sequence:number;/** AUDITORIA: rotulo exibido ao usuario (display_number) */number:number;status:"OPEN"|"READY";expiresAt?:string;slots:Slot[];availableSlots?:Slot[];completedAt?:string;viewerContributed?:boolean;export?:{status:string;playlistId?:string;addedCount?:number;watchProgress?:WatchProgressState} };
 export type UserProfileSummary = {
   activity:{ submissions:number; rounds:number; playlists:number; completedTasks:number };
   adminAccess?:{role:"ROOT_OWNER"|"ADMIN_OWNER"};

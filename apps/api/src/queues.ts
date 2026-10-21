@@ -85,7 +85,7 @@ export function expireRounds(db:AppDatabase,now=Date.now()):number{
 export function closeRoundIfFullyConsumed(db: AppDatabase, roundId: string): boolean {
   const round = db.prepare("SELECT status, closed_at AS closedAt FROM rounds WHERE id=?").get(roundId) as { status: string; closedAt?: string } | undefined;
   if (!round || round.closedAt) return false;
-  if(round.status!=="READY"&&!db.prepare("SELECT 1 FROM playlist_selections WHERE round_id=? LIMIT 1").get(roundId))return false;
+  if(round.status!=="READY")return false;
   const pending = db.prepare(`SELECT COUNT(*) AS n FROM round_participants rp
     LEFT JOIN playlist_watch_progress p ON p.round_id=rp.round_id AND p.user_id=rp.user_id
     WHERE rp.round_id=? AND rp.left_at IS NULL AND (p.finalized_at IS NULL OR p.finalize_reason='ABANDONED')`).get(roundId) as { n: number };

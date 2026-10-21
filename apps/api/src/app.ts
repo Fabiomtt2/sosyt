@@ -294,6 +294,8 @@ function finalizeRoundTask(db: AppDatabase, userId: string, roundId: string, rea
     const cooldown = cooldownState(db,userId);
     return { finalizedAt: current.finalizedAt, percent: current.percent, ...cooldown };
   }
+  if(reason!=="ABANDONED"&&playlistSelection(db,userId,roundId)?.rewardEligible===false)
+    return {percent:current.percent,partialComplete:true as const,cooldownUntil:undefined};
   const finalizedAt = stamp.toISOString();
   db.prepare("UPDATE playlist_watch_progress SET finalized_at=?, finalize_reason=? WHERE round_id=? AND user_id=?")
     .run(finalizedAt,reason,roundId,userId);
@@ -587,7 +589,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"commerce-benefits-20261020",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"commerce-benefits-20261020",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -1255,7 +1257,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         const watch = watchRows.find((entry) => entry.roundId === id);
         return {
           ...roundView(db,id,Boolean(request.user.adminRole)),
-          ...(playlistSelection(db,request.user.sub,id)?{slots:(roundView(db,id,Boolean(request.user.adminRole)).slots as unknown[]).slice(0,playlistSelection(db,request.user.sub,id)!.count)}:{}),
+          ...(playlistSelection(db,request.user.sub,id)?{availableSlots:roundView(db,id,Boolean(request.user.adminRole)).slots,slots:(roundView(db,id,Boolean(request.user.adminRole)).slots as unknown[]).slice(0,playlistSelection(db,request.user.sub,id)!.count)}:{}),
           viewerContributed,
           export:exportRow ? {
             ...exportRow,
@@ -1419,7 +1421,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     // conclusão era forjável declarando duration:1 em cada vídeo.
     const observedComplete=verifiedDurations.slice(0,selection?.count??10).every((duration,index)=>
       typeof duration==="number" && duration>0 && intervalCoverage(intervals[String(index)]??[])>=duration);
-    const finalization=observedComplete && acceptedMillis>0 ? db.transaction(()=>finalizeRoundTask(db,request.user.sub,roundId,"COMPLETE"))() : undefined;
+    const finalization=observedComplete && acceptedMillis>0 && selection?.rewardEligible!==false ? db.transaction(()=>finalizeRoundTask(db,request.user.sub,roundId,"COMPLETE"))() : undefined;
     return {
       watchedSeconds,durations,percent,acceptedSeconds:acceptedMillis/1000,
       rewardCoins:rewards.coins,rewardDeltaCoins:result.rewardDeltaCoins,
@@ -1817,8 +1819,8 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.post("/rounds/:id/prepare-playlist",{preHandler:authGuard},async(request)=>{
     const roundId=z.string().uuid().parse((request.params as {id:string}).id);
-    const {acceptPartial}=z.object({acceptPartial:z.boolean().default(false)}).parse(request.body??{});
-    return preparePlaylistSelection(db,request.user.sub,roundId,acceptPartial);
+    const {acceptPartial,videoCount}=z.object({acceptPartial:z.boolean().default(false),videoCount:z.number().int().min(1).max(10).optional()}).parse(request.body??{});
+    return preparePlaylistSelection(db,request.user.sub,roundId,acceptPartial,videoCount);
   });
 
   app.post("/rounds/:id/export", { preHandler: authGuard, config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
