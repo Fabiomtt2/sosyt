@@ -25,3 +25,6 @@
 
 .app-shell>.inventory-statusbar{width:min(calc(100% - 32px),680px);margin:16px auto 0;overflow:visible}
 @media(max-width:520px){.app-shell>.inventory-statusbar{margin-top:12px}}
+
+@media(min-width:1200px){.app-shell:has(.global-chat.open)>.inventory-statusbar{width:min(calc(100% - 502px),680px);margin-left:28px;margin-right:474px}}
+@media(max-width:1199px){.app-shell:has(>.inventory-statusbar):has(.global-chat.open) .dashboard{height:calc(100dvh - 203px - min(420px,46dvh));max-height:calc(100dvh - 203px - min(420px,46dvh))}}

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
 import { sameWhatsAppNumber } from "./bot-evolution.js";
+import { effectiveOwnerAccounts } from "./owners.js";
 import { humanSupportNumber } from "./bot-human-handoff.js";
 
 type Ticket={id:string;phone:string;name:string|null;status:string};
@@ -13,6 +14,13 @@ export function ensureHumanRelay(db:AppDatabase){
     CREATE UNIQUE INDEX IF NOT EXISTS bot_support_one_open ON bot_support_tickets(phone) WHERE status='OPEN';`);
 }
 const stamp=()=>new Date().toISOString();
+/** Input is the real phone resolved by the verified inbound adapter, never a raw LID or claimed role. */
+export function isHumanRelayOperator(db:AppDatabase,config:Config,phone:string):boolean {
+  if(!/^[1-9]\d{7,14}$/.test(phone))return false;
+  const authorized=[humanSupportNumber(db,config),...effectiveOwnerAccounts(db,config).filter(owner=>owner.role==="ROOT_OWNER").map(owner=>owner.phone)]
+    .filter((number):number is string=>typeof number==="string"&&/^[1-9]\d{7,14}$/.test(number));
+  return authorized.some(number=>sameWhatsAppNumber(number,phone));
+}
 /** Human-readable codes coexist with historical 12-character hexadecimal tickets. */
 function nextTicketId(db:AppDatabase){
   for(let i=0;i<20;i++){
@@ -22,11 +30,11 @@ function nextTicketId(db:AppDatabase){
   throw new Error("Não foi possível gerar um código de atendimento exclusivo.");
 }
 function instructions(id:string){
-  return `Código do atendimento (copie):\n${id}\n\nPara responder, cole o código e escreva a mensagem na mesma mensagem do WhatsApp. Exemplo:\n${id} Olá! No que posso ajudar?\n\nTambém funciona: RESPONDER ${id} sua mensagem\nA pessoa recebe “Admin:” na conversa original com o BOT. Não abra outra conversa.\nPara concluir: ENCERRAR ${id}\nNão encaminhe senhas ou códigos de acesso.`;
+  return `Código do atendimento (copie):\n${id}\n\nPara responder, cole o código e escreva a mensagem na mesma mensagem do WhatsApp. Exemplo:\n${id} Olá! No que posso ajudar?\n\nTambém funciona: RESPONDER ${id} sua mensagem\nOu use: #${id} $Olá! No que posso ajudar?$\nA pessoa recebe “Admin:” na conversa original com o BOT. Não abra outra conversa.\nPara concluir: ENCERRAR ${id}\nNão encaminhe senhas ou códigos de acesso.`;
 }
 function replyText(raw:string){
   const body=raw.trim();
-  const pairs=[["\"","\""],["“","”"],["'","'"]];
+  const pairs=[["\"","\""],["“","”"],["'","'"],["$","$"]];
   return pairs.some(([a,b])=>body.startsWith(a)&&body.endsWith(b)&&body.length>=2)?body.slice(1,-1).trim():body;
 }
 function close(db:AppDatabase,ticket:Ticket){
@@ -47,35 +55,35 @@ export function openHumanRelay(db:AppDatabase,config:Config,input:{phone:string;
 }
 export function routeHumanRelay(db:AppDatabase,config:Config,input:{phone:string;text:string;enabled?:boolean;media?:boolean}):{handled:boolean;messages:RelayMessage[]}{
   ensureHumanRelay(db);
-  const support=humanSupportNumber(db,config),text=input.text.trim();
+  const support=humanSupportNumber(db,config),text=input.text.trim(),operator=isHumanRelayOperator(db,config,input.phone);
   const enabled=input.enabled!==false;
   const paused=(recipient:string):RelayMessage=>({recipient,key:"relay-paused",body:"O atendimento humano está pausado pelo gerenciamento. Nenhuma mensagem foi encaminhada. Seu chamado continua registrado. Para retomar o bot, envie VOLTAR AO BOT."});
   const tooLong=(recipient:string):RelayMessage=>({recipient,key:"relay-too-long",body:"Neste atendimento, envie até 3000 caracteres por mensagem. Este texto não foi encaminhado; divida-o em mensagens menores para enviar tudo."});
   const explicit=text.match(/^(responder|encerrar)\s+#?([a-z0-9]{6}|[a-f0-9]{12})(?:\s*[:—-]?\s+([\s\S]+))?$/i);
   const compact=text.match(/^#?([a-z0-9]{6}|[a-f0-9]{12})(?:\s*[:—-]?\s+([\s\S]+))?$/i);
-  const compactAllowed=compact&&(sameWhatsAppNumber(support,input.phone)||Boolean(db.prepare("SELECT 1 FROM bot_support_tickets WHERE id=?").get(compact[1].toUpperCase())));
+  const compactAllowed=compact&&(operator||Boolean(db.prepare("SELECT 1 FROM bot_support_tickets WHERE id=?").get(compact[1].toUpperCase())));
   const command=explicit??(compactAllowed?[compact![0],"responder",compact![1],compact![2]]:null);
   if(command){
-    if(!sameWhatsAppNumber(support,input.phone))return {handled:true,messages:[{recipient:input.phone,key:"relay-denied",body:"Este comando é exclusivo do atendimento humano configurado."}]};
+    if(!operator)return {handled:true,messages:[{recipient:input.phone,key:"relay-denied",body:"Este comando é exclusivo do atendimento humano configurado e dos Owners principais."}]};
     const ticket=db.prepare("SELECT * FROM bot_support_tickets WHERE id=? AND status='OPEN'").get(command[2].toUpperCase()) as Ticket|undefined;
-    if(!ticket)return {handled:true,messages:[{recipient:support,key:"relay-missing",body:"Chamado não encontrado ou já encerrado. Confira o identificador."}]};
-    if(!enabled)return {handled:true,messages:[paused(support)]};
+    if(!ticket)return {handled:true,messages:[{recipient:input.phone,key:"relay-missing",body:"Chamado não encontrado ou já encerrado. Confira o identificador."}]};
+    if(!enabled)return {handled:true,messages:[paused(input.phone)]};
     if(command[1].toLowerCase()==="encerrar"){
       close(db,ticket);
       return {handled:true,messages:[
         {recipient:ticket.phone,key:"relay-closed-user",body:"O atendimento humano foi encerrado. 💛 Você pode continuar usando o bot: envie MENU. Se precisar, peça atendimento humano novamente."},
-        {recipient:support,key:"relay-closed-human",body:`Chamado #${ticket.id} encerrado.`}]};
+        {recipient:input.phone,key:"relay-closed-human",body:`Chamado #${ticket.id} encerrado.`}]};
     }
     const body=replyText(command[3]??"");
-    if(!body)return {handled:true,messages:[{recipient:support,key:"relay-empty",body:instructions(ticket.id)}]};
-    if(body.length>3000)return {handled:true,messages:[tooLong(support)]};
+    if(!body)return {handled:true,messages:[{recipient:input.phone,key:"relay-empty",body:instructions(ticket.id)}]};
+    if(body.length>3000)return {handled:true,messages:[tooLong(input.phone)]};
     db.prepare("UPDATE bot_support_tickets SET updated_at=? WHERE id=?").run(stamp(),ticket.id);
     return {handled:true,messages:[
       {recipient:ticket.phone,key:"relay-response",body:`Admin: ${body}\n\nPode responder aqui mesmo. Para voltar ao atendimento automático, envie VOLTAR AO BOT.`},
-      {recipient:support,key:"relay-queued",body:`Resposta do chamado #${ticket.id} registrada para envio. A entrega segue a fila do WhatsApp.`}]};
+      {recipient:input.phone,key:"relay-queued",body:`Resposta do chamado #${ticket.id} registrada para envio. A entrega segue a fila do WhatsApp.`}]};
   }
-  if(sameWhatsAppNumber(support,input.phone)){
-    if(/^(responder|encerrar)\b/i.test(text))return {handled:true,messages:[{recipient:support,key:"relay-empty",body:"Não reconheci o código. Copie o código do aviso de atendimento e envie na mesma mensagem que sua resposta. Exemplo: ABC123 Olá! No que posso ajudar? Para encerrar: ENCERRAR ABC123."}]};
+  if(operator){
+    if(/^(responder|encerrar)\b/i.test(text))return {handled:true,messages:[{recipient:input.phone,key:"relay-empty",body:"Não reconheci o código. Copie o código do aviso de atendimento e envie na mesma mensagem que sua resposta. Exemplo: ABC123 Olá! No que posso ajudar? Para encerrar: ENCERRAR ABC123."}]};
     return {handled:false,messages:[]};
   }
   const ticket=db.prepare("SELECT * FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(input.phone) as Ticket|undefined;

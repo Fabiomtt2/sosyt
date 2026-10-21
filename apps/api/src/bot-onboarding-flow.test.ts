@@ -217,4 +217,18 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   expect(db.prepare("SELECT 1 FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone)).toBeTruthy();
  });
 
+ it("relay HTTP autoriza Roots por telefone real alternativo do LID e não por identificador privado",async()=>{
+   config.OWNER_FABIO_WHATSAPP="5571999990051";config.OWNER_RAFAEL_WHATSAPP="5571999990052";
+   await inbound("Tenho dúvidas");const ticket=db.prepare("SELECT id FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone) as {id:string};
+   const deliver=(id:string,realPhone?:string,signature=secret)=>app.inject({method:"POST",url:"/webhooks/whatsapp/evolution",headers:{"x-sos-webhook-secret":signature},payload:{event:"MESSAGES_UPSERT",instance:"sos-primary",data:{key:{id,remoteJid:"900000000000051@lid",...(realPhone?{remoteJidAlt:realPhone+"@s.whatsapp.net"}:{}),fromMe:false},messageTimestamp:Date.now(),message:{conversation:"#"+ticket.id+" $Olá! Equipe humana por aqui.$"}}}});
+   expect((await deliver("root-relay-unsigned",config.OWNER_FABIO_WHATSAPP,"incorrect-signature")).statusCode).toBe(401);
+   await deliver("root-relay-lid-only");expect(db.prepare("SELECT 1 FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:root-relay-lid-only:relay-response'").get()).toBeUndefined();
+   for(const [id,sender] of [["root-relay-fabio","557199990051"],["root-relay-rafael","557199990052"]]){
+     expect((await deliver(id,sender)).statusCode).toBe(200);await deliver(id,sender);
+     const replies=db.prepare("SELECT recipient,payload FROM whatsapp_outbox WHERE dedupe_key=?").all("evo:sos-primary:"+id+":relay-response") as {recipient:string;payload:string}[];
+     expect(replies).toHaveLength(1);expect(replies[0].recipient).toBe(phone);expect(payloadBody(replies[0].payload)).toContain("Admin: Olá! Equipe humana por aqui.");expect(payloadBody(replies[0].payload)).not.toContain("$");
+     expect(db.prepare("SELECT recipient FROM whatsapp_outbox WHERE dedupe_key=?").get("evo:sos-primary:"+id+":relay-queued")).toEqual({recipient:sender});
+   }
+ });
+
 });

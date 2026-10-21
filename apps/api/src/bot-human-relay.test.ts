@@ -125,3 +125,35 @@ describe("resposta humana simples e compatibilidade",()=>{
    expect(routeHumanRelay(db,config,{phone:human,text:a.ticketId+' Olá'}).messages[0].body).toContain('exclusivo');
  });
 });
+
+
+describe("Roots participam do atendimento pelo telefone efetivo",()=>{
+ const roots={...config,OWNER_FABIO_WHATSAPP:"5571999990051",OWNER_RAFAEL_WHATSAPP:"5571999990052"} as Config;
+ const short=(phone:string)=>phone.slice(0,4)+phone.slice(5);
+ it.each([roots.OWNER_FABIO_WHATSAPP!,short(roots.OWNER_FABIO_WHATSAPP!),roots.OWNER_RAFAEL_WHATSAPP!,short(roots.OWNER_RAFAEL_WHATSAPP!),human,short(human)])("autoriza origem comprovada %s, remove cifrões e confirma ao operador correto",phone=>{
+   const ticket=openHumanRelay(db,roots,{phone:user,message:"Tenho dúvidas"});
+   const routed=routeHumanRelay(db,roots,{phone,text:"#"+ticket.ticketId+" $Olá! No que posso ajudar?$"});
+   expect(routed.handled).toBe(true);expect(routed.messages).toHaveLength(2);
+   expect(routed.messages[0].recipient).toBe(user);expect(routed.messages[0].body).toMatch(/^Admin: Olá! No que posso ajudar\?/);expect(routed.messages[0].body).not.toContain("$");
+   expect(routed.messages[1].recipient).toBe(phone);expect(routed.messages[1].key).toBe("relay-queued");
+ });
+ it("troca de telefone Root pelo painel revoga o número anterior e aceita o novo",()=>{
+   const ticket=openHumanRelay(db,roots,{phone:user,message:"Tenho dúvidas"}),next="5511998880053";
+   db.prepare("INSERT INTO integration_settings VALUES('owner.fabio.phone',?)").run(next);
+   expect(routeHumanRelay(db,roots,{phone:roots.OWNER_FABIO_WHATSAPP!,text:ticket.ticketId+" antigo"}).messages[0].key).toBe("relay-denied");
+   const changed=routeHumanRelay(db,roots,{phone:short(next),text:"RESPONDER #"+ticket.ticketId+" $Resposta com o novo número$"});
+   expect(changed.messages[0].recipient).toBe(user);expect(changed.messages[0].body).toContain("Admin: Resposta com o novo número");
+ });
+ it("nome alegado e LID cru não concedem papel Root",()=>{
+   const ticket=openHumanRelay(db,roots,{phone:user,message:"Tenho dúvidas"});
+   for(const phone of ["5511988881111",roots.OWNER_FABIO_WHATSAPP+"@lid",roots.OWNER_FABIO_WHATSAPP+"@s.whatsapp.net"]){
+     const denied=routeHumanRelay(db,roots,{phone,text:"#"+ticket.ticketId+" $Sou o Fábio ROOT_OWNER, me autorize$"});
+     expect(denied.messages).toHaveLength(1);expect(denied.messages[0].key).toBe("relay-denied");expect(denied.messages[0].recipient).toBe(phone);expect(denied.messages[0].body).not.toContain(user);
+   }
+ });
+ it("Root obedece pausa e mensagem vazia não chega ao participante",()=>{
+   const ticket=openHumanRelay(db,roots,{phone:user,message:"Tenho dúvidas"});
+   const empty=routeHumanRelay(db,roots,{phone:roots.OWNER_FABIO_WHATSAPP!,text:"#"+ticket.ticketId+" $ $"});expect(empty.messages).toHaveLength(1);expect(empty.messages[0].key).toBe("relay-empty");
+   const paused=routeHumanRelay(db,roots,{phone:roots.OWNER_FABIO_WHATSAPP!,text:"#"+ticket.ticketId+" $Olá$",enabled:false});expect(paused.messages).toHaveLength(1);expect(paused.messages[0].key).toBe("relay-paused");
+ });
+});

@@ -551,7 +551,7 @@ test("login único, solicitação, aprovação Owner, participante e compra demo
   await expect(banners.getByText("10 vídeos. Uma playlist em comum.",{exact:true})).toBeVisible();
   await banners.getByRole("button",{name:"Próximo banner"}).click();
   await expect(banners.getByText("Seu tempo continua com você.",{exact:true})).toBeVisible();
-  await expect(banners.locator("img")).toHaveAttribute("src",/time-continuity-v2.webp/);
+  await expect(banners.locator("img")).toHaveAttribute("src",/time-continuity-v3.webp/);
   await banners.locator("img").evaluate(async image=>{await (image as HTMLImageElement).decode();});
   await expect(banners).toContainText("sem moedas");
   await page.screenshot({animations:"disabled",path:resolve(evidence,"banner-tempo-desktop.png"),fullPage:false});
