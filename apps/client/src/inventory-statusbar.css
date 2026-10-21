@@ -1,18 +1,20 @@
-.inventory-statusbar{position:relative;min-width:0;width:min(100%,520px);flex-shrink:1;color:#50334a}
+.inventory-statusbar{position:relative;z-index:8;min-width:0;width:min(100%,520px);flex-shrink:1;color:#50334a}
 .inventory-status-items{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;list-style:none;padding:0;margin:0}
 .inventory-status-item{position:relative;min-width:0;border:1px solid #e7d4dc;border-radius:16px;background:linear-gradient(135deg,#fffcf5,#f9efe9);box-shadow:0 5px 14px #51304709;isolation:isolate}
 .inventory-status-trigger{display:grid;grid-template-columns:34px minmax(0,1fr);grid-template-rows:1fr auto;align-items:center;column-gap:6px;min-height:55px;width:100%;padding:8px 9px;border:0;border-radius:15px;background:transparent;color:inherit;text-align:left;cursor:pointer;line-height:1.15}
 .inventory-status-trigger:focus-visible{outline:2px solid #995f90;outline-offset:3px}
-.inventory-status-art{display:grid;place-items:center;grid-row:1/3;width:34px;height:34px;overflow:hidden;pointer-events:none}
+.inventory-status-art{display:grid;place-items:center;grid-column:1;grid-row:1/3;width:34px;height:34px;min-width:0;max-width:100%;contain:paint;overflow:hidden;pointer-events:none}
 .inventory-status-art>.store-editorial-art{display:block;width:34px;height:34px;max-height:none;padding:0;object-fit:contain;mix-blend-mode:multiply}
 .inventory-status-art>.store-raster-skip{width:34px;height:34px;aspect-ratio:1;position:relative;overflow:hidden}
 .inventory-status-art>.store-raster-skip>img{width:200%;height:100%;max-width:none;object-fit:contain;padding:0;transform:translateX(-50%)}
-.inventory-status-quantity{font:800 .93rem/1.15 Manrope,sans-serif;min-width:0;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.inventory-status-quantity{grid-column:2;grid-row:1;position:relative;font:800 .93rem/1.25 Manrope,sans-serif;min-width:0;max-width:100%;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .inventory-status-label{font:700 .62rem/1.25 "DM Sans",sans-serif;color:#816373;letter-spacing:.02em}
 .inventory-status-item.status-super{background:linear-gradient(135deg,#f1eafa,#fceff3 66%,#edf6f1)}
 .inventory-status-item.status-super.is-active{border-color:#b695cf;box-shadow:0 0 0 1px #e0ccec55,0 5px 20px #9a74ba14}
 .inventory-status-detail{position:absolute;top:calc(100% + 9px);left:0;z-index:30;width:230px;max-width:calc(100vw - 32px);padding:12px 14px;border:1px solid #ddc8d6;border-radius:14px;background:#fffaf3;box-shadow:0 10px 28px #49314124;color:#61485b;font-size:.75rem;font-weight:400;line-height:1.55;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-3px);transition:opacity .16s ease,transform .16s ease}
 .inventory-status-item:nth-child(n+3) .inventory-status-detail{left:auto;right:0}
+.inventory-status-item:has(.inventory-status-detail.is-expanded),.inventory-status-item:focus-within{z-index:2}
+@media(hover:hover){.inventory-status-item:hover{z-index:2}}
 .inventory-status-item:has(.inventory-status-trigger:focus-visible) .inventory-status-detail,.inventory-status-detail.is-expanded{opacity:1;visibility:visible;pointer-events:auto;transform:none}
 @media(hover:hover){.inventory-status-item:hover .inventory-status-detail{opacity:1;visibility:visible;pointer-events:auto;transform:none}.inventory-status-trigger:hover .inventory-status-art{transform:translateY(-2px)}}
 .inventory-status-item.has-gain{border-color:#9dbca9}.inventory-status-item.has-loss{border-color:#d4a5ab}
