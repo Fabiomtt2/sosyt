@@ -39,7 +39,9 @@ test("painéis novos do Owner permanecem navegáveis e sem overflow lateral",asy
         await password.fill("semnumerosabc");
         await confirmation.fill("semnumerosabc");
         await page.locator(".owner-access-form").first().getByRole("button",{name:"Salvar minha credencial",exact:true}).click();
-        await expect(page.getByRole("alert")).toContainText("letras e números");
+        const warning=page.getByRole("alertdialog");
+        await expect(warning).toContainText("letras e números");
+        await warning.getByRole("button",{name:"Entendi, voltar",exact:true}).click();
         await expect(password).toHaveValue("semnumerosabc");
         await expect(confirmation).toHaveValue("semnumerosabc");
         await password.fill("");await confirmation.fill("");
