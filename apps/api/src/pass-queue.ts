@@ -61,7 +61,7 @@ export function joinNextQueueWithPass(db: AppDatabase, userId: string, reference
       ORDER BY r.display_number,r.sequence LIMIT 1`).get(userId,targetRoundId??null,targetRoundId??null,userId) as
       {id:string;displayNumber:number;status:string;createdAt:string;count:number}|undefined;
     if(!target || Date.parse(target.createdAt)+QUEUE_LIFETIME_MS<=Date.now())
-      fail(409,"Use Passe somente em uma fila aberta da qual você já participa. Para mudar de fila, use Pular.","PASS_CURRENT_QUEUE_REQUIRED");
+      return fail(409,"Use Passe somente em uma fila aberta da qual você já participa. Para mudar de fila, use Pular.","PASS_CURRENT_QUEUE_REQUIRED");
     if(target.count>=10)fail(409,"Esta fila já está completa. O Passe só libera URL em uma fila com vaga.","QUEUE_FULL");
     const now = new Date().toISOString();
     if (!unlimited) {

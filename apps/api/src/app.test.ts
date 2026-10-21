@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
@@ -27,7 +27,7 @@ describe("fluxo colaborativo", () => {
     db = createDatabase(":memory:");
     app = await buildApp(loadConfig({ REQUIRE_GROUP_MEMBERSHIP: "false", NODE_ENV: "test", DATABASE_PATH: ":memory:", JWT_SECRET: "test-secret-with-enough-length", AUTH_CODE_PEPPER: "test-pepper", AUTH_DEV_MODE: "true" }), db);
   });
-  afterEach(async () => { await app.close(); db.close(); });
+  afterEach(async () => { await app.close(); db.close(); vi.restoreAllMocks(); });
 
   async function register(name:string,phone:string,groupCode="12") {
     const stamp=new Date().toISOString();
@@ -54,9 +54,17 @@ describe("fluxo colaborativo", () => {
   });
 
   it("persiste um link e impede uma segunda contribuição sem passe", async () => {
+    // This test verifies contribution limits, independently from YouTube availability.
+    const lookup=vi.spyOn(globalThis,"fetch").mockImplementation(async input=>{
+      const endpoint=new URL(String(input));
+      expect(endpoint.origin).toBe("https://www.youtube.com");
+      expect(endpoint.pathname).toBe("/oembed");
+      return new Response(JSON.stringify({title:"Synthetic video",author_name:"Synthetic channel"}),{status:200,headers:{"content-type":"application/json"}});
+    });
     const token = await register("Ana Teste", "71999990001");
     const first = await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: { authorization: `Bearer ${token}` }, payload: { url: "https://youtu.be/dQw4w9WgXcQ" } });
     expect(first.statusCode).toBe(201);
+    expect(lookup).toHaveBeenCalledTimes(1);
     const second = await app.inject({ method: "POST", url: "/rounds/current/submissions", headers: { authorization: `Bearer ${token}` }, payload: { url: "https://youtu.be/9bZkp7q19f0" } });
     expect(second.statusCode).toBe(409);
     const dashboard = await app.inject({ method: "GET", url: "/dashboard", headers: { authorization: `Bearer ${token}` } });

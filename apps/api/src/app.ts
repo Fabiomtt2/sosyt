@@ -590,7 +590,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"filas-passe-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2"] }));
+  app.get("/health", async () => ({ ok: true,release:"acesso-bot-local-20261021",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -940,7 +940,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     // participacao em filas continua exigindo grupo nas rotas proprias; aqui so
     // liberamos a porta de entrada e enfileiramos a adesao ao grupo.
     const temSenhaDoBot = Boolean(user && db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(user.id));
-    const vinculoRevogado = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(body.phone));
+    // Leaving one group must not revoke a confirmed membership in another group.
+    // Account-wide suspension remains enforced by accountAccessGuard.
+    const vinculoRevogado = !hasMembership(db,body.phone) && Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NOT NULL").get(body.phone));
     if (vinculoRevogado) return reply.code(403).send({code:"GROUP_NOT_CONFIRMED",message:"Seu acesso ao grupo está revogado. Fale com a equipe do SOS YOUTUBER."});
     if ((!groupCode || (config.REQUIRE_GROUP_MEMBERSHIP && !hasMembership(db, body.phone, groupCode))) && !temSenhaDoBot) {
       return reply.code(403).send({ code: "GROUP_NOT_CONFIRMED", message: "Seu WhatsApp ainda não está autorizado em um grupo SOS YOUTUBER." });
