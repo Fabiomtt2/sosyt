@@ -373,7 +373,7 @@ describe("contratos HTTP de acesso às filas independentes", () => {
     joinRound(db,first,user.id);db.prepare("UPDATE wallets SET extra_slot_passes=2 WHERE user_id=?").run(user.id);
     vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({title:"Vídeo sintético",author_name:"Canal teste"}),{status:200,headers:{"content-type":"application/json"}})));
     const submit=(id:string)=>app.inject({method:"POST",url:"/rounds/current/submissions",headers:auth(user.token),payload:{url:"https://youtu.be/"+id,expectedRoundId:first}});
-    expect((await submit("E2EPAS00001")).statusCode).toBe(200);
+    expect((await submit("E2EPAS00001")).statusCode).toBe(201);
     const denied=await submit("E2EPAS00002");expect(denied.statusCode).toBeGreaterThanOrEqual(400);
     expect(db.prepare("SELECT extra_slot_passes AS n FROM wallets WHERE user_id=?").get(user.id)).toEqual({n:2});
     const ref=randomUUID(),use=()=>app.inject({method:"POST",url:"/queues/pass",headers:auth(user.token),payload:{referenceId:ref,targetRoundId:first}});
