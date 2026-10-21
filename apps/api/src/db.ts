@@ -70,7 +70,7 @@ export async function backupBeforeQueuePassMigration(filename:string):Promise<st
   if(filename===":memory:"||!existsSync(filename))return;
   const source=new Database(filename,{readonly:true,fileMustExist:true});
   try{
-    if(["queue_pass_requests","social_blocks","community_config","community_preferences","friendships","community_notifications","community_audit","coin_transfers","direct_message_requests","playlist_selections","participant_access_restrictions","participant_access_audit"].every(name=>source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)))return;
+    if(["queue_pass_requests","social_blocks","community_config","community_preferences","friendships","community_notifications","community_audit","coin_transfers","direct_message_requests","playlist_selections","playlist_selection_history","participant_access_restrictions","participant_access_audit"].every(name=>source.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)))return;
     const folder=join(dirname(filename),"backups");mkdirSync(folder,{recursive:true,mode:0o700});
     const destination=join(folder,"pre-queue-pass-"+Date.now()+"-"+randomUUID()+".sqlite");
     await source.backup(destination);chmodSync(destination,0o600);

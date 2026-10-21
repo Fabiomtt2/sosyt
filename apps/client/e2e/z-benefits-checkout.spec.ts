@@ -49,5 +49,11 @@ test("Owner concede os quatro benefícios sem receita e halos da fila ficam circ
    expect(await avatar.evaluate(el=>getComputedStyle(el).boxShadow)).not.toBe('none');
   }
   for(const width of [1440,390]){await page.setViewportSize({width,height:960});const board=page.locator('.board').first();await board.scrollIntoViewIfNeeded();await board.screenshot({path:resolve(out,'queue-halos-'+width+'.png'),animations:'disabled'});}
+   await page.getByRole('button',{name:'Criar playlist com 2 vídeos',exact:true}).click();
+   const choice=page.getByRole('dialog',{name:'Criação de playlist'});
+   await choice.getByLabel('Quantidade de vídeos na playlist').selectOption('1');
+   await expect(choice).toContainText('você poderá criar outra maior, inclusive com os 10');
+   for(const width of [1440,390]){await page.setViewportSize({width,height:960});await choice.screenshot({path:resolve(out,'partial-playlist-'+width+'.png'),animations:'disabled'});}
+   await choice.getByRole('button',{name:'Cancelar criação'}).click();
  }finally{db.close();}
 });
