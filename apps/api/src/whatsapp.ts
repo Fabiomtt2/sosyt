@@ -567,7 +567,7 @@ export async function flushWhatsAppOutbox(db: AppDatabase, config: Config, limit
       if (row){
         const stored=JSON.parse(row.payload) as Payload;
         const passwordDelivery=db.prepare("SELECT u.phone FROM bot_password_deliveries d JOIN users u ON u.id=d.user_id WHERE d.outbox_id=?").get(row.id) as {phone:string}|undefined;
-        if(passwordDelivery&&botPhoneAccessBlocked(db,passwordDelivery.phone)){
+        if((passwordDelivery||stored._event==="BOT_PASSWORD_INFO")&&botPhoneAccessBlocked(db,passwordDelivery?.phone??row.recipient)){
           db.prepare("UPDATE whatsapp_outbox SET status='FAILED',last_error='ACCOUNT_ACCESS_REVOKED',lease_until=NULL WHERE id=?").run(row.id);
           return {deferred:true as const};
         }

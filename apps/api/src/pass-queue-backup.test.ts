@@ -24,6 +24,9 @@ it("backup anterior ao Passe captura WAL e permanece intacto após migração id
   // Backup remains necessary if another additive community/selection table is missing.
   expect(await backupBeforeQueuePassMigration(filename)).toBeTruthy();
   for(const name of ["social_blocks","community_config","community_preferences","friendships","community_notifications","community_audit","coin_transfers","direct_message_requests","playlist_selections","participant_access_restrictions","participant_access_audit"])db.exec("CREATE TABLE "+name+"(id TEXT)");
+  // The new playlist archive also requires a snapshot before its first migration.
+  expect(await backupBeforeQueuePassMigration(filename)).toBeTruthy();
+  db.exec("CREATE TABLE playlist_selection_history(id TEXT)");
   expect(await backupBeforeQueuePassMigration(filename)).toBeUndefined();
   expect(db.prepare("SELECT name FROM users WHERE id='synthetic'").get()).toEqual({name:"Estado anterior preservado"});
  }finally{db.close();rmSync(folder,{recursive:true,force:true});}
