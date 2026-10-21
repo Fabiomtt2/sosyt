@@ -10,6 +10,7 @@
 // O segredo do ambiente continua valendo como credencial de emergência do ROOT
 // (break-glass): se a senha do painel se perder, o ROOT ainda entra.
 import type { AppDatabase } from "./db.js";
+import { ensurePasswordResets } from "./password-reset.js";
 import { hashPassword, verifyPassword } from "./password.js";
 
 const MAX_ATTEMPTS = 5;
@@ -64,4 +65,11 @@ export function verifyCredential(db: AppDatabase, ownerId: string, plain: string
   }
   db.prepare("UPDATE admin_credentials SET attempts=0, locked_until=NULL WHERE owner_id=?").run(ownerId);
   return true;
+}
+
+/** Credential governance shares the existing immutable security trail; neither hash nor secret is logged. */
+export function auditCredentialChange(db:AppDatabase,input:{phone:string;targetId:string;kind:"OWNER"|"PARTICIPANT";action:"SET"|"GENERATE"|"CLEAR";actorId:string;actorName:string;reason:string}){
+  ensurePasswordResets(db);
+  db.prepare("INSERT INTO password_reset_audit(phone,event,actor_owner_id,actor_owner_name,detail,created_at) VALUES(?,?,?,?,?,?)")
+    .run(input.phone,"CREDENTIAL_"+input.action,input.actorId,input.actorName,JSON.stringify({targetId:input.targetId,kind:input.kind,reason:input.reason}),new Date().toISOString());
 }

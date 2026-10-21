@@ -102,6 +102,7 @@ describe("hierarquia ROOT_OWNER x ADMIN_OWNER", () => {
     const fechadas = [
       { method: "GET" as const, url: "/admin/credentials" },
       { method: "POST" as const, url: "/admin/credentials", payload: { password: "trocaSegura1" } },
+      { method: "POST" as const, url: "/admin/participants/5571999990001/password", payload: { password: "trocaSegura1",reason:"Tentativa sintética sem privilégio Root" } },
       { method: "POST" as const, url: "/admin/credentials/generate", payload: { ownerId: "qualquer" } },
       { method: "DELETE" as const, url: "/admin/credentials/qualquer" },
       { method: "POST" as const, url: "/admin/owner-phone", payload: { ownerId: "fabio", phone: "5571977770001" } },

@@ -3,7 +3,8 @@ import { WatchTimeSummary } from "./WatchTimeSummary";
 import { useModalLifecycle } from "./useModalLifecycle";
 import { useState } from "react";
 import { BarChart3, CheckCircle2, LogOut, ShieldCheck, Trash2, UserCog, WalletCards, X, Youtube } from "lucide-react";
-import { api, type Dashboard, type UserAvatar } from "./api";
+import "./owner-credentials.css";
+import { api, ownerApi, type Dashboard, type UserAvatar } from "./api";
 import { UserAvatarView } from "./AvatarModal";
 import { ProfilePhotoActions } from "./ProfilePhotoActions";
 
@@ -82,6 +83,26 @@ export function UserAccountMenu({data,onClose,onLogout,onDeleted,onAvatarChanged
       </div>
 
       <WatchTimeSummary rewards={data.watchRewards}/>
+      {data.viewer.adminRole==="ROOT_OWNER"&&<details className="account-password-section">
+        <summary>Minha credencial Owner</summary>
+        <p>Esta é a credencial usada para entrar como Owner. Ela é diferente da senha gerada pelo bot para participantes.</p>
+        {ownerSessionExists?<form className="owner-credential-form" aria-label="Minha credencial Owner" onSubmit={event=>{
+          event.preventDefault();
+          if(passwordForm.next!==passwordForm.confirm){setPasswordNotice("As duas credenciais precisam ser iguais.");return;}
+          if(passwordForm.next.length<10||!/[A-Za-z]/.test(passwordForm.next)||!/[0-9]/.test(passwordForm.next)){setPasswordNotice("Use pelo menos 10 caracteres, incluindo letras e números.");return;}
+          setBusy(true);setPasswordNotice("");
+          void ownerApi.credentials().then(credentials=>{
+            const current=credentials.owners?.find(owner=>owner.phone===data.user.phone);
+            if(!current||credentials.mine.ownerId!==current.id)throw new Error("A sessão do painel pertence a outra conta Owner. Entre novamente com a credencial desta conta antes de alterar a senha.");
+            return ownerApi.saveCredential({ownerId:current.id,password:passwordForm.next});
+          }).then(()=>{setPasswordForm({current:"",next:"",confirm:""});setPasswordNotice("Sua credencial Owner foi salva. Use-a na próxima entrada.");}).catch(cause=>setPasswordNotice(cause instanceof Error?cause.message:"Entre novamente no painel Owner para salvar sua credencial.")).finally(()=>setBusy(false));
+        }}>
+          <label>Nova credencial Owner<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={passwordForm.next} onChange={event=>setPasswordForm({...passwordForm,next:event.target.value})} required/></label>
+          <label>Repita a credencial Owner<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={passwordForm.confirm} onChange={event=>setPasswordForm({...passwordForm,confirm:event.target.value})} required/></label>
+          <button type="submit" className="primary" disabled={busy}>{busy?"Salvando…":"Salvar minha credencial Owner"}</button>
+        </form>:<button type="button" className="primary" onClick={()=>void openAdmin()} disabled={busy}>Confirmar acesso ao painel Owner</button>}
+        {passwordNotice&&<p role="status">{passwordNotice}</p>}
+      </details>}
       {!administrative&&<details className="account-password-section" open={localStorage.getItem("sos-password-change-required")==="true"}>
         <summary>Minha senha de acesso</summary>
         <p>Se recebeu uma senha inicial pelo bot, escolha agora uma senha que você consiga guardar. A chave WhatsApp continua disponível.</p>

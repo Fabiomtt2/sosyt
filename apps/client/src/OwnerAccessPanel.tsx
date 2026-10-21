@@ -1,3 +1,5 @@
+import { ActionErrorDialog } from "./ActionErrorDialog";
+import "./owner-credentials.css";
 import { BotPasswordSettings } from "./BotPasswordSettings";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Phone, Sparkles, ShieldCheck, Wand2, Trash2, RefreshCw, Copy, Check, Gift, Ban } from "lucide-react";
@@ -19,6 +21,14 @@ export function OwnerAccessPanel({users=[]}:{users?:OwnerOverview["users"]}) {
   const [creds, setCreds] = useState<CredentialsState>();
   const [superState, setSuperState] = useState<SuperAdminState>();
   const [mine, setMine] = useState({ password: "", confirm: "" });
+  const [credentialNotice,setCredentialNotice]=useState("");
+  const [rootCredentialNotice,setRootCredentialNotice]=useState("");
+  const [memberCredentialNotice,setMemberCredentialNotice]=useState("");
+  const [otherRoot,setOtherRoot]=useState({ownerId:"",password:"",confirm:"",reason:""});
+  const [memberCredential,setMemberCredential]=useState({userId:"",password:"",confirm:"",reason:""});
+  const [memberSearch,setMemberSearch]=useState("");
+  const member=users.find(user=>user.id===memberCredential.userId);
+  const members=users.filter(user=>!user.revokedAt&&!creds?.owners?.some(owner=>owner.phone===user.phone)&&!creds?.admins.some(admin=>admin.phone===user.phone)&&[user.name,user.phone,user.id].some(value=>value.toLocaleLowerCase("pt-BR").includes(memberSearch.trim().toLocaleLowerCase("pt-BR")))).slice(0,30);
   const [phones, setPhones] = useState<Record<string, string>>({ fabio: "", rafael: "" });
   const [grant, setGrant] = useState({ userId: "", days: "30" });
   const [participantSearch,setParticipantSearch]=useState("");
@@ -53,7 +63,7 @@ export function OwnerAccessPanel({users=[]}:{users?:OwnerOverview["users"]}) {
     if (mine.password.length < 10 || !/[a-zA-Z]/.test(mine.password) || !/[0-9]/.test(mine.password)) { setError("Use pelo menos 10 caracteres, incluindo letras e números."); return; }
     if (mine.password !== mine.confirm) { setError("As duas senhas precisam ser iguais."); return; }
     const saved = await run(() => ownerApi.saveCredential({ password: mine.password }), "Sua credencial do painel foi atualizada.");
-    if (saved) setMine({ password: "", confirm: "" });
+    if (saved) {setMine({ password: "", confirm: "" });setCredentialNotice("Sua credencial foi salva. Use a nova credencial na próxima entrada; sua sessão atual continua aberta.");}
   }
 
   if (!creds) return <section className="owner-panel"><p className="muted">{error || "Carregando acesso…"}</p></section>;
@@ -73,13 +83,47 @@ export function OwnerAccessPanel({users=[]}:{users?:OwnerOverview["users"]}) {
             ? <>Definida {creds.mine.updatedAt ? `em ${when(creds.mine.updatedAt)}` : ""}. A credencial de emergência também permite acessar o painel.</>
             : <>Você está usando a credencial de emergência. Crie abaixo uma senha para o painel.</>}
         </p>
-        <form className="owner-access-form" onSubmit={saveMine}>
-          <label>Nova credencial<input type="password" value={mine.password} onChange={(e) => setMine({ ...mine, password: e.target.value })} placeholder="mínimo 10, com letras e números" autoComplete="new-password" /></label>
-          <label>Repetir<input type="password" value={mine.confirm} onChange={(e) => setMine({ ...mine, confirm: e.target.value })} autoComplete="new-password" /></label>
+        <form className="owner-access-form owner-credential-form" aria-label="Minha credencial do painel" onSubmit={saveMine}>
+          <label>Nova credencial<input type="password" value={mine.password} onChange={(e) => setMine({ ...mine, password: e.target.value })} placeholder="mínimo 10, com letras e números" autoComplete="new-password" minLength={10} maxLength={128} required/></label>
+          <label>Repetir<input type="password" value={mine.confirm} onChange={(e) => setMine({ ...mine, confirm: e.target.value })} autoComplete="new-password" minLength={10} maxLength={128} required/></label>
           <p className="muted">Use pelo menos 10 caracteres, com letras e números, e repita a mesma credencial.</p>
-          <button className="primary" disabled={busy}>{busy ? "Salvando…" : "Salvar minha credencial"}</button>
+          <button type="submit" className="primary" disabled={busy}>{busy ? "Salvando…" : "Salvar minha credencial"}</button>{credentialNotice&&<p role="status" className="credential-success">{credentialNotice}</p>}
         </form>
       </div>
+
+      <section className="comms-block">
+        <div className="comms-block-head"><h3><ShieldCheck size={17}/> Credencial de outro Owner principal</h3></div>
+        <p className="muted">Fábio e Rafael têm autoridade máxima. Você pode substituir a credencial do outro Owner; informe o motivo para manter o histórico da administração.</p>
+        <form className="owner-access-form owner-credential-form" aria-label="Credencial de outro Owner" onSubmit={event=>{
+          event.preventDefault();
+          if(otherRoot.password!==otherRoot.confirm){setError("As duas credenciais precisam ser iguais.");return;}
+          const payload={ownerId:otherRoot.ownerId,password:otherRoot.password,reason:otherRoot.reason};
+          void run(()=>ownerApi.saveCredential(payload),"Credencial do Owner atualizada.").then(saved=>{if(saved){setOtherRoot({ownerId:"",password:"",confirm:"",reason:""});setRootCredentialNotice("A nova credencial do Owner foi salva. O registro da alteração inclui seu nome e o motivo.");}});
+        }}>
+          <label>Owner<select aria-label="Owner para alterar credencial" value={otherRoot.ownerId} onChange={event=>setOtherRoot({...otherRoot,ownerId:event.target.value})} required><option value="">Escolha o Owner</option>{creds.owners?.filter(owner=>owner.id!==creds.mine.ownerId).map(owner=><option key={owner.id} value={owner.id}>{owner.name} · {owner.phone}</option>)}{creds.admins.map(admin=><option key={admin.ownerId} value={admin.ownerId}>{admin.name} · Administrador · {admin.phone}</option>)}</select></label>
+          <label>Nova credencial do Owner<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={otherRoot.password} onChange={event=>setOtherRoot({...otherRoot,password:event.target.value})} required/></label>
+          <label>Repita a credencial do Owner<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={otherRoot.confirm} onChange={event=>setOtherRoot({...otherRoot,confirm:event.target.value})} required/></label>
+          <label>Motivo da alteração<input minLength={5} maxLength={240} value={otherRoot.reason} onChange={event=>setOtherRoot({...otherRoot,reason:event.target.value})} placeholder="Ex.: recuperação de acesso solicitada" required/></label>
+          <small>Use 10 a 128 caracteres, incluindo letras e números. A senha antiga do painel será substituída; o segredo de emergência continua protegido.</small>
+          <button type="submit" className="primary" disabled={busy}>Salvar credencial do Owner</button>{rootCredentialNotice&&<p role="status" className="credential-success">{rootCredentialNotice}</p>}
+        </form>
+      </section>
+      <section className="comms-block">
+        <div className="comms-block-head"><h3><KeyRound size={17}/> Recuperar acesso de um participante</h3></div>
+        <p className="muted">Defina uma senha provisória quando precisar intervir. A pessoa deverá trocá-la ao entrar. A senha fica protegida; o histórico guarda apenas quem alterou e o motivo.</p>
+        <form className="owner-access-form owner-credential-form" aria-label="Senha provisória de participante" onSubmit={event=>{
+          event.preventDefault();if(!member){setError("Escolha um participante cadastrado.");return;}
+          if(memberCredential.password!==memberCredential.confirm){setError("As duas senhas provisórias precisam ser iguais.");return;}
+          void run(()=>ownerApi.setParticipantPassword(member.phone,{password:memberCredential.password,reason:memberCredential.reason}),"Senha provisória salva. Repasse ao participante por um canal seguro.").then(saved=>{if(saved){setMemberCredential({userId:"",password:"",confirm:"",reason:""});setMemberCredentialNotice("Senha provisória salva. Repasse por um canal seguro; a pessoa deverá trocá-la ao entrar.");}});
+        }}>
+          <label>Buscar participante<input type="search" value={memberSearch} onChange={event=>{setMemberSearch(event.target.value);setMemberCredential({...memberCredential,userId:""});}} placeholder="Nome, WhatsApp ou ID"/></label>
+          <label>Participante<select aria-label="Participante para senha provisória" value={memberCredential.userId} onChange={event=>setMemberCredential({...memberCredential,userId:event.target.value})} required><option value="">Escolha a pessoa</option>{members.map(user=><option key={user.id} value={user.id}>{user.name} · {user.phone}</option>)}</select></label>
+          <label>Nova senha provisória<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={memberCredential.password} onChange={event=>setMemberCredential({...memberCredential,password:event.target.value})} required/></label>
+          <label>Repita a senha provisória<input type="password" autoComplete="new-password" minLength={10} maxLength={128} value={memberCredential.confirm} onChange={event=>setMemberCredential({...memberCredential,confirm:event.target.value})} required/></label>
+          <label>Motivo da recuperação<input minLength={5} maxLength={240} value={memberCredential.reason} onChange={event=>setMemberCredential({...memberCredential,reason:event.target.value})} required/></label>
+          <button type="submit" className="primary" disabled={busy||!member}>Salvar senha provisória</button>{memberCredentialNotice&&<p role="status" className="credential-success">{memberCredentialNotice}</p>}
+        </form>
+      </section>
 
       {/* ---- telefone dos Owners ---- */}
       <div className="comms-block">
@@ -199,7 +243,7 @@ export function OwnerAccessPanel({users=[]}:{users?:OwnerOverview["users"]}) {
       </div>
 
       {notice && <p className="bot-notice" role="status">{notice}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && <ActionErrorDialog message={error} onClose={()=>setError("")}/>}
     <BotPasswordSettings/>
 </section>
   );

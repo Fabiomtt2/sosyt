@@ -6,7 +6,7 @@ import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { normalizePhone } from "./phone.js";
-import { generateAdminCredential } from "./password.js";
+import { generateAdminCredential,hashPassword,verifyPassword } from "./password.js";
 import { setCredential, verifyCredential, credentialState } from "./admin-credentials.js";
 
 const ENV_SECRET = "fabio-secret-32-characters-long-okay";
@@ -19,6 +19,7 @@ describe("credencial administrativa", () => {
       NODE_ENV: "test", DATABASE_PATH: ":memory:", AUTH_DEV_MODE: "false", REQUIRE_GROUP_MEMBERSHIP: "false",
       JWT_SECRET: "cred-secret-32-characters-okay!!!", AUTH_CODE_PEPPER: "cred-pepper-32-characters-okay!!!",
       OWNER_FABIO_NAME: "Fabio0", OWNER_FABIO_ID: "fabio", OWNER_FABIO_SECRET: ENV_SECRET, OWNER_FABIO_WHATSAPP: "5571999990001",
+      OWNER_RAFAEL_NAME:"Rafael",OWNER_RAFAEL_WHATSAPP:"5571999990002",OWNER_RAFAEL_SECRET:"rafael-secret-32-characters-long-okay",
       YOUTUBE_API_KEY: undefined
     });
     db = createDatabase(":memory:"); app = await buildApp(config, db);
@@ -117,13 +118,56 @@ describe("credencial administrativa", () => {
     expect((await app.inject({ method: "POST", url: "/admin/login", payload: { name: "Fabio0", phone: "5571999990001", groupCode: "#", secret: "S@S!Youtube555" } })).statusCode).toBe(401);
   });
 
-  it("só ROOT gerencia credenciais, e nunca a de outro ROOT", async () => {
+  it("só ROOT gerencia credenciais e alvo inexistente continua recusado", async () => {
     const rootToken = (await login(ENV_SECRET)).json().token as string;
     expect((await app.inject({ method: "GET", url: "/admin/credentials", headers: auth(rootToken) })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/admin/credentials" })).statusCode).toBe(401);
     // alvo inexistente (nao e ADMIN ativo) e recusado
-    expect((await app.inject({ method: "POST", url: "/admin/credentials", headers: auth(rootToken), payload: { ownerId: "rafael", password: "Qualquer123" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "POST", url: "/admin/credentials", headers: auth(rootToken), payload: { ownerId: "missing-admin", password: "Qualquer123" } })).statusCode).toBe(404);
   });
+  it("Root salva a própria credencial e a nova senha entra sem expor segredo no histórico",async()=>{
+    setCredential(db,"fabio","AntigaSegura123");const token=(await login(ENV_SECRET)).json().token;
+    const saved=await app.inject({method:"POST",url:"/admin/credentials",headers:auth(token),payload:{password:"NovaSegura2026"}});expect(saved.statusCode,saved.body).toBe(200);expect(saved.json()).toMatchObject({ok:true,state:{configured:true,mustChange:false}});
+    expect((await login("NovaSegura2026")).statusCode).toBe(200);expect((await login("AntigaSegura123")).statusCode).toBe(401);
+    const audit=db.prepare("SELECT * FROM password_reset_audit WHERE event='CREDENTIAL_SET'").all();expect(audit).toHaveLength(1);expect(audit[0]).toMatchObject({actor_owner_id:"fabio"});expect(JSON.stringify(audit)).not.toContain("NovaSegura2026");expect(JSON.stringify(audit)).not.toContain("scrypt$");
+    expect(()=>db.prepare("DELETE FROM password_reset_audit").run()).toThrow();
+  });
+  it("ambos Roots substituem a credencial do outro com motivo e identidade preservada",async()=>{
+    const token=(await login(ENV_SECRET)).json().token;
+    const missingReason=await app.inject({method:"POST",url:"/admin/credentials",headers:auth(token),payload:{ownerId:"rafael",password:"RafaelNova2026"}});expect(missingReason.statusCode).toBe(400);
+    const saved=await app.inject({method:"POST",url:"/admin/credentials",headers:auth(token),payload:{ownerId:"static:rafael",password:"RafaelNova2026",reason:"Recuperação solicitada pelo outro Owner"}});expect(saved.statusCode,saved.body).toBe(200);
+    const rafael=await app.inject({method:"POST",url:"/admin/login",payload:{name:"Rafael",phone:"5571999990002",groupCode:"#",secret:"RafaelNova2026"}});expect(rafael.statusCode,rafael.body).toBe(200);
+    const other=await app.inject({method:"POST",url:"/admin/credentials",headers:auth(rafael.json().token),payload:{ownerId:"fabio",password:"FabioNova2026",reason:"Recuperação autorizada do Fábio"}});expect(other.statusCode,other.body).toBe(200);expect((await login("FabioNova2026")).statusCode).toBe(200);
+    const audit=db.prepare("SELECT actor_owner_id AS actor,detail FROM password_reset_audit WHERE event='CREDENTIAL_SET' ORDER BY rowid").all() as {actor:string;detail:string}[];expect(audit.map(row=>row.actor)).toEqual(["fabio","rafael"]);expect(JSON.parse(audit[0].detail)).toMatchObject({targetId:"rafael",kind:"OWNER"});
+  });
+  it("falha da auditoria reverte a alteração de credencial",async()=>{
+    const token=(await login(ENV_SECRET)).json().token;setCredential(db,"fabio","AnteriorSegura2026");
+    db.exec("CREATE TRIGGER synthetic_fail_credential_audit BEFORE INSERT ON password_reset_audit BEGIN SELECT RAISE(ABORT,'synthetic audit unavailable'); END;");
+    const saved=await app.inject({method:"POST",url:"/admin/credentials",headers:auth(token),payload:{password:"NuncaPersistida2026"}});expect(saved.statusCode).toBe(400);expect(verifyCredential(db,"fabio","AnteriorSegura2026")).toBe(true);expect(verifyCredential(db,"fabio","NuncaPersistida2026")).toBe(false);
+  });
+  it("Root define provisória de membro, invalida envios antigos e não altera carteira ou identidade",async()=>{
+    const at=new Date().toISOString(),userId="member-password-fixture",phone="5571999990044",token=(await login(ENV_SECRET)).json().token;
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,'Pessoa Sintética',?,'1',?,?)").run(userId,phone,at,at);
+    db.prepare("INSERT INTO wallets(user_id,reward_millis,extra_slot_passes,updated_at) VALUES(?,7000,2,?)").run(userId,at);
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,updated_at) VALUES(?,?,?)").run(userId,hashPassword("AnteriorParticipante123"),at);
+    db.prepare("INSERT INTO whatsapp_outbox(id,dedupe_key,recipient,payload,available_at,created_at) VALUES('password-job','bot-password:member-fixture',?,'{}',?,?)").run(phone,at,at);
+    db.prepare("INSERT INTO bot_password_deliveries(user_id,outbox_id,created_at) VALUES(?,'password-job',?)").run(userId,at);
+    const memberToken=app.jwt.sign({sub:userId,purpose:"session",aud:"conexao-session",authMethod:"password",authPhone:phone});
+    const route="/admin/participants/"+phone+"/password",payload={password:"Provisoria2026",reason:"Recuperação de acesso pedida pelo participante"};
+    expect((await app.inject({method:"POST",url:route,headers:auth(memberToken),payload})).statusCode).toBe(401);
+    const saved=await app.inject({method:"POST",url:route,headers:auth(token),payload});expect(saved.statusCode,saved.body).toBe(200);expect(saved.json()).toMatchObject({ok:true,mustChange:true});expect(saved.body).not.toContain(payload.password);
+    const row=db.prepare("SELECT password_hash AS hash,must_change AS mustChange FROM user_passwords WHERE user_id=?").get(userId) as {hash:string;mustChange:number};expect(verifyPassword(payload.password,row.hash)).toBe(true);expect(verifyPassword("AnteriorParticipante123",row.hash)).toBe(false);expect(row.mustChange).toBe(1);
+    expect(db.prepare("SELECT status,last_error AS reason FROM whatsapp_outbox WHERE id='password-job'").get()).toEqual({status:"FAILED",reason:"PASSWORD_CHANGED"});
+    expect(db.prepare("SELECT reward_millis,extra_slot_passes FROM wallets WHERE user_id=?").get(userId)).toEqual({reward_millis:7000,extra_slot_passes:2});
+    const logged=await app.inject({method:"POST",url:"/auth/password/login",payload:{phone,password:payload.password}});expect(logged.statusCode,logged.body).toBe(200);expect(logged.json().mustChangePassword).toBe(true);
+    expect(JSON.stringify(db.prepare("SELECT * FROM password_reset_audit").all())).not.toContain(payload.password);
+    expect(JSON.stringify(db.prepare("SELECT body FROM mail_messages WHERE recipient_id=?").all(userId))).not.toContain(payload.password);
+    const rootWrongRoute=await app.inject({method:"POST",url:"/admin/participants/5571999990001/password",headers:auth(token),payload});expect(rootWrongRoute.statusCode).toBe(409);
+    db.prepare("INSERT INTO owner_access(id,user_id,phone,normalized_name,role,active,created_at,updated_at) VALUES('credential-dynamic-admin',?,?,?,'ADMIN_OWNER',1,?,?)").run(userId,phone,"pessoa sintetica",at,at);
+    expect((await app.inject({method:"POST",url:route,headers:auth(token),payload})).statusCode).toBe(409);
+
+  });
+
 });
 
 describe("credencial gerada pelo bot", () => {

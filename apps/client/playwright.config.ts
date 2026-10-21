@@ -14,7 +14,7 @@ export default defineConfig({
     { command: "node --import tsx --import ./scripts/e2e-youtube-fixture.mjs apps/api/src/server.ts", cwd: root, url: "http://127.0.0.1:17333/health", timeout: 120_000, reuseExistingServer: false,
       env: { NODE_ENV: "test", PORT: "17333", DATABASE_PATH: database, WEB_APP_URL: "http://127.0.0.1:17517", API_PUBLIC_URL: "http://127.0.0.1:17333",
         AUTH_DEV_MODE: "true", PAYMENTS_DEV_MODE: "true", REQUIRE_GROUP_MEMBERSHIP: "true", ALLOWED_GROUP_CODES: "1,2",
-        OWNER_FABIO_NAME: "Fabio0", OWNER_FABIO_ID: "fabio0", OWNER_FABIO_SECRET: "e2e-owner-secret-32-characters-long", OWNER_FABIO_WHATSAPP: "5571999990001", OWNER_WHATSAPP: "5571999990999",
+        OWNER_FABIO_NAME: "Fabio0", OWNER_FABIO_ID: "fabio0", OWNER_FABIO_SECRET: "e2e-owner-secret-32-characters-long", OWNER_FABIO_WHATSAPP: "5571999990001", OWNER_RAFAEL_NAME:"Rafael",OWNER_RAFAEL_WHATSAPP:"5571999990002",OWNER_RAFAEL_SECRET:"e2e-rafael-secret-32-characters-long", OWNER_WHATSAPP: "5571999990999",
         YOUTUBE_API_KEY: "e2e_fixture_key", MERCADO_PAGO_ACCESS_TOKEN: "", GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "", TMPDIR: scratch } },
     { command: "npx vite preview --host 127.0.0.1 --port 17517 --strictPort", url: "http://127.0.0.1:17517", timeout: 120_000, reuseExistingServer: false,
       env: { VITE_API_URL: "http://127.0.0.1:17333", TMPDIR: scratch } }

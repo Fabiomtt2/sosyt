@@ -444,7 +444,7 @@ export const ownerApi = {
   avatarUpload: (body: { tier: AvatarTier; category: string; label: string; dataUrl: string; slug?: string; sortOrder?: number }) =>
     ownerRequest<{ ok: true; slug: string }>("/admin/avatars", { method: "POST", body: JSON.stringify(body) }),
   avatarDelete: (slug: string) => ownerRequest<{ ok: true }>(`/admin/avatars/${encodeURIComponent(slug)}`, { method: "DELETE" }),
-  saveCredential: (body: { ownerId?: string; password: string; mustChange?: boolean }) =>
+  saveCredential: (body: { ownerId?: string; password: string; mustChange?: boolean; reason?:string }) =>
     ownerRequest<{ ok: true }>("/admin/credentials", { method: "POST", body: JSON.stringify(body) }),
   generateCredential: (ownerId: string) =>
     ownerRequest<{ ok: true; password: string }>("/admin/credentials/generate", { method: "POST", body: JSON.stringify({ ownerId }) }),
@@ -472,6 +472,7 @@ export const ownerApi = {
   participant: (phone: string) => ownerRequest<ParticipantAdminDetail>(`/admin/participants/${phone}`),
   updateParticipant: (currentPhone: string, body: { name: string; phone: string; groupCode: string }) => ownerRequest<{ ok: true; phone: string }>(`/admin/participants/${currentPhone}`, { method: "PATCH", body: JSON.stringify(body) }),
   participantAction: (phone: string, action: "REVOKE" | "RESTORE" | "CLEAR_COOLDOWN" | "REVIEW_ON" | "REVIEW_OFF") => ownerRequest(`/admin/participants/${phone}/action`, { method: "POST", body: JSON.stringify({ action }) }),
+  setParticipantPassword:(phone:string,body:{password:string;reason:string})=>ownerRequest<{ok:true;mustChange:true;message:string}>(`/admin/participants/${encodeURIComponent(phone)}/password`,{method:'POST',body:JSON.stringify(body)}),
   grantBenefit: (phone:string,body:{benefit:"COINS"|"PASS"|"SKIP"|"SUPER";quantity:number;referenceId:string;reason:string}) => ownerRequest<{ok:true;replayed:boolean;benefit:string;quantity:number}>(`/admin/participants/${phone}/benefits`,{method:"POST",body:JSON.stringify(body)}),
   walletAdjustment: (phone: string, amountCoins: number, reason: string) => ownerRequest(`/admin/participants/${phone}/wallet-adjustment`, { method: "POST", body: JSON.stringify({ amountCoins, reason }) }),
   revoke: (phone: string) => ownerRequest(`/admin/members/${phone}`, { method: "DELETE" }),

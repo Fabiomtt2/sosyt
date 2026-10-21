@@ -8,7 +8,7 @@ import { featureEnabled } from "./bot.js";
 import { gamificationData } from "./gamification-view.js";
 import { listCatalog, catalogTierOf } from "./avatar-tiers.js";
 import { superState, grantSuper, revokeSuper, setAutoRenew, activePins, removePin, SUPER_DAYS } from "./super.js";
-import { credentialState, setCredential, clearCredential, verifyCredential } from "./admin-credentials.js";
+import { credentialState, setCredential, clearCredential, verifyCredential, auditCredentialChange } from "./admin-credentials.js";
 import { generateBotPassword, generateAdminCredential } from "./password.js";
 import { checkNumberHealth, lastNumberHealth, REPLACEMENT_STEPS } from "./number-health.js";
 import { adminDeleteMessage as chatDelete, adminSetPinned, adminClearChat, adminMute, adminUnmute, adminSetCooldown, adminRemoveFromRoom, adminRestoreToRoom } from "./global-chat.js";
@@ -638,6 +638,25 @@ export async function registerOwnerRoutes(
     };
   });
 
+  // Explicit Root intervention is distinct from the participant's self-service reset.
+  app.post("/admin/participants/:phone/password",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const phone=phoneSchema.parse((request.params as {phone:string}).phone);
+    const body=z.object({password:z.string().min(10).max(128),reason:z.string().trim().min(5).max(240)}).parse(request.body);
+    if(effectiveOwnerAccounts(db,config).some(owner=>owner.phone===phone)||db.prepare("SELECT 1 FROM owner_access WHERE phone=? AND active=1").get(phone))return reply.code(409).send({message:"Esta é uma conta administrativa. Altere sua credencial na seção de Owners e administradores."});
+    const user=db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string}|undefined;
+    if(!user)return reply.code(404).send({message:"Participante não encontrado."});
+    const actor=resolveOwnerContext(request)!,stamp=new Date().toISOString();
+    db.transaction(()=>{
+      db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,locked_until,updated_at) VALUES(?,?,1,0,NULL,?) ON CONFLICT(user_id) DO UPDATE SET password_hash=excluded.password_hash,must_change=1,attempts=0,locked_until=NULL,updated_at=excluded.updated_at").run(user.id,hashPassword(body.password),stamp);
+      db.prepare("UPDATE whatsapp_outbox SET status='FAILED',expires_at=?,last_error='PASSWORD_CHANGED',lease_until=NULL,payload='{}' WHERE (id IN (SELECT outbox_id FROM bot_password_deliveries WHERE user_id=?) OR (recipient=? AND json_extract(payload,'$._event')='BOT_PASSWORD_INFO')) AND status IN ('PENDING','SENDING','FAILED')").run(stamp,user.id,phone);
+      db.prepare("UPDATE password_resets SET used_at=? WHERE phone=? AND used_at IS NULL").run(stamp,phone);
+      db.prepare("UPDATE setup_codes SET used_at=? WHERE phone=? AND used_at IS NULL").run(stamp,phone);
+      auditCredentialChange(db,{phone,targetId:user.id,kind:"PARTICIPANT",action:"SET",actorId:actor.id,actorName:actor.name,reason:body.reason});
+      db.prepare("INSERT INTO mail_messages(id,thread_key,sender_id,sender_role,recipient_id,body,created_at) VALUES(?,'system','system:sos','SYSTEM',?,?,?)").run(randomUUID(),user.id,"Sua senha foi redefinida pela equipe do SOS. Ao entrar com a senha provisória, escolha uma nova senha pessoal. Se não reconhece a alteração, solicite atendimento humano.",stamp);
+    })();
+    return {ok:true,mustChange:true,message:"Senha provisória salva. Repasse por um canal seguro; a pessoa deve trocá-la ao entrar."};
+  });
+
   app.get("/admin/participants/:phone/password-reset", { preHandler: rootOwnerGuard }, async (request) => {
     const phone = phoneSchema.parse((request.params as { phone: string }).phone);
     return { status: passwordResetStatus(db, phone), history: passwordResetHistory(db, phone) };
@@ -1196,6 +1215,14 @@ export async function registerOwnerRoutes(
     return {token,user:{id:user.id,name:user.name,phone:user.phone,groupCode:user.groupCode},adminRole:owner.role,rounds};
   });
 
+  // ROOT can manage both principal Owners and every active delegated administrator.
+  function credentialTarget(rawId:string){
+    const id=rawId.replace(/^static:/,"");
+    const root=effectiveOwnerAccounts(db,config).find(account=>account.id===id&&account.phone&&account.secret);
+    if(root)return {id:root.id,name:root.name,phone:root.phone!,role:root.role};
+    const admin=db.prepare("SELECT oa.id,u.name,oa.phone,oa.role FROM owner_access oa JOIN users u ON u.id=oa.user_id WHERE oa.id=? AND oa.active=1 AND oa.role='ADMIN_OWNER' AND u.deleted_at IS NULL").get(id) as {id:string;name:string;phone:string;role:OwnerRole}|undefined;
+    return admin;
+  }
   // AUDITORIA / credenciais: o ROOT define a propria senha do painel e a de cada ADMIN.
   // AUDITORIA: troca de numero do Owner sem redeploy. Util quando o chip muda.
   app.post("/admin/owner-phone", { preHandler: rootOwnerGuard }, async (request, reply) => {
@@ -1215,12 +1242,14 @@ export async function registerOwnerRoutes(
   app.post("/admin/credentials/generate", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const body = z.object({ ownerId: z.string().min(1) }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Informe o administrador." });
-    if (!db.prepare("SELECT 1 FROM owner_access WHERE id=? AND active=1 AND role='ADMIN_OWNER'").get(body.data.ownerId)) {
-      return reply.code(404).send({ message: "Administrador não encontrado." });
-    }
+    const target=credentialTarget(body.data.ownerId),actor=resolveOwnerContext(request)!;
+    if(!target||target.role!=="ADMIN_OWNER")return reply.code(404).send({message:"Administrador não encontrado."});
     const generated = generateAdminCredential();
-    setCredential(db, body.data.ownerId, generated, { mustChange: true });
-    return { ok: true, password: generated, state: credentialState(db, body.data.ownerId) };
+    db.transaction(()=>{
+      setCredential(db,target.id,generated,{mustChange:true});
+      auditCredentialChange(db,{phone:target.phone,targetId:target.id,kind:"OWNER",action:"GENERATE",actorId:actor.id,actorName:actor.name,reason:"Credencial provisória de administrador gerada pelo Root."});
+    })();
+    return { ok: true, password: generated, state: credentialState(db,target.id) };
   });
 
   app.get("/admin/credentials", { preHandler: rootOwnerGuard }, async (request) => {
@@ -1231,27 +1260,28 @@ export async function registerOwnerRoutes(
       admins: admins.map((a) => ({ ownerId: a.id, phone: a.phone, name: a.name, ...credentialState(db, a.id) })),
       // Telefone vigente de cada Owner (painel sobrepõe o ambiente) para o painel
       // mostrar o número atual ao lado do campo de troca.
-      owners: effectiveOwnerAccounts(db, config).map((o) => ({ id: o.id, name: o.name, phone: o.phone }))
+      owners: effectiveOwnerAccounts(db, config).map((o) => ({ id: o.id, name: o.name, phone: o.phone,...credentialState(db,o.id) }))
     };
   });
   app.post("/admin/credentials", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const me = resolveOwnerContext(request)!;
-    const body = z.object({ ownerId: z.string().min(1).optional(), password: z.string().min(10).max(128), mustChange: z.boolean().optional() }).safeParse(request.body);
+    const body = z.object({ ownerId: z.string().min(1).optional(), password: z.string().min(10).max(128), mustChange: z.boolean().optional(),reason:z.string().trim().min(5).max(240).optional() }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ message: "Informe uma credencial de 10 a 128 caracteres." });
-    const target = body.data.ownerId ?? me.id;
-    // So define a propria credencial ou a de um ADMIN ativo — nunca a de outro ROOT.
-    if (target !== me.id && !db.prepare("SELECT 1 FROM owner_access WHERE id=? AND active=1 AND role='ADMIN_OWNER'").get(target)) {
-      return reply.code(404).send({ message: "Administrador não encontrado." });
-    }
-    try { setCredential(db, target, body.data.password, { mustChange: target !== me.id ? body.data.mustChange ?? true : false }); }
+    const target=credentialTarget(body.data.ownerId??me.id);
+    if(!target)return reply.code(404).send({message:"Owner ou administrador não encontrado."});
+    if(target.id!==me.id&&target.role==="ROOT_OWNER"&&!body.data.reason)return reply.code(400).send({message:"Informe o motivo da alteração da credencial do outro Owner."});
+    try { db.transaction(()=>{
+      setCredential(db,target.id,body.data.password,{mustChange:target.role==="ADMIN_OWNER"?body.data.mustChange??true:false});
+      auditCredentialChange(db,{phone:target.phone,targetId:target.id,kind:"OWNER",action:"SET",actorId:me.id,actorName:me.name,reason:body.data.reason??(target.id===me.id?"Alteração da própria credencial pelo painel.":"Credencial de administrador atualizada pelo Root.")});
+    })(); }
     catch (error) { const e = error as { statusCode?: number; message?: string }; return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Credencial inválida." }); }
-    return { ok: true, state: credentialState(db, target) };
+    return { ok: true, state: credentialState(db,target.id) };
   });
   app.delete("/admin/credentials/:ownerId", { preHandler: rootOwnerGuard }, async (request, reply) => {
     const me = resolveOwnerContext(request)!;
-    const target = String((request.params as { ownerId: string }).ownerId);
-    if (target === me.id) return reply.code(409).send({ message: "Não remova a própria credencial pelo painel." });
-    clearCredential(db, target);
+    const target=credentialTarget(String((request.params as {ownerId:string}).ownerId));
+    if(!target||target.role!=="ADMIN_OWNER")return reply.code(409).send({message:"A credencial principal deve ser substituída, não removida. Escolha um administrador ativo para remover o acesso."});
+    db.transaction(()=>{clearCredential(db,target.id);auditCredentialChange(db,{phone:target.phone,targetId:target.id,kind:"OWNER",action:"CLEAR",actorId:me.id,actorName:me.name,reason:"Credencial de administrador removida pelo Root."});})();
     return { ok: true };
   });
   app.get("/admin/owners", { preHandler: rootOwnerGuard }, async () => {
