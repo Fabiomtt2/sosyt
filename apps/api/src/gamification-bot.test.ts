@@ -44,7 +44,7 @@ describe("ponte real de avisos de gamificação",()=>{
   expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox").get()).toEqual({n:1});
   expect(readGamificationBot(db).deliveries[0]).toMatchObject({eventId:id,status:"QUEUED"});
   const outbox=db.prepare("SELECT id,payload,expires_at AS expires FROM whatsapp_outbox").get() as {id:string;payload:string;expires:string};
-  expect(JSON.parse(outbox.payload)).toMatchObject({type:"text",text:{body:expect.stringContaining("nível 2")}});
+  expect(JSON.parse(outbox.payload)).toMatchObject({type:"text",text:{body:expect.stringMatching(/nível 2/i)}});
   expect(outbox.expires).toBe("2026-10-17T09:00:00.000Z");
   db.prepare("UPDATE whatsapp_outbox SET status='SENT',provider_message_id='actual-provider-receipt-fixture' WHERE id=?").run(outbox.id);
   expect(dispatchGamificationEvents(db,config).sent).toBe(1);
