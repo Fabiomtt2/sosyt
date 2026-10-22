@@ -20,13 +20,16 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  const integration=page.getByRole("dialog",{name:"Configurar integração WhatsApp"});
  await integration.getByRole("radio",{name:/Híbrido\+/}).click();
  await expect(integration.getByText("Evolution · motor de grupos",{exact:true})).toBeVisible();
- // The connection status already exists before saving; wait for the actual write.
- const integrationSaved=page.waitForResponse(response=>response.url()===server+"/admin/integrations/whatsapp"&&response.request().method()==="POST");
+ const saveResponse=page.waitForResponse(response=>response.url()===server+"/admin/integrations/whatsapp"&&response.request().method()==="POST");
  await integration.getByRole("button",{name:"Salvar configuração",exact:true}).click();
- const savedResponse=await integrationSaved;
- expect(savedResponse.ok(),await savedResponse.text()).toBe(true);
- await expect(integration.getByRole("status").filter({hasText:/Configuração salva/})).toBeVisible();
- expect((await (await request.get(server+"/admin/bot",{headers:ownerHeaders})).json()).status.mode).toBe("HYBRID_PLUS");
+ const response=await saveResponse;
+ expect(response.ok(),await response.text()).toBe(true);
+ await expect(integration.getByRole("status").filter({hasText:"Configuração salva"})).toBeVisible();
+ await expect.poll(async()=>{
+  const status=await request.get(server+"/admin/bot",{headers:ownerHeaders});
+  expect(status.ok()).toBe(true);
+  return (await status.json()).status.mode;
+ }).toBe("HYBRID_PLUS");
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:900});await integration.getByRole("radio",{name:/Híbrido\+/}).scrollIntoViewIfNeeded();
   expect(await integration.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
