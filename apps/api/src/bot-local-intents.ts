@@ -117,4 +117,3 @@ export function declinesBotSensitiveAction(raw:string):boolean {
   const clauses=raw.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().split(/[,.!?;:\r\n]|\b(?:mas|porem|so que)\b/);
   return clauses.some(clause=>/\b(?:nao|nem|nunca)\s+(?:quero|preciso|desejo|necessito|pedi|estou pedindo)\b.{0,65}\b(?:senha|credencial|humano|humana|atendente|pessoa|equipe|administrador|suporte)\b/.test(clause));
 }
-

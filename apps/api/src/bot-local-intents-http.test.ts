@@ -92,4 +92,3 @@ describe("local intent fallback in the real WhatsApp webhook",()=>{
     expect(db.prepare("SELECT 1 FROM participant_access_restrictions WHERE user_id='blocked-person' AND blocked_at IS NOT NULL").get()).toBeTruthy();
   });
 });
-

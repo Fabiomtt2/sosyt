@@ -63,4 +63,3 @@ describe("local intent retrieval, without remote services or generated rules",()
     }
   });
 });
-
