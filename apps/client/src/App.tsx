@@ -65,6 +65,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   const [step, setStep] = useState<"profile" | "credential" | "phone-code">("profile");
   const [authRole, setAuthRole] = useState<"user" | "owner">();
   const [joinMode, setJoinMode] = useState(false);
+  const [directOwnerMode,setDirectOwnerMode]=useState(false);
   const [credential, setCredential] = useState("");
   const [passwordMode,setPasswordMode]=useState(true);
   const [authOptions,setAuthOptions]=useState<Awaited<ReturnType<typeof api.authOptions>>>();
@@ -210,7 +211,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   }
 
   function returnToProfile() {
-    setBotRegistrationUrl("");setPasswordMode(true);setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");
+    setBotRegistrationUrl("");setPasswordMode(true);setStep("profile"); setAuthRole(undefined); setCredential(""); setPhoneCode(""); setKeyExpiresAt(0); setError("");setDirectOwnerMode(false);
   }
 
   async function sendPhoneKey(registration:boolean) {
@@ -222,6 +223,15 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError("");
     try {
+      if(directOwnerMode){
+        if(!isCompletePhoneField(form.phone))throw new Error("Informe o WhatsApp do Owner.");
+        if(!credential.trim())throw new Error("Digite sua credencial administrativa.");
+        const result=await ownerApi.directLogin({phone:form.phone,secret:credential});
+        localStorage.removeItem("conexao_token");
+        localStorage.setItem("conexao_owner_token",result.token);
+        onDone("owner");
+        return;
+      }
       const name = form.name.trim();
       if (name.length < 2) throw new Error("Informe seu nome ou como prefere ser chamado.");
       if (!isCompletePhoneField(form.phone)) throw new Error("Informe um WhatsApp válido escolhendo o país, o DDD quando necessário e o número.");
@@ -296,7 +306,7 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         onDone("owner");
       }
     } catch (cause) {
-      if (authRole === "owner" && step === "credential" && cause instanceof ApiError && cause.status === 401) {
+      if ((directOwnerMode || (authRole === "owner" && step === "credential")) && cause instanceof ApiError && cause.status === 401) {
         setError("Credencial incorreta. Confira e tente novamente.");
       } else {
         setError(cause instanceof Error ? cause.message : "Não foi possível concluir o acesso.");
@@ -331,10 +341,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
     <section className="login-card">
       <div>
         <p className="eyebrow dark">BOM TER VOCÊ POR AQUI</p>
-        <h2>{step==="phone-code" ? "Confira seu WhatsApp" : ownerCredentialMode ? "Credencial" : cooldownActive ? "Intervalo após concluir uma Fila" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
-        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{step==="phone-code" ? "Use a chave de seis números enviada ao seu WhatsApp. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Comece pelo seu nome e WhatsApp. Você poderá acompanhar seu cadastro por aqui." : "Entre com o WhatsApp e a senha enviados pelo bot. Sua entrada no grupo é acompanhada separadamente." : "Digite sua credencial para abrir o painel administrativo."}</p>
+        <h2>{directOwnerMode?"Acesso administrativo direto":step==="phone-code" ? "Confira seu WhatsApp" : ownerCredentialMode ? "Credencial" : cooldownActive ? "Intervalo após concluir uma Fila" : joined?.status === "APPROVED" ? "Cadastro aprovado" : joined?.status === "DECLINED" ? "Solicitação analisada" : joined ? "Solicitação em análise" : step === "profile" ? joinMode ? "Participar do SOS YouTube" : "Entre na sua conexão" : "Credencial"}</h2>
+        <p className={ownerCredentialMode || (!cooldownActive && !joined && step === "profile" && !joinMode) ? "muted login-helper" : "muted"}>{directOwnerMode?"Entre usando o WhatsApp vinculado à sua conta Owner e sua credencial. Seu nome e grupo não serão pedidos novamente.":step==="phone-code" ? "Use a chave de seis números enviada ao seu WhatsApp. Ela vale por 5 minutos e só pode ser usada uma vez." : ownerCredentialMode ? "Digite sua credencial para acessar o painel administrativo." : cooldownActive ? "Este intervalo de 30 minutos começa somente após concluir uma tarefa de Fila. Ele não é causado por erro de login ou credencial." : joined?.status === "APPROVED" ? "Sua aprovação já foi registrada no servidor. Você decide quando voltar ao acesso normal." : joined?.status === "DECLINED" ? "Seu pedido foi analisado. O histórico continua preservado para evitar cadastros repetidos." : joined ? "Seu pedido continua salvo e pode ser acompanhado neste aparelho." : step === "profile" ? joinMode ? "Comece pelo seu nome e WhatsApp. Você poderá acompanhar seu cadastro por aqui." : "Entre com o WhatsApp e a senha enviados pelo bot. Sua entrada no grupo é acompanhada separadamente." : "Digite sua credencial para abrir o painel administrativo."}</p>
       </div>
-      {!ownerCredentialMode && cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Seu acesso de participante será liberado em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Este intervalo de 30 minutos existe somente após concluir uma tarefa de Fila. Seu cadastro, saldo, URLs e progresso continuam salvos.</p><button className="secondary" type="button" onClick={accessWithAnotherIdentity}>Acessar outra conta</button></div> : !ownerCredentialMode && joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
+      {!ownerCredentialMode && !directOwnerMode && cooldownActive ? <div className="cooldown-card" role="status"><Clock3 size={34} /><span>Seu acesso de participante será liberado em</span><strong>{countdownLabel(cooldownRemaining)}</strong><p className="muted">Este intervalo de 30 minutos existe somente após concluir uma tarefa de Fila. Seu cadastro, saldo, URLs e progresso continuam salvos.</p><button className="secondary" type="button" onClick={accessWithAnotherIdentity}>Acessar outra conta</button></div> : !ownerCredentialMode && !directOwnerMode && joined ? <div className={`join-success request-status-card request-${joined.status.toLowerCase()}`} role="status">
         <div className="join-success-heading"><strong>{joined.message}</strong></div>
         {joined.status === "PENDING" && <>
           <p><strong>{joined.name ?? form.name.trim()}</strong>, seu pedido está protegido e continua aguardando os Owners.</p>
@@ -355,7 +365,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
         {error && <p className="error" role="alert">{error}</p>}
       </div> : <form className="access-form" noValidate onSubmit={submit}>
         <div className="access-fields">
-          {step==="phone-code" ? <>
+          {directOwnerMode ? <>
+            <div className="field-block"><label htmlFor="owner-whatsapp">WhatsApp do Owner</label><PhoneField id="owner-whatsapp" value={form.phone} onChange={(phone)=>setForm({...form,phone})} required /></div>
+            <label>Credencial administrativa<input type="password" autoComplete="current-password" value={credential} onChange={e=>setCredential(e.target.value)} placeholder="Digite sua credencial" required /></label>
+          </> : step==="phone-code" ? <>
             <p className="muted">Chave enviada para <strong>{form.phone}</strong>.</p>
             <label>Chave recebida no WhatsApp<input inputMode="numeric" autoComplete="one-time-code" value={phoneCode} maxLength={6} autoFocus onChange={(event)=>setPhoneCode(event.target.value.replace(/\D/g,""))} placeholder="6 números"/></label>
             <p role="status">{keyExpiresAt>nowMs ? `Sua chave expira em ${countdownLabel(keyExpiresAt-nowMs)}` : "A chave expirou. Peça uma nova para continuar."}</p>
@@ -374,14 +387,19 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
           {error && <p className="error" role="alert">{error}</p>}
         </div>
         <div className="access-actions">
-          <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : step==="phone-code" ? "Confirmar chave e continuar" : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
+          <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : directOwnerMode ? "Entrar como Owner" : step==="phone-code" ? "Confirmar chave e continuar" : joinMode ? "Enviar dados e continuar" : step === "profile" ? "Continuar" : "Entrar"}</button>
         </div>
       </form>}
       {botRegistrationUrl&&joinMode&&<section className="notice" style={{display:"block"}} role="status" aria-label="Cadastro com o bot"><strong>Continue seu cadastro com o bot</strong><p>O bot vai confirmar como você quer ser chamado e enviar sua senha nesta conversa.</p><a className="primary" href={botRegistrationUrl} target="_blank" rel="noreferrer">Abrir conversa para cadastro no WhatsApp</a><p className="muted">O link abre a conversa. Toque em enviar no WhatsApp para iniciar; nenhuma mensagem é enviada automaticamente.</p></section>}
-      {!joinMode&&!joined&&step==="profile"&&!cooldownActive&&authOptions?.whatsappMode!=="EVOLUTION"&&<button type="button" className="text-button" onClick={()=>{setPasswordMode(value=>!value);setCredential("");setError("");}}>{passwordMode?"Prefiro a chave no WhatsApp":"Entrar com senha"}</button>}
-      {joinMode&&<ProjectWhatsAppContact/>}
-      {step==="profile" && !cooldownActive && <GoogleAccess name={form.name} phone={form.phone} loadOptions={loadAuthOptions} onDone={()=>onDone("user")}/>}
+      {!directOwnerMode&&!joinMode&&!joined&&step==="profile"&&!cooldownActive&&authOptions?.whatsappMode!=="EVOLUTION"&&<button type="button" className="text-button" onClick={()=>{setPasswordMode(value=>!value);setCredential("");setError("");}}>{passwordMode?"Prefiro a chave no WhatsApp":"Entrar com senha"}</button>}
+      {!directOwnerMode && joinMode&&<ProjectWhatsAppContact/>}
+      {!directOwnerMode && step==="profile" && !cooldownActive && <GoogleAccess name={form.name} phone={form.phone} loadOptions={loadAuthOptions} onDone={()=>onDone("user")}/>}
       {!cooldownActive && step === "profile" && !joined && joinMode && <button className="text-button" type="button" onClick={() => { setJoinMode(false); setError(""); }}>Já participo — voltar ao login</button>}
+      {!directOwnerMode && step==="profile" && <button type="button" className="text-button" onClick={()=>{
+        setDirectOwnerMode(true);setJoinMode(false);setJoined(undefined);setError("");setCredential("");
+        suppressPendingResume.current=true;sessionStorage.setItem(PENDING_REQUEST_SUPPRESS_KEY,"1");
+      }}>Acesso administrativo direto</button>}
+      {directOwnerMode && <button type="button" className="text-button" onClick={returnToProfile}>Voltar ao acesso de participantes</button>}
     </section>
 
   </main>;

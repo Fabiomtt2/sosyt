@@ -44,6 +44,17 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   const user=db.prepare("SELECT id,phone FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string;phone:string};
   expect(user).toBeTruthy();return {...user,password:issuedPassword(user.id)};
  }
+ it("nome informado em uma frase não vira texto inteiro no cadastro nem na saudação",async()=>{
+   await inbound("1");
+   await inbound("Meu nome é Ana Maria e quero participar");
+   const user=db.prepare("SELECT name FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {name:string};
+   expect(user.name).toBe("Ana Maria");
+   const request=db.prepare("SELECT name FROM participation_requests WHERE phone=?").get(phone) as {name:string};
+   expect(request.name).toBe("Ana Maria");
+   const outgoing=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key LIKE '%:received'").all() as {payload:string}[];
+   expect(outgoing.some(row=>payloadBody(row.payload).includes("Ana Maria"))).toBe(true);
+   expect(outgoing.some(row=>payloadBody(row.payload).includes("Meu nome é Ana Maria"))).toBe(false);
+ });
  it("LID vira telefone; senha abre login e adesão; sync libera dashboard sem Owner",async()=>{
   const user=await signup();
   expect(user.phone).toBe(phone);

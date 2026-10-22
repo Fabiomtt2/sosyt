@@ -50,6 +50,16 @@ describe("Owner e acesso por grupo", () => {
     const forged=app.jwt.sign({sub:"owner:rafael",purpose:"owner",aud:"conexao-owner",jti:"wrong-version"});
     expect((await app.inject({url:"/admin/overview",headers:authorization(forged)})).statusCode).toBe(401);
   });
+  it("login administrativo direto exige número vinculado e credencial correta, sem nome",async()=>{
+    const payload={identifier:"+55 71 99999-0001",groupCode:"#",secret:ownerBody.secret};
+    const direct=await app.inject({method:"POST",url:"/admin/login",payload});
+    expect(direct.statusCode,direct.body).toBe(200);
+    const overview=await app.inject({url:"/admin/overview",headers:authorization(direct.json().token)});
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json().owner).toMatchObject({role:"ROOT_OWNER",permissions:{canConfigure:true,canManageOwners:true}});
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...payload,secret:"incorreta"}})).statusCode).toBe(401);
+    expect((await app.inject({method:"POST",url:"/admin/login",payload:{...payload,identifier:"+55 71 99999-0099"}})).statusCode).toBe(401);
+  });
   it("login Owner rejeita marcador de grupo inválido", async () => {
     expect((await app.inject({ method:"POST", url:"/admin/login", payload:{ ...ownerBody, groupCode:"0" } })).statusCode).toBe(400);
   });

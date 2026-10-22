@@ -1,3 +1,11 @@
+## Trabalho em validação — 22/10/2026, 07h58 (Salvador)
+
+- PR #5 foi integrado ao `main` via commit `172eb21`; nele há melhorias de inventário mobile e perguntas de carteira pelo bot.
+- A branch `sol/bot-owner-direct-20261022` agrega correções de cadastro por frase ("meu nome é ...") e acesso direto Owner (WhatsApp + credencial), sem refazer o fluxo de participante. Não considerar publicado antes de merge e deployments confirmados.
+- O classificador de linguagem vigente é local e não generativo (`apps/api/src/bot-local-intents.ts`). Preservar prioridades de comandos, suporte humano, opt-out e ledger.
+- Incidente Railway comunicado em 22/10/2026: possíveis segredos expostos; builds temporariamente suspensos/restritos e conexão GitHub revogada. Verificar recuperação operacional, rotacionar credenciais e proteger `/data`, PostgreSQL e Evolution antes da publicação. Não inserir segredos em commits.
+- Verificação local desta branch: testes específicos 97/97, 903 testes API prévios, lint e build OK; aguardar Actions e2e para autorização de merge.
+
 ## Retomada confirmada — 21/10/2026 — merge pronto, deploy bloqueado
 
 PR #4 MERGED: https://github.com/Fabiomtt2/sosyt/pull/4 . Main de produto: e34f80a8731ca3d6f1645087f1478249e83ddd3a; árvore idêntica à ponta validada 76ee15f4c2a43c4db9a6f37ac72791facbd979d0. Onze commits preservados, sem force/reset/clean/stash ou nova worktree. Cofre remoto e WIP não foram sobrescritos.

@@ -6,9 +6,32 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AppDatabase } from "./db.js";
 import {
   classifyInbound, ensureBotOptOut, isOptedOut, looksLikeName, mayReceive,
-  nameRejectionReason, normalizeInbound, replyFor, setOptOut,
+  nameRejectionReason, extractPreferredName, normalizeInbound, replyFor, setOptOut,
   DECLINED_FOLLOWUP_REPLY, MEDIA_REPLY, TOO_LONG_REPLY,
 } from "./bot-inbound.js";
+
+describe("extração conservadora do nome no cadastro conversacional",()=>{
+  it.each([
+    ["Meu nome é Ana Maria","Ana Maria"],
+    ["me chamo João Pedro","João Pedro"],
+    ["Eu sou Beatriz","Beatriz"],
+    ["Pode me chamar de Léo","Léo"],
+    ["Oi, meu nome é Milena e quero participar","Milena"],
+    ["Olá! Me chamo Carolina.","Carolina"],
+    ["Rafael Costa","Rafael Costa"],
+  ])("transforma %s em %s", (message,expected)=>{
+    expect(extractPreferredName(message)).toBe(expected);
+  });
+  it("prioriza nome ao continuar cadastro sem engolir comandos sensíveis",()=>{
+    expect(classifyInbound("Meu nome é Ana e quero participar",{awaitingName:true})).toBe("NAME_CANDIDATE");
+    expect(classifyInbound("Meu nome é Ana e quero participar")).toBe("PARTICIPATE");
+    expect(classifyInbound("Tenho dúvidas",{awaitingName:true})).toBe("HUMAN");
+    expect(classifyInbound("PARE",{awaitingName:true})).toBe("OPT_OUT");
+  });
+  it.each(["Meu nome é","me chamo","https://example.com","1",""])("não registra frases incompletas ou inseguras: %s",message=>{
+    expect(extractPreferredName(message)).toBeUndefined();
+  });
+});
 
 describe("HYBRID+ / classificação da entrada", () => {
   it("entende 'quero participar' com e sem acento, maiúscula ou não", () => {

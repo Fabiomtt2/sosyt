@@ -20,7 +20,7 @@ import { enqueueGroupJoin, ensureGroupJoinQueue, processGroupJoin } from "./bot-
 import { createEvolutionClient, assertDistinctFromOfficial, jidToPhone, sameWhatsAppNumber, DEFAULT_CADENCE, nextSendDelayMs, warmupCapForDay } from "./bot-evolution.js";
 import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations.js";
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
-import { classifyInbound, ensureBotOptOut, looksLikeName, nameRejectionReason, replyFor, setOptOut, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
+import { classifyInbound, ensureBotOptOut, extractPreferredName, looksLikeName, nameRejectionReason, replyFor, setOptOut, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
 import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
 import { openHumanRelay, routeHumanRelay } from "./bot-human-relay.js";
 import { renderAutomation } from "./bot-dispatch.js";
@@ -861,6 +861,12 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             // intent: o classificador ja resolve saudacao/comando ANTES, e so devolve
             // NAME_CANDIDATE quando o texto nao e nenhuma outra coisa conhecida.
             } else if (conversation?.stage === "WAITING_NAME" && intent === "NAME_CANDIDATE") {
+              const preferredName=extractPreferredName(text);
+              if(!preferredName){
+                queue(db,msg.from,{type:"text",text:{preview_url:false,body:"Pode me dizer apenas como prefere ser chamado? Exemplo: Meu nome é Ana."}},`${msg.id}:invalid-name`,expires,runtimeConfig);
+                continue;
+              }
+
               const hasActiveMembership = Boolean(db.prepare("SELECT 1 FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from));
               // AUDITORIA / QUEM JA TEM CONTA NAO RECEBE OFERTA DE CADASTRO (bug relatado
               // pelo dono). Antes o bot dizia "criei sua conta" para quem ja era
@@ -870,17 +876,17 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               if (jaTemConta) {
                 // Repair legacy command-as-name records without issuing another welcome grant.
                 if(!administrative&&knownAccount&&!looksLikeName(knownAccount.name))
-                  ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
+                  ensureSelfServiceAccount(db,runtimeConfig,msg.from,preferredName);
                 const temSenha = Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(jaTemConta.id));
                 db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
                 queue(db,msg.from,{type:"text",text:{preview_url:true,body: temSenha
-                  ? `Oi de novo, ${text}! 😊 Você já tem conta aqui — é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e sua senha. Esqueceu a senha? Responda *3* que eu providencio uma nova. 💛`
-                  : `Oi, ${text}! Sua conta já existe e estou preparando sua senha — ela chega aqui em instantes. Depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`}},`${msg.id}:ja-cadastrado`,expires,runtimeConfig);
+                  ? `Oi de novo, ${preferredName}! 😊 Você já tem conta aqui — é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e sua senha. Esqueceu a senha? Responda *3* que eu providencio uma nova. 💛`
+                  : `Oi, ${preferredName}! Sua conta já existe e estou preparando sua senha — ela chega aqui em instantes. Depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`}},`${msg.id}:ja-cadastrado`,expires,runtimeConfig);
                 if (!temSenha) ensureBotPassword(db,runtimeConfig,jaTemConta.id,true);
-                if(!hasActiveMembership)enqueueGroupJoin(db,msg.from,text);
+                if(!hasActiveMembership)enqueueGroupJoin(db,msg.from,preferredName);
                 continue;
               }
-              let responseBody = `Obrigado, ${text}! Seu pedido de participação será validado em breve. 📨`;
+              let responseBody = `Obrigado, ${preferredName}! Seu pedido de participação será validado em breve. 📨`;
               if (!hasActiveMembership) {
                 const existing = db.prepare("SELECT id,status,retry_block_until AS retryBlockUntil FROM participation_requests WHERE phone=?").get(msg.from) as
                   | { id: string; status: "PENDING" | "APPROVED" | "DECLINED"; retryBlockUntil?: string }
@@ -889,7 +895,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                 if (existing?.status === "DECLINED" && blockActive) {
                   db.prepare("UPDATE participation_requests SET source='WHATSAPP',whatsapp_verified_at=?,updated_at=? WHERE id=?")
                     .run(stamp,stamp,existing.id);
-                  responseBody = `Olá, ${text}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
+                  responseBody = `Olá, ${preferredName}. Este cadastro foi analisado recentemente e o prazo de segurança ainda está ativo. Seus dados continuam preservados; aguarde antes de uma nova solicitação.`;
                 } else {
                   // The inbound WhatsApp number is already proved by transport.
                   // After a valid name, queue real group admission immediately;
@@ -901,14 +907,14 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                       whatsapp_verified_at=excluded.whatsapp_verified_at,
                       approved_at=COALESCE(participation_requests.approved_at,excluded.approved_at),
                       duplicate_attempts=0,updated_at=excluded.updated_at`)
-                    .run(id,msg.from,text,stamp,stamp,stamp,stamp);
-                  const conta=ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
-                  enqueueGroupJoin(db,msg.from,text);
+                    .run(id,msg.from,preferredName,stamp,stamp,stamp,stamp);
+                  const conta=ensureSelfServiceAccount(db,runtimeConfig,msg.from,preferredName);
+                  enqueueGroupJoin(db,msg.from,preferredName);
                   responseBody = conta.passwordSent
-                    ? `Pronto, ${text}! 🎉 Criei sua conta e estou te mandando a SENHA aqui nesta conversa.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Já encaminhei sua entrada em um grupo SOS YOUTUBER com vaga. Se a privacidade do WhatsApp impedir a inclusão, envio um convite por aqui. O acesso às filas é liberado após confirmar sua presença. 💛`
-                    : `Pronto, ${text}! 🎉 Criei sua conta. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
+                    ? `Pronto, ${preferredName}! 🎉 Criei sua conta e estou te mandando a SENHA aqui nesta conversa.\n\nEntre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e essa senha. Já encaminhei sua entrada em um grupo SOS YOUTUBER com vaga. Se a privacidade do WhatsApp impedir a inclusão, envio um convite por aqui. O acesso às filas é liberado após confirmar sua presença. 💛`
+                    : `Pronto, ${preferredName}! 🎉 Criei sua conta. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
                   // Owner INFORMADO, nunca bloqueando: ele acompanha e pode intervir.
-                  queueOwnerAlerts(db,runtimeConfig,id,msg.from,text,msg.id);
+                  queueOwnerAlerts(db,runtimeConfig,id,msg.from,preferredName,msg.id);
                 }
               } else {
                 // AUDITORIA / AUTO-APROVACAO (pedido do dono: "reduzir acao humana ao
@@ -925,9 +931,9 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                   ON CONFLICT(phone) DO UPDATE SET name=excluded.name,status='APPROVED',source='WHATSAPP',
                     whatsapp_verified_at=excluded.whatsapp_verified_at,approved_at=COALESCE(participation_requests.approved_at,excluded.approved_at),
                     preferred_group=COALESCE(excluded.preferred_group,participation_requests.preferred_group),updated_at=excluded.updated_at`)
-                  .run(randomUUID(),msg.from,text,stamp,stamp,vinculo?.code ?? null,stamp,stamp);
-                ensureSelfServiceAccount(db,runtimeConfig,msg.from,text);
-                responseBody = `Prontinho, ${text}! ✅ Confirmei seu número no grupo SOS YOUTUBER${vinculo?.code?` ${vinculo.code}`:""} e já liberei seu acesso. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
+                  .run(randomUUID(),msg.from,preferredName,stamp,stamp,vinculo?.code ?? null,stamp,stamp);
+                ensureSelfServiceAccount(db,runtimeConfig,msg.from,preferredName);
+                responseBody = `Prontinho, ${preferredName}! ✅ Confirmei seu número no grupo SOS YOUTUBER${vinculo?.code?` ${vinculo.code}`:""} e já liberei seu acesso. Em instantes eu te mando a senha aqui mesmo — depois é só entrar em ${runtimeConfig.WEB_APP_URL} com este WhatsApp. 💛`;
               }
               db.prepare("UPDATE whatsapp_conversations SET stage='SUBMITTED',updated_at=? WHERE phone=?").run(now(),msg.from);
               queue(db,msg.from,{type:"text",text:{preview_url:true,body:responseBody}},`${msg.id}:received`,expires,runtimeConfig);

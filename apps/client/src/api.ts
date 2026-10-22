@@ -400,6 +400,7 @@ export const ownerApi = {
   googleIdentities:()=>ownerRequest<{claims:GoogleIdentityRequest[]}>("/admin/google-identities"),
   decideGoogleIdentity:(id:string,approve:boolean,groupCode?:string)=>ownerRequest<{ok:true}>(`/admin/google-identities/${id}/decision`,{method:"POST",body:JSON.stringify({approve,groupCode})}),
   login: (body: { name: string; identifier: string; groupCode: "#"; secret: string }) => request<{ token: string; role: "owner" }>("/admin/login", { method: "POST", body: JSON.stringify(body) }),
+  directLogin: (body: {phone:string;secret:string}) => request<{token:string;role:"owner"}>("/admin/login", {method:"POST",body:JSON.stringify({identifier:body.phone,groupCode:"#",secret:body.secret})}),
   overview: (month: string) => ownerRequest<OwnerOverview>(`/admin/overview?month=${month}`),
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
   groupSettings: (code: string, joinUrl: string) => ownerRequest<{ ok: true; group: OwnerOverview["groups"][number] }>("/admin/groups", { method: "POST", body: JSON.stringify({ code, joinUrl }) }),

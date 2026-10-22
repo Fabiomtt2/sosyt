@@ -96,7 +96,12 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
           : SHORT_EXACT.includes(intent) && phrase.length <= 4
             ? text === phrase
             : text.includes(phrase);
-      if (hit) return intent;
+      if (hit) {
+        if(intent==="PARTICIPATE" && opts.awaitingName
+          && /^(?:(?:oi|olá|ola)[,!]?\s+)?(?:meu nome|me chamo|eu me chamo|pode me chamar de|eu sou)\b/iu.test(raw.trim())
+          && extractPreferredName(raw))return "NAME_CANDIDATE";
+        return intent;
+      }
     }
   }
   if (opts.awaitingName && looksLikeName(raw)) return "NAME_CANDIDATE";
@@ -107,6 +112,23 @@ export function classifyInbound(raw: string, opts: { awaitingName?: boolean } = 
  * O nome é aceitável? Antes, nome com link/quebra/longo demais caía num `else if`
  * que não enviava NADA. Agora separamos "é nome" de "não é" para sempre responder.
  */
+/**
+ * A frase inteira nunca deve virar o nome de cadastro.
+ * Reconhece apresentações comuns sem usar modelo remoto ou confiar em texto inventado.
+ * O motor local de intenções continua responsável por dúvidas e comandos.
+ */
+export function extractPreferredName(raw: string): string | undefined {
+  const message=raw.trim().replace(/\s+/gu," ");
+  const bare=/^(?:(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!.]?\s+)?(?:meu nome(?:\s+é|\s+e|\s*:)|eu me chamo|me chamo|chamo-me|pode me chamar de|me chama de|eu sou|sou o|sou a)\s*$/iu;
+  if(bare.test(message))return undefined;
+  const match=/^(?:(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!.]?\s+)?(?:o?\s*meu nome\s*(?:é|e|:)|eu me chamo|me chamo|chamo-me|pode me chamar de|me chama de|eu sou|sou o|sou a)\s+(.+)$/iu.exec(message);
+  let candidate=match?.[1]??message;
+  if(match)candidate=candidate.replace(/\s+(?:e\s+)?(?:quero|gostaria|preciso|tenho|estou|vou)\s+.+$/iu,"");
+  candidate=candidate.replace(/[.!?;,]+$/u,"").trim();
+  if(nameRejectionReason(candidate))return undefined;
+  return candidate;
+}
+
 export function looksLikeName(raw: string): boolean {
   const name = raw.trim();
   return nameRejectionReason(name) === undefined;
@@ -115,7 +137,7 @@ export function looksLikeName(raw: string): boolean {
 /** Por que o nome não serve — usado para explicar com gentileza, em vez de calar. */
 export function nameRejectionReason(raw: string): string | undefined {
   const name = raw.trim();
-  if (!/\p{L}/u.test(name) || /^(continuar|cadastrar|entrar|sim|ok|okay|menu|voltar|obrigad[oa])$/i.test(normalizeInbound(name))) return "Ainda preciso saber seu nome. Como prefere ser chamado?";
+  if (!/\p{L}/u.test(name) || /^(continuar|cadastrar|entrar|sim|ok|okay|menu|voltar|obrigad[oa]|meu nome (?:e|é)|me chamo|eu sou|sou o|sou a)$/i.test(normalizeInbound(name))) return "Ainda preciso saber seu nome. Como prefere ser chamado?";
   if (name.length < 2) return "Esse nome ficou curtinho — me manda com pelo menos duas letras?";
   if (name.length > 80) return "Esse nome ficou bem comprido! Pode mandar só como prefere ser chamado?";
   if (/https?:\/\//i.test(name)) return "Por segurança não consigo guardar links aqui. Me manda só o seu nome?";
