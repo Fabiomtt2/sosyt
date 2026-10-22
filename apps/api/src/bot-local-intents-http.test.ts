@@ -25,6 +25,27 @@ describe("local intent fallback in the real WhatsApp webhook",()=>{
     expect(body).not.toMatch(/R\$|compra efetuada/i);
     expect(db.prepare("SELECT COUNT(*) AS n FROM payments").get()).toEqual({n:0});
   });
+  it("wallet paraphrases read real balances without granting items or changing credentials",async()=>{
+    const at=new Date().toISOString();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES('wallet-person','Lia Sintética',?,'1',?,?)").run(phone,at,at);
+    db.prepare("INSERT INTO wallets(user_id,promo_millis,purchased_millis,reward_millis,extra_slot_passes,updated_at) VALUES('wallet-person',10000,2000,3000,2,?)").run(at);
+    const before=db.prepare("SELECT * FROM wallets WHERE user_id='wallet-person'").get();
+    expect(classifyInbound("Quantas moedinhas eu tenho?")).toBe("UNKNOWN");
+    const body=await send("Quantas moedinhas eu tenho?");
+    expect(body).toContain("Lia Sintética,");
+    expect(body).toContain("Moedas: 15");
+    expect(body).toContain("Compradas: 2 · Recompensas: 3 · Promocionais: 10");
+    expect(body).toContain("Passe: 2 · Pular: 0");
+    expect(db.prepare("SELECT * FROM wallets WHERE user_id='wallet-person'").get()).toEqual(before);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM payments").get()).toEqual({n:0});
+    expect(db.prepare("SELECT COUNT(*) AS n FROM user_passwords").get()).toEqual({n:0});
+  });
+  it("wallet paraphrases never invent a balance for an unregistered number",async()=>{
+    const body=await send("Quantas moedinhas eu tenho?");
+    expect(body).toContain("preparar seu acesso primeiro");
+    expect(body).not.toContain("Moedas:");
+    expect(db.prepare("SELECT COUNT(*) AS n FROM participation_requests").get()).toEqual({n:0});
+  });
   it("password inference explains explicit confirmation and never creates credentials",async()=>{
     expect(classifyInbound("minha credencial foi rejeitada")).toBe("UNKNOWN");
     const body=await send("minha credencial foi rejeitada");
@@ -61,13 +82,14 @@ describe("local intent fallback in the real WhatsApp webhook",()=>{
     const at=new Date().toISOString();
     db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES('blocked-person','Pessoa Sintética',?,'1',?,?)").run(phone,at,at);
     setParticipantAccess(db,"blocked-person",true,"root-test","Suspensão sintética");
-    for(const text of ["Pessoa Renomeada","Posso conversar com uma pessoa responsável?"]){
+    for(const text of ["Pessoa Renomeada","Posso conversar com uma pessoa responsável?","Quantas moedinhas eu tenho?"]){
       expect(await send(text)).toContain("pausado pela administração");
     }
-    expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE dedupe_key LIKE '%:access-blocked'").get()).toEqual({n:2});
+    expect(db.prepare("SELECT COUNT(*) AS n FROM whatsapp_outbox WHERE dedupe_key LIKE '%:access-blocked'").get()).toEqual({n:3});
     expect(db.prepare("SELECT COUNT(*) AS n FROM bot_support_tickets").get()).toEqual({n:0});
     await send("Tenho duvidas");
     expect(db.prepare("SELECT 1 FROM bot_support_tickets WHERE phone=? AND status='OPEN'").get(phone)).toBeTruthy();
     expect(db.prepare("SELECT 1 FROM participant_access_restrictions WHERE user_id='blocked-person' AND blocked_at IS NOT NULL").get()).toBeTruthy();
   });
 });
+

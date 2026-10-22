@@ -1,5 +1,5 @@
 /** Local retrieval classifier. No remote model, generated answer, user history or side effect. */
-export type LocalBotIntent = "MENU" | "QUEUE" | "PASSWORD_HELP" | "HELP" | "HUMAN" | "STORE" | "RANKING";
+export type LocalBotIntent = "MENU" | "QUEUE" | "PASSWORD_HELP" | "HELP" | "HUMAN" | "STORE" | "RANKING" | "WALLET";
 export type LocalBotMatch = { intent: LocalBotIntent; score: number };
 
 // Training examples are project vocabulary, not conversations collected from users.
@@ -10,6 +10,7 @@ const CORPUS: Readonly<Record<LocalBotIntent, readonly string[]>> = {
   HELP: ["pode me orientar", "preciso de orientacao", "estou perdido no aplicativo", "nao estou compreendendo o aplicativo", "quero entender o projeto", "explique o projeto para mim", "por onde devo iniciar", "pode explicar melhor"],
   HUMAN: ["posso conversar com uma pessoa responsavel", "preciso conversar com a equipe responsavel", "queria conversar com gente de verdade", "alguem da equipe pode responder", "preciso conversar com um administrador", "quero conversar com uma pessoa da equipe", "tem alguem da equipe para me atender"],
   STORE: ["onde fica a loja", "como comprar produtos", "onde vejo os produtos", "quero conhecer a loja", "como comprar um item", "onde encontro os precos dos produtos", "como adquirir moedas", "onde compro passe e pular"],
+  WALLET: ["quantas moedinhas eu tenho", "quantos itens eu tenho no inventario", "qual e o meu saldo", "quais beneficios eu tenho", "como esta meu progresso de experiencia", "quantos pontos eu acumulei", "quanto xp eu tenho", "meu super esta ativo", "quantos passes eu tenho", "quantos pular eu tenho"],
   RANKING: ["quem esta no topo da classificacao", "quais sao os lideres da comunidade", "quem esta no podio", "quero ver os campeoes da comunidade", "como consultar a classificacao", "quem lidera a competicao", "quem esta no topo do ranking"],
 };
 
@@ -22,6 +23,7 @@ const anchors: Record<LocalBotIntent, readonly string[]> = {
   HELP: ["orientar", "orientacao", "perdido", "compreendendo", "entender", "projeto", "explicar", "explique", "iniciar"],
   HUMAN: ["pessoa", "responsavel", "equipe", "gente", "administrador", "humano", "atendente"],
   STORE: ["loja", "comprar", "compro", "produtos", "produto", "item", "precos", "adquirir"],
+  WALLET: ["carteira", "saldo", "inventario", "moedinhas", "itens", "beneficios", "experiencia", "pontos", "xp", "super", "passes", "pular"],
   RANKING: ["ranking", "classificacao", "lideres", "podio", "campeoes", "lidera", "competicao"],
 };
 const VOCABULARY = [...new Set(Object.values(CORPUS).flatMap(rows => rows.flatMap(row => normalize(row).split(" "))))];
@@ -97,6 +99,7 @@ export function localBotRouting(match:LocalBotMatch|undefined):{intent:"GREETING
     case "MENU":return {intent:"GREETING"};
     case "QUEUE":return {intent:"QUEUE_INFO",progressCommand:"minhas filas"};
     case "HUMAN":return {intent:"HUMAN"};
+    case "WALLET":return {intent:"HELP",progressCommand:"carteira"};
     case "RANKING":return {intent:"HELP",progressCommand:"ranking"};
     case "PASSWORD_HELP":return {intent:"HELP",explanation:"Vamos resolver seu acesso. Para solicitar uma nova senha de participante, responda 3. Se sua conta é de Owner, use a credencial administrativa. Se precisar de uma pessoa, escreva Tenho dúvidas. Não alterei sua senha com esta mensagem."};
     case "STORE":return {intent:"HELP",explanation:"A loja fica no painel do SOS YOUTUBER. Abra Loja para consultar os produtos, os preços atuais e os benefícios antes de confirmar. Comprar guarda os itens no inventário; o uso é confirmado separadamente. Se precisar de uma pessoa, escreva Tenho dúvidas."};
@@ -114,3 +117,4 @@ export function declinesBotSensitiveAction(raw:string):boolean {
   const clauses=raw.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().split(/[,.!?;:\r\n]|\b(?:mas|porem|so que)\b/);
   return clauses.some(clause=>/\b(?:nao|nem|nunca)\s+(?:quero|preciso|desejo|necessito|pedi|estou pedindo)\b.{0,65}\b(?:senha|credencial|humano|humana|atendente|pessoa|equipe|administrador|suporte)\b/.test(clause));
 }
+
