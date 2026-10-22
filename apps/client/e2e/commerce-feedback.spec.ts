@@ -202,7 +202,10 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
     const art=el.querySelector(".inventory-status-art")!.getBoundingClientRect();
     const count=el.querySelector(".inventory-status-quantity")!.getBoundingClientRect();
     const card=el.getBoundingClientRect();
-    return art.right<=count.left && count.right<=card.right && count.bottom<=card.bottom && el.scrollWidth<=el.clientWidth+1;
+    const separate=art.right<=count.left || art.bottom<=count.top;
+    const quantity=el.querySelector(".inventory-status-quantity")!;
+    const oneLine=count.height<=parseFloat(getComputedStyle(quantity).lineHeight)+1;
+    return separate && oneLine && count.right<=card.right && count.bottom<=card.bottom && el.scrollWidth<=el.clientWidth+1;
    }))).toBe(true);
    await page.screenshot({path:resolve(statusEvidence,`inventory-readable-${adminInventory?"admin":"member"}-${width}.png`),animations:"disabled"});
   }
