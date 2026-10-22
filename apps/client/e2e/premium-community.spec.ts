@@ -20,8 +20,12 @@ test("Híbrido+, avatar Owner, loja lateral, conversa e presente convergem no na
  const integration=page.getByRole("dialog",{name:"Configurar integração WhatsApp"});
  await integration.getByRole("radio",{name:/Híbrido\+/}).click();
  await expect(integration.getByText("Evolution · motor de grupos",{exact:true})).toBeVisible();
+ // The connection status already exists before saving; wait for the actual write.
+ const integrationSaved=page.waitForResponse(response=>response.url()===server+"/admin/integrations/whatsapp"&&response.request().method()==="POST");
  await integration.getByRole("button",{name:"Salvar configuração",exact:true}).click();
- await expect(integration.getByRole("status")).toBeVisible();
+ const savedResponse=await integrationSaved;
+ expect(savedResponse.ok(),await savedResponse.text()).toBe(true);
+ await expect(integration.getByRole("status").filter({hasText:/Configuração salva/})).toBeVisible();
  expect((await (await request.get(server+"/admin/bot",{headers:ownerHeaders})).json()).status.mode).toBe("HYBRID_PLUS");
  for(const width of [1440,390]){
   await page.setViewportSize({width,height:900});await integration.getByRole("radio",{name:/Híbrido\+/}).scrollIntoViewIfNeeded();
