@@ -99,6 +99,11 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
   await expect(statusbar.getByRole("button",{name:"SUPER: Inativo",exact:true})).toBeVisible();
   await statusbar.getByRole("button",{name:"Detalhes de Moedas",exact:true}).click();
   await expect(statusbar.getByRole("tooltip").filter({hasText:"Compradas: 10"})).toBeVisible();
+  // Visibility alone does not detect a tooltip painted behind the queue panel.
+  await expect.poll(()=>statusbar.locator(".inventory-status-detail.is-expanded").evaluate(el=>{
+   const r=el.getBoundingClientRect();
+   return [0.2,0.5,0.8].every(y=>el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height*y)));
+  })).toBe(true);
   await page.screenshot({path:resolve(statusEvidence,"inventory-topbar-"+width+".png"),animations:"disabled"});
   await statusbar.getByRole("button",{name:"Detalhes de Moedas",exact:true}).click();
  }
@@ -177,5 +182,34 @@ test("loja completa, recibos, animação e identidade SUPER persistem sem duplic
  await expect(page.locator(".gc-msg-super").filter({hasText:"Uma nova fase para criar com vocês."})).toHaveCount(0);
  await page.emulateMedia({reducedMotion:"reduce"});
  expect(await page.locator(".super-cta").evaluate(el=>getComputedStyle(el,"::after").display)).toBe("none");
+ // Stress only the rendered inventory; no synthetic credit is written to the ledger.
+ let administrativeInventory=false;
+ await page.route(server+"/dashboard",async route=>{
+  const response=await route.fetch(),data=await response.json();
+  data.wallet={...data.wallet,total:987654.321,purchased:987644.321,reward:0,promo:10,extraPasses:12345};
+  data.queues={...data.queues,passesAvailable:12345,skipsAvailable:12345};
+  if(administrativeInventory)data.subscription={...data.subscription,active:true,source:"ROOT_OWNER"};
+  await route.fulfill({response,json:data});
+ });
+ for(const adminInventory of [false,true]){
+  administrativeInventory=adminInventory;
+  await page.reload();
+  await expect(statusbar.getByRole("button",{name:"Moedas: 987.654,321",exact:true})).toBeVisible();
+  await expect(statusbar.getByRole("button",{name:adminInventory?"Passe: ADMIN":"Passe: 12.345",exact:true})).toBeVisible();
+  for(const width of [320,390,1440]){
+   await page.setViewportSize({width,height:960});await statusbar.scrollIntoViewIfNeeded();
+   expect(await statusbar.locator(".inventory-status-trigger").evaluateAll(elements=>elements.every(el=>{
+    const art=el.querySelector(".inventory-status-art")!.getBoundingClientRect();
+    const count=el.querySelector(".inventory-status-quantity")!.getBoundingClientRect();
+    const card=el.getBoundingClientRect();
+    const separate=art.right<=count.left || art.bottom<=count.top;
+    const quantity=el.querySelector(".inventory-status-quantity")!;
+    const oneLine=count.height<=parseFloat(getComputedStyle(quantity).lineHeight)+1;
+    return separate && oneLine && count.right<=card.right && count.bottom<=card.bottom && el.scrollWidth<=el.clientWidth+1;
+   }))).toBe(true);
+   await page.screenshot({path:resolve(statusEvidence,`inventory-readable-${adminInventory?"admin":"member"}-${width}.png`),animations:"disabled"});
+  }
+ }
+ await page.unroute(server+"/dashboard");
  expect(errors).toEqual([]);
 });

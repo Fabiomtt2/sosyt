@@ -12,10 +12,15 @@ describe("local intent retrieval, without remote services or generated rules",()
     ["pode me orientar melhor", "HELP"],
     ["onde vejo os produtos", "STORE"],
     ["quem está no pódio", "RANKING"],
+    ["Quantas moedinhas eu tenho?", "WALLET"],
+    ["Quais benefícios eu tenho?", "WALLET"],
+    ["Quantos passes eu tenho?", "WALLET"],
+    ["Meu SUPER está ativo?", "WALLET"],
+    ["Quantos pontos eu acumulei?", "WALLET"],
   ])("understands %s",(text,intent)=>expect(classifyLocalBotIntent(text)?.intent).toBe(intent));
   it.each([
     "não quero conversar com a equipe", "nem preciso de pessoa responsável",
-    "quero loja e fila", "a credencial da loja", "o dragão comeu minha bicicleta",
+    "quero loja e fila", "quero comprar passes", "quero saldo e ranking", "a credencial da loja", "o dragão comeu minha bicicleta",
     "o meu telefone é 5511999999001", "minha senha senha!123", "acesse https://exemplo.test/loja",
     "#ABC123 mensagem", "quero\nprodutos", "n".repeat(501), "", "xyzzy plugh", "Pessoa Renomeada", "Pessoa Responsável",
   ])("refuses ambiguous, negated or sensitive input: %s",text=>expect(classifyLocalBotIntent(text)).toBeUndefined());
@@ -26,6 +31,7 @@ describe("local intent retrieval, without remote services or generated rules",()
     expect(result?.explanation).toContain("Não alterei sua senha");
   });
   it("only asks the existing read-only engine for actual ranks and queues",()=>{
+    expect(localBotFallback("Quantas moedinhas eu tenho?","UNKNOWN")).toEqual({intent:"HELP",progressCommand:"carteira"});
     expect(localBotFallback("quem está no pódio","UNKNOWN")).toEqual({intent:"HELP",progressCommand:"ranking"});
     expect(localBotFallback("Posso montar uma playlist incompleta?","UNKNOWN")).toEqual({intent:"QUEUE_INFO",progressCommand:"minhas filas"});
     expect(localBotFallback("onde vejo os produtos","UNKNOWN")?.explanation).not.toMatch(/R\$|grátis|gratuito|\+\d/);
@@ -36,6 +42,8 @@ describe("local intent retrieval, without remote services or generated rules",()
     }
     expect(localBotFallback("quem está no pódio","UNKNOWN",true)).toBeUndefined();
     expect(localBotFallback("3","UNKNOWN")).toBeUndefined();
+    expect(localBotFallback("Quantas moedinhas eu tenho?","UNKNOWN",true)).toBeUndefined();
+    expect(localBotFallback("Quantas moedinhas eu tenho?","HUMAN")).toBeUndefined();
     expect(localBotRouting(undefined)).toBeUndefined();
   });
   it("returns only an enum and a similarity score, retaining no input or history",()=>{

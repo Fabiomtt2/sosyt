@@ -31,7 +31,8 @@
 .store-catalog .store-meaning-row{justify-content:flex-start}
 .store-catalog .store-meaning-row span{border:0;background:transparent;padding:4px 0;font-size:.7rem}
 .store-catalog .store-meaning-row span+span::before{content:'·';margin-right:4px;color:#b7a09b}
-.inventory-overview .wallet-value-icon.wallet-benefit-art{width:42px;height:42px;flex:0 0 42px;border-radius:0;display:grid;place-items:center;background:transparent;overflow:hidden}
+.inventory-overview .wallet-value{display:grid;grid-template-columns:42px minmax(0,1fr)}
+.inventory-overview .wallet-value-icon.wallet-benefit-art{width:42px;height:42px;max-width:100%;min-width:0;contain:paint;flex:0 0 42px;border-radius:0;display:grid;place-items:center;background:transparent;overflow:hidden}
 .inventory-overview .wallet-benefit-art>.store-editorial-art{width:42px;height:42px;max-height:none;padding:0;object-fit:contain;mix-blend-mode:multiply}
 .inventory-overview .wallet-benefit-art>.store-raster-skip{width:42px;height:42px;aspect-ratio:1}
 .inventory-overview .wallet-benefit-art>.store-raster-skip>img{width:200%;height:100%;max-width:none;object-fit:contain;padding:0}
@@ -61,4 +62,4 @@
  .store-catalog .store-super-highlight{font-size:.63rem}
  .store-catalog .store-meaning-row{margin:0 18px 15px;gap:7px}
 }
-@media(max-width:380px){.store-catalog.premium-store .store-products-v2{gap:10px;padding-inline:12px}.inventory-overview .wallet-value-icon.wallet-benefit-art{width:34px;height:34px;flex-basis:34px}.inventory-overview .wallet-benefit-art>.store-editorial-art,.inventory-overview .wallet-benefit-art>.store-raster-skip{width:34px;height:34px}}
+@media(max-width:380px){.store-catalog.premium-store .store-products-v2{gap:10px;padding-inline:12px}.inventory-overview .wallet-value{grid-template-columns:34px minmax(0,1fr)}.inventory-overview .wallet-value-icon.wallet-benefit-art{width:34px;height:34px;flex-basis:34px}.inventory-overview .wallet-benefit-art>.store-editorial-art,.inventory-overview .wallet-benefit-art>.store-raster-skip{width:34px;height:34px}}
