@@ -320,13 +320,13 @@ export async function registerOwnerRoutes(
     // AUDITORIA: a identidade do Owner e NOME + TELEFONE. `phone` e o campo correto;
     // `identifier` segue aceito como apelido para nao quebrar clientes antigos.
     const body = z.object({
-      secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80),
+      secret: z.string().min(1).max(256), name: z.string().trim().min(2).max(80).optional(),
       phone: phoneSchema.optional(), identifier: phoneSchema.optional(), groupCode: z.literal("#")
     }).parse(request.body);
     const loginPhone = body.phone ?? body.identifier;
     if (!loginPhone) return reply.code(400).send({ message: "Informe o WhatsApp do Owner." });
     // Telefone EFETIVO: respeita a troca de numero feita no painel.
-    const account = effectiveOwnerAccounts(db, config).find((o) => ownerNameMatches(o.name, body.name) && o.phone === loginPhone);
+    const account = effectiveOwnerAccounts(db, config).find((o) => (!body.name || ownerNameMatches(o.name, body.name)) && o.phone === loginPhone);
     if (!account?.secret) return reply.code(401).send({ message: "Conta ou credencial inválida." });
     const hash = (value: string) => createHash("sha256").update(value).digest();
     // AUDITORIA A-02: credencial de atalho só existe fora de produção, apenas com
@@ -341,7 +341,7 @@ export async function registerOwnerRoutes(
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string };
       return reply.code(e.statusCode ?? 429).send({ message: e.message ?? "Credencial bloqueada.", code: e.code }); }
     if (!devCredentialAccepted && !panelCredentialAccepted && !timingSafeEqual(hash(body.secret),hash(account.secret))) return reply.code(401).send({ message: "Conta ou credencial inválida." });
-    const displayName = body.name.trim();
+    const displayName = body.name?.trim() || account.name;
     return {
       token: app.jwt.sign({ sub:`owner:${account.id}`,purpose:"owner",aud:"conexao-owner",jti:ownerCredentialVersion(account.secret),displayName,ownerRole:account.role,ownerId:account.id },{expiresIn:"1h"}),
       role:"owner",
