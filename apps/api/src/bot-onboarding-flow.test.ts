@@ -112,16 +112,22 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
  it("saudação pede nome, comandos não viram nome e recusa histórica não sequestra menu ou senha",async()=>{
   await inbound("oi");
   const greeting=(db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key='evo:sos-primary:synthetic-onboarding-1:greeting'").get() as {payload:string}).payload;
-  expect(payloadBody(greeting)).toMatch(/Como prefere ser chamado/);
+  // AUDITORIA / A SAUDACAO NAO PEDE MAIS O NOME.
+  // Pedir o nome no "oi" armava WAITING_NAME, e a mensagem seguinte — qualquer uma —
+  // virava o nome, criando conta e disparando SENHA para quem so cumprimentou. O dono
+  // relatou isso e foi explicito: "so se ela escolher o cadastro". O que a saudacao
+  // precisa garantir continua testado: ela acolhe e MOSTRA O MENU.
+  expect(payloadBody(greeting)).not.toMatch(/Como prefere ser chamado/);
   expect(payloadBody(greeting)).toContain("\n1. ENTRAR");
   await inbound("Continuar");
-  expect(db.prepare("SELECT 1 FROM users WHERE phone=?").get(phone)).toBeUndefined();
+  expect(db.prepare("SELECT 1 FROM users WHERE phone=?").get(phone), "conversa comum nao cria conta").toBeUndefined();
+  await inbound("1");                       // agora o cadastro exige escolha explicita
   await inbound("Pessoa Sintetica");
   const user=db.prepare("SELECT id FROM users WHERE phone=?").get(phone) as {id:string};
   const old=issuedPassword(user.id);
   db.prepare("UPDATE whatsapp_conversations SET stage='DECLINED' WHERE phone=?").run(phone);
   await inbound("2");await inbound("TROCAR SENHA");
-  const rows=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key IN ('evo:sos-primary:synthetic-onboarding-4:fallback','evo:sos-primary:synthetic-onboarding-5:senha')").all() as {payload:string}[];
+  const rows=db.prepare("SELECT payload FROM whatsapp_outbox WHERE dedupe_key IN ('evo:sos-primary:synthetic-onboarding-5:fallback','evo:sos-primary:synthetic-onboarding-6:senha')").all() as {payload:string}[];
   expect(rows.some(r=>/entrada no grupo ainda precisa ser confirmada/.test(payloadBody(r.payload)))).toBe(true);
   expect(issuedPassword(user.id)).not.toBe(old);
  });
@@ -193,7 +199,11 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
  it("repara nome legado Continuar sem duplicar carteira ou moedas de boas-vindas",async()=>{
   const account=ensureSelfServiceAccount(db,config,phone,"Continuar");
   const before=db.prepare("SELECT promo_millis AS promo FROM wallets WHERE user_id=?").get(account.userId);
-  await inbound("MENU");
+  // AUDITORIA / o reparo do nome legado passa pela ESCOLHA de cadastro ("1"). Antes
+  // bastava um "MENU"/"oi", e era justamente isso que criava conta e senha para quem
+  // so cumprimentava. A protecao do teste — reparar sem duplicar carteira nem moedas
+  // de boas-vindas — continua valendo; so o caminho ficou explicito.
+  await inbound("1");
   expect(db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(phone)).toEqual({stage:"WAITING_NAME"});
   await inbound("Nome Correto");
   expect(db.prepare("SELECT name FROM users WHERE id=?").get(account.userId)).toEqual({name:"Nome Correto"});

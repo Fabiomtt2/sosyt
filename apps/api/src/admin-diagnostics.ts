@@ -44,7 +44,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "sincronia-bot-20261023",
+    release: "saudacao-nao-cadastra-20261023",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".

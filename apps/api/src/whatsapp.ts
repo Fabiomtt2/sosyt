@@ -855,10 +855,21 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             const administrative=effectiveOwnerAccounts(db,runtimeConfig).some(owner=>owner.phone&&sameWhatsAppNumber(owner.phone,msg.from??"")) ||
               Boolean(db.prepare("SELECT 1 FROM owner_access WHERE phone=? AND active=1").get(msg.from));
             const needsName=!administrative&&(!knownAccount||!looksLikeName(knownAccount.name));
+            // AUDITORIA / CAUSA RAIZ DA "SENHA SOLTA DEPOIS DE UMA MENSAGEM".
+            //
+            // Aqui um simples "oi" gravava stage=WAITING_NAME e pedia o nome. A
+            // mensagem SEGUINTE — qualquer uma — era aceita como nome, criando conta e
+            // disparando senha para quem so tinha cumprimentado. O dono relatou isso
+            // duas vezes ("o bot integra pendencia de cadastro com a primeira mensagem
+            // tipo 'oi'") e foi explicito sobre a regra: "A pessoa fala com o bot e nao
+            // deve ser cadastrada automaticamente por isso. So se ela escolher."
+            //
+            // A saudacao agora so acolhe e mostra o menu. O nome passa a ser pedido
+            // apenas no ramo PARTICIPATE, depois da pessoa responder 1 ou dizer que
+            // quer se cadastrar — que e onde WAITING_NAME continua sendo armado.
             if (intent === "GREETING" && needsName) {
-              db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
               const greeting=welcomeCopy(db,runtimeConfig,msg.from,"Oi! 👋 Que bom ter você no SOS YOUTUBER! 💛");
-              const body=[greeting,"Como prefere ser chamado? Pode responder só com seu nome. 😊",variedInboundReply(db,"GREETING") ?? replyFor("GREETING")].filter(Boolean).join("\n\n");
+              const body=[greeting,variedInboundReply(db,"GREETING") ?? replyFor("GREETING")].filter(Boolean).join("\n\n");
               queue(db,msg.from,{type:"text",text:{preview_url:false,body}},`${msg.id}:greeting`,expires,runtimeConfig);
               continue;
             }
