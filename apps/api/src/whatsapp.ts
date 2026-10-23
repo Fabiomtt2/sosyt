@@ -23,6 +23,7 @@ import { materializeApprovedMembership, recordGroupVerification, recordMemberVer
 import { classifyInbound, ensureBotOptOut, extractPreferredName, looksLikeName, nameRejectionReason, replyFor, setOptOut, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
 import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
 import { variedInboundReply } from "./bot-menu-variants.js";
+import { aiClassifyIntent } from "./bot-ai-intent.js";
 import { openHumanRelay, routeHumanRelay } from "./bot-human-relay.js";
 import { renderAutomation } from "./bot-dispatch.js";
 import { supportAvailableNow } from "./support-availability.js";
@@ -704,7 +705,11 @@ function supportReply(db:AppDatabase,event:AutomationEvent,phone:string,fallback
   return settings.customized?renderTemplate(settings.text,{nome:user?.name??"participante"}):fallback;
 }
 type InboundMessage={id?:string;from?:string;type?:string;timestamp?:string;text?:{body?:string}};
-function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:InboundMessage[]){
+// `aiHint` chega JA RESOLVIDA de fora. Motivo: o processamento roda dentro de uma
+// transacao SQLite sincrona, onde nao existe `await` — fazer I/O de rede aqui
+// travaria o banco. Entao o webhook consulta a IA ANTES de abrir a transacao e
+// passa apenas o rotulo. Mesmo padrao da fila de entrada em grupo.
+function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:InboundMessage[],aiHint?:string){
           for (const msg of messages) {
             // AUDITORIA / "ninguem nunca fala sozinho". Antes, tudo que nao fosse
             // texto curto caia num `continue` mudo: audio, foto, video e desabafo
@@ -749,7 +754,15 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             const localRoute = declinedAction
               ? {intent:"HELP" as const,explanation:"Tudo bem. Não abri um atendimento nem alterei sua senha por esta mensagem. Envie MENU para ver as opções. Se quiser uma pessoa, escreva Tenho dúvidas; para solicitar uma nova senha de participante, responda 3."}
               : accessBlocked ? undefined : localBotFallback(text, explicitIntent, conversation?.stage === "WAITING_NAME");
-            const intent = localRoute?.intent ?? explicitIntent;
+            // ESCADA DE PRECEDENCIA (o gratuito e deterministico sempre primeiro):
+            //   1. gatilho explicito  2. NLU local  3. IA
+            // A IA so e consultada quando as duas primeiras falharam, e so pode
+            // escolher uma porta que o bot JA sabe atender. Ela nunca escreve o texto
+            // que a pessoa le — por isso nao tem como inventar preco, prazo ou regra.
+            const intentPreIa = localRoute?.intent ?? explicitIntent;
+            const intent = (intentPreIa === "UNKNOWN" && aiHint && !accessBlocked && conversation?.stage !== "WAITING_NAME")
+              ? aiHint as typeof intentPreIa
+              : intentPreIa;
 
             // Opt-out e opt-in sao atendidos na hora, antes de qualquer fluxo: quem
             // pede para parar e continua recebendo bloqueia o numero, e bloqueio
@@ -1108,7 +1121,10 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
       : (data.key.remoteJidAlt && /^\d{8,15}@s\.whatsapp\.net$/.test(data.key.remoteJidAlt) ? data.key.remoteJidAlt : "");
     if(data.key.fromMe||!senderJid)return {ok:true,ignored:true};
     const text=data.message.conversation??data.message.extendedTextMessage?.text;
-    db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:senderJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}]))();
+    // IA (opcional, desligada por padrao): so pagamos/chamamos quando o caminho
+    // gratuito nao entendeu. Qualquer falha devolve undefined e o bot age como antes.
+    const aiHint = text && classifyInbound(text) === "UNKNOWN" ? await aiClassifyIntent(db,text) : undefined;
+    db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:senderJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}],aiHint))();
     return {ok:true};
   });
   ensureBotAutomations(db);

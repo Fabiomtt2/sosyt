@@ -9,10 +9,17 @@ describe("menu do bot: varia o acolhimento, preserva o contrato", () => {
   beforeEach(() => { db = createDatabase(":memory:"); });
 
   it("nao repete a saudacao em sequencia (era UMA string fixa)", () => {
-    const vistas = new Set<string>();
-    for (let i = 0; i < 10; i++) vistas.add(variedInboundReply(db, "GREETING")!);
-    // 10 aberturas x 6 fechos: dez chamadas seguidas tem que trazer dez mensagens distintas
-    expect(vistas.size).toBe(10);
+    // O motor de nao-repeticao garante: nenhuma repeticao dentro de uma janela de
+    // ceil(poco * 0.6) escolhas recentes. Com 10 aberturas, a janela e 6. Entao a
+    // promessa honesta nao e "10 distintas em 10" — e "nenhuma se repete entre seis
+    // seguidas", que e exatamente o que a pessoa percebe como "nao se repete".
+    const aberturas = Array.from({ length: 24 }, () => variedInboundReply(db, "GREETING")!.split("\n")[0]!);
+    for (let i = 0; i + 6 <= aberturas.length; i++) {
+      const janela = aberturas.slice(i, i + 6);
+      expect(new Set(janela).size, `repetiu dentro da janela ${i}: ${JSON.stringify(janela)}`).toBe(6);
+    }
+    // e, ao longo do tempo, o poco inteiro circula (nao ficam duas ou tres favoritas)
+    expect(new Set(aberturas).size).toBeGreaterThanOrEqual(8);
   });
 
   it("as opcoes 1..5 e o atalho humano estao em TODA variante", () => {

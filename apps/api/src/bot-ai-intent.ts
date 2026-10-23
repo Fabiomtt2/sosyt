@@ -164,7 +164,7 @@ export async function aiClassifyIntent(
       body: JSON.stringify({
         model: settings.model,
         temperature: 0,          // classificacao nao quer criatividade
-        max_tokens: 8,           // um rotulo cabe em poucos tokens; teto corta custo e divagacao
+        max_tokens: 24,          // um rotulo cabe facil; teto baixo corta custo e divagacao
         messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: limpo }],
       }),
     });
