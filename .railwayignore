@@ -1,0 +1,13 @@
+# AUDITORIA / o upload do deploy carregava 163 MB e passou a dar timeout.
+# Nada aqui participa do build: sao evidencias, saidas de build (refeitas no
+# servidor), o projeto Android e os testes de ponta a ponta. Fonte, package.json
+# e apps/api/assets (avatares e emblemas servidos em producao) continuam subindo.
+docs/
+apps/api/dist/
+apps/client/dist/
+apps/client/android/
+apps/client/e2e/
+apps/client/test-results/
+apps/client/playwright-report/
+**/*.tsbuildinfo
+.git/
