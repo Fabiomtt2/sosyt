@@ -93,7 +93,7 @@ export function closeRoundIfFullyConsumed(db: AppDatabase, roundId: string): boo
 
 export class QueueEntryError extends Error {
   readonly statusCode = 409;
-  constructor(readonly code: "QUEUE_CLOSED" | "QUEUE_ALREADY_COMPLETED" | "QUEUE_ALREADY_JOINED" | "QUEUE_FULL" | "QUEUE_NOT_OPEN", message: string) {
+  constructor(readonly code: "QUEUE_CLOSED" | "QUEUE_ALREADY_COMPLETED" | "QUEUE_ALREADY_JOINED" | "QUEUE_FULL" | "QUEUE_NOT_OPEN" | "QUEUE_ROOT_NO_SPAWN", message: string) {
     super(message);
     this.name = "QueueEntryError";
   }
