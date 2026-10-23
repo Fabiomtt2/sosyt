@@ -291,7 +291,13 @@ describe("bot oficial WhatsApp", () => {
 
     it("mensagem desconhecida nao termina em silencio", async () => {
       await post(payload("m-xyz","xyzzy plugh"));
-      expect(bodies().some((b) => /não vou te deixar sem resposta/i.test(b))).toBe(true);
+      // A abertura do "nao entendi" agora VARIA (o dono reclamou de mensagem repetida),
+      // entao o teste prova o que o nome dele promete: houve resposta, ela assume que
+      // nao entendeu e oferece caminhos — em vez de decorar uma frase especifica.
+      const resposta = bodies().find((b) => /1\. ENTRAR/.test(b));
+      expect(resposta, "nenhuma resposta com o menu foi enviada").toBeTruthy();
+      expect(resposta!).toMatch(/não entendi|não captei|não consegui|não ficou claro|me pegou/i);
+      expect(resposta!).toContain("Tenho dúvidas");
     });
 
     it("audio e respondido em vez de descartado", async () => {

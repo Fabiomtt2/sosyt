@@ -849,6 +849,36 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
               queue(db,msg.from,{type:"text",text:{preview_url:false,body}},`${msg.id}:greeting`,expires,runtimeConfig);
               continue;
             }
+            // AUDITORIA / "COMO ENTRO NO GRUPO" TEM QUE COLOCAR NO GRUPO.
+            // A automacao de entrada ja existia (bot-group-join), mas nao havia como
+            // pedi-la FALANDO: quem escrevia "me adiciona no grupo" recebia o menu
+            // genérico. Responder sem executar e o vicio que esta auditoria persegue,
+            // entao aqui a mensagem e o enfileiramento andam juntos. Idempotente por
+            // telefone: pedir dez vezes nao gera dez pendencias para o Owner.
+            if (intent === "GROUP_ACCESS") {
+              const vinculo=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from) as {code:string}|undefined;
+              const conta=db.prepare("SELECT id,name FROM users WHERE phone=? AND deleted_at IS NULL").get(msg.from) as {id:string;name?:string}|undefined;
+              let corpo:string;
+              if (vinculo) {
+                corpo=`Você já está no grupo *SOS YOUTUBER ${vinculo.code}*! 🙌 Se não estiver vendo as mensagens, confira se não arquivou a conversa do grupo no WhatsApp.\n\nPra participar das filas, entre em ${runtimeConfig.WEB_APP_URL} com este WhatsApp e sua senha. Esqueceu? Responda *3*. 💛`;
+              } else if (!conta) {
+                // Sem conta eu nao sei nem o nome da pessoa: o cadastro vem primeiro.
+                corpo="Posso te colocar num grupo sim! 🤝 Só preciso te cadastrar primeiro — responda *1* que eu faço agora, te mando a senha e já encaminho sua entrada no grupo. Leva menos de um minuto. 💛";
+              } else {
+                const r=enqueueGroupJoin(db,msg.from,conta.name ?? "");
+                corpo=r.queued
+                  ? replyFor("GROUP_ACCESS")!
+                  : "Tentei te encaminhar para um grupo e não consegui agora. 💛 Já avisei a equipe — se preferir falar direto, escreva *Tenho dúvidas*.";
+                if (!r.queued) {
+                  const suporte=humanSupportNumber(db,runtimeConfig);
+                  if (suporte && suporte!==msg.from.replace(/\D/g,""))
+                    queue(db,suporte,{type:"text",text:{preview_url:true,body:humanHandoffAlert({name:conta.name,userPhone:msg.from,lastMessage:`Pediu entrada em grupo e o enfileiramento falhou (${r.reason ?? "motivo desconhecido"}).`})}},`${msg.id}:grupo-falha`,expires,runtimeConfig);
+                }
+              }
+              queue(db,msg.from,{type:"text",text:{preview_url:true,body:corpo}},`${msg.id}:grupo`,expires,runtimeConfig);
+              continue;
+            }
+
             if (intent === "PARTICIPATE") {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
               const group=db.prepare("SELECT group_code AS code FROM group_memberships WHERE phone=? AND revoked_at IS NULL").get(msg.from) as {code:string}|undefined;

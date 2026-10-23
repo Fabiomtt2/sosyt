@@ -29,6 +29,11 @@ export type InboundIntent =
   | "RESEND_CODE"   // "não chegou meu código"
   | "GREETING"      // oi, bom dia
   | "HELP"          // ajuda, socorro, não entendi
+  | "GROUP_ACCESS"  // "como entro no grupo", "me adiciona"
+  | "PAYMENT"       // "e pago?", "tem mensalidade?", "como pago o pix"
+  | "AVATAR"        // "como troco meu avatar", "emblemas"
+  | "UPLOAD_HELP"   // "onde coloco o link do meu canal"
+  | "THANKS"        // "obrigado", "valeu" — merece carinho, nao um menu
   | "NAME_CANDIDATE"// pode ser o nome, quando estamos perguntando
   | "UNKNOWN";      // nada acima — AINDA ASSIM responde
 
@@ -53,9 +58,32 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
     "tenho duvida", "tenho uma duvida", "tenho duvidas", "estou com duvida",
     "preciso de suporte", "quero suporte", "falar com o suporte", "falar com a equipe", "falar com um admin", "falar com o admin", "falar com um owner", "falar com rafael", "falar com fabio", "atendimento humano", "atendimento pessoal", "uma pessoa me ajuda", "tenho 1 duvida", "humano", "atendente", "pessoa de verdade", "falar com alguem", "falar com uma pessoa", "suporte humano",
   ] },
+  // AUDITORIA / TOPICOS QUE A COMUNIDADE PERGUNTA E O BOT IGNORAVA.
+  // Medido com sonda de 31 mensagens reais: 13 caiam no menu genérico. Nao era falha
+  // do classificador — eram assuntos inteiros fora do vocabulario. "grupo" era o pior:
+  // existe automacao de entrada em grupo e nao havia como pedi-la falando.
+  { intent: "GROUP_ACCESS", phrases: [
+    "entrar no grupo", "entro no grupo", "entrar nos grupos", "link do grupo", "link dos grupos",
+    "me adiciona", "me adicione", "me coloca no grupo", "me bota no grupo", "grupo do whatsapp",
+    "nao estou no grupo", "nao estou em nenhum grupo", "qual grupo", "quero o grupo", "convite do grupo",
+  ] },
+  { intent: "UPLOAD_HELP", phrases: [
+    "mandar meu video", "enviar meu video", "mandar o video", "enviar o video", "subir meu video",
+    "link do meu canal", "link do meu video", "onde coloco o link", "onde coloco meu link",
+    "meu video nao aparece", "nao consigo mandar o video", "como mando o video",
+  ] },
+  { intent: "PAYMENT", phrases: [
+    "e pago", "é pago", "tem mensalidade", "mensalidade", "quanto custa", "qual o valor", "qual valor",
+    "como pago", "como pagar", "fazer o pix", "pagar com pix", "chave pix", "forma de pagamento", "pix", "pago o pix", "pagar o pix",
+    "assinatura super", "como assino", "quero assinar", "e gratis", "é gratis", "e de graca",
+  ] },
+  { intent: "AVATAR", phrases: [
+    "meu avatar", "trocar avatar", "trocar de avatar", "mudar avatar", "mudar meu avatar",
+    "emblema", "emblemas", "foto de perfil", "personagem",
+  ] },
   // AUDITORIA / menu numerado: a pessoa pode responder "1".."5" como atalho.
   { intent: "PARTICIPATE", phrases: ["1"] },
-  { intent: "HELP", phrases: ["ranking", "rank", "classificacao", "meu nivel", "nivel", "xp", "carteira", "saldo", "inventario", "gamificacao"] },
+  { intent: "HELP", phrases: ["ranking", "rank", "classificacao", "meu nivel", "nivel", "xp", "carteira", "saldo", "inventario", "gamificacao", "quem ta ganhando", "quem esta ganhando", "quem ta na frente", "quem ganhou", "quem lidera", "quem ta no topo"] },
   { intent: "QUEUE_INFO", phrases: ["2", "fila", "filas", "como funciona a fila", "como funcionam as filas"] },
   { intent: "RESEND_CODE", phrases: ["3", "trocar senha", "nova senha", "mudar senha", "resetar senha", "senha", "nao consigo entrar", "esqueci a senha", "perdi a senha", "nao entro"] },
   { intent: "STATUS", phrases: ["4"] },
@@ -66,11 +94,12 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
   { intent: "STATUS", phrases: ["status", "e ai saiu", "ja saiu", "foi aprovado", "minha solicitacao", "novidade"] },
   { intent: "PARTICIPATE", phrases: ["quero participar", "quero entrar", "como participo", "como entro", "participar", "continuar", "comecar", "cadastrar"] },
   { intent: "HELP", phrases: ["ajuda", "socorro", "nao entendi", "me ajuda", "duvida", "como funciona"] },
+  { intent: "THANKS", phrases: ["obrigado", "obrigada", "obrigado!", "valeu", "vlw", "muito obrigado", "muito obrigada", "gratidao", "agradecido", "brigado", "brigada"] },
   { intent: "GREETING", phrases: ["oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "opa", "menu"] },
 ];
 
 /** Frase curta é saudação só quando é a mensagem inteira (evita casar "oi" dentro de "coisa"). */
-const SHORT_EXACT: InboundIntent[] = ["GREETING", "OPT_OUT", "OPT_IN", "HUMAN", "STATUS"];
+const SHORT_EXACT: InboundIntent[] = ["GREETING", "OPT_OUT", "OPT_IN", "HUMAN", "STATUS", "THANKS"];
 
 /**
  * Classifica a entrada. `awaitingName` muda o desfecho: durante a pergunta do nome,
@@ -190,6 +219,14 @@ export const INBOUND_REPLIES: Record<Exclude<InboundIntent, "NAME_CANDIDATE" | "
   GREETING: "Oi! 👋 Que bom te ver por aqui! Eu sou o bot do SOS YOUTUBER e tô aqui pra te ajudar no que precisar. 💛\n\nMe diz o que você quer (pode escrever com suas palavras ou mandar o número):\n\n1. ENTRAR — quero participar do projeto\n2. FILA — como funcionam as filas de 10 links\n3. SENHA — não consigo entrar na minha conta\n4. STATUS — quero saber como está meu cadastro\n5. MOEDAS — pontos, níveis e recompensas\n\nE se preferir falar com uma pessoa de verdade, é só escrever *Tenho dúvidas* que eu chamo alguém da equipe. 🙋",
   QUEUE_INFO: "Te explico! 🎬 Cada fila reúne até *10 links* e fica ativa por 72 horas desde a abertura. Você pode ver todas as filas; participa das que estão liberadas para sua conta. 💛\n\nPode criar a playlist com menos de 10 vídeos após ler e confirmar o aviso: terá menos XP de progresso e essa seleção parcial não gera moedas. Se a fila completar depois, pode criar outra playlist com os 10, sem duplicar recompensas.\n\n*Passe* libera mais um campo de URL na sua fila aberta. *Pular* permite escolher outra fila. Compre para guardar no inventário e confirme o uso quando quiser.\n\nAbra o painel para criar sua playlist e acompanhar o progresso verificado. Para consultar suas filas por aqui, escreva *minhas filas*. Se precisar de uma pessoa, escreva *Tenho dúvidas*.",
   HELP: "Claro, tô aqui pra isso! 💛 Me diz o que você precisa (palavra ou número):\n\n1. ENTRAR — participar do projeto\n2. FILA — como funcionam as filas\n3. SENHA — problema para acessar a conta\n4. STATUS — situação do seu cadastro\n5. MOEDAS — pontos, níveis e recompensas\n\nSe nada disso resolver, escreve *Tenho dúvidas* que uma pessoa da equipe te atende. 🙋",
+  // AUDITORIA / respostas dos topicos novos. Nenhum numero inventado: participar e
+  // gratuito (o bot cadastra sem cobrar), o SUPER e assinatura OPCIONAL e os precos
+  // atuais vivem no painel — citar valor aqui envelheceria e viraria mentira.
+  GROUP_ACCESS: "Eu cuido disso pra você! 🤝 Vou te encaminhar para um grupo SOS YOUTUBER com vaga e te aviso aqui quando entrar.\n\nSe a privacidade do seu WhatsApp bloquear a inclusão automática, eu te mando o convite por aqui — aí basta um toque. 💛",
+  PAYMENT: "Boa pergunta! 💛 *Participar do SOS YOUTUBER é gratuito* — eu faço seu cadastro sem cobrar nada e você entra nas filas normalmente.\n\nO que é pago é opcional: o *SUPER* (assinatura com vantagens) e alguns itens da loja, como *Passe* e *Pular*. Os valores atuais ficam no painel, em Loja — assim você vê o preço certo antes de confirmar qualquer coisa.\n\nPagamento por *Pix*. Se tiver dúvida na hora de pagar, escreve *Tenho dúvidas* que uma pessoa te acompanha. 🙋",
+  AVATAR: "Seu avatar e seus emblemas ficam no painel! ✨ Entre em sua conta e abra o seu perfil para escolher.\n\nOs *emblemas de nível* são desbloqueados conforme você sobe de nível participando das filas — eles aparecem sozinhos quando você conquista. 🏅\n\nAlguns avatares são de *eventos e temporadas*: aparecem só enquanto a campanha está no ar. 💛",
+  UPLOAD_HELP: "Te explico! 🎬 O link do vídeo é colado *na fila*, dentro do painel — não aqui no WhatsApp.\n\nEntre em sua conta, abra a fila liberada para você e cole a URL do seu vídeo no campo da sua posição. Assim que você envia, eu anuncio no grupo para a galera assistir e apoiar. 🙌\n\nSe o seu vídeo não aparecer depois de enviar, escreve *minhas filas* que eu te mostro a situação. 💛",
+  THANKS: "Eu que agradeço! 💛 Tamo junto nessa. Se precisar de qualquer coisa, é só me chamar — tô por aqui. 🚀",
   UNKNOWN: "Recebi sua mensagem! 💛 Não entendi direito dessa vez, mas não vou te deixar sem resposta.\n\nPode tentar de um jeito mais simples? Escolha uma opção (palavra ou número):\n\n1. ENTRAR — participar do projeto\n2. FILA — como funciona\n3. SENHA — recuperar acesso\n4. STATUS — meu cadastro\n5. MOEDAS — níveis e recompensas\n\nOu escreve *Tenho dúvidas* que eu chamo uma pessoa da equipe pra te ajudar com calma. 🙋",
 };
 
