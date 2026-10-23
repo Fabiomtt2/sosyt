@@ -65,4 +65,26 @@ describe("cobertura de intencao em fala real", () => {
     expect(classifyInbound("quero participar")).toBe("PARTICIPATE");
     expect(classifyInbound("1")).toBe("PARTICIPATE");
   });
+  // AUDITORIA / A "SENHA SOLTA DEPOIS DE UMA MENSAGEM" RELATADA PELO DONO.
+  // "continuar", "comecar" e "participar" soltos casavam por INCLUSAO. Quem escrevia
+  // uma frase comum caia em WAITING_NAME e a mensagem seguinte virava o nome — conta
+  // e senha emitidas para quem nunca pediu cadastro.
+  it("conversa comum NAO comeca cadastro por acidente", () => {
+    for (const frase of [
+      "vou continuar depois",
+      "ja comecei a participar das filas ontem",
+      "continuar assim e dificil",
+      "obrigado, vou comecar amanha",
+      "to participando de outro grupo tambem",
+    ]) {
+      expect(classifyInbound(frase), frase).not.toBe("PARTICIPATE");
+    }
+  });
+
+  it("mas quem realmente quer se cadastrar continua entrando", () => {
+    for (const frase of ["quero participar", "quero me cadastrar", "como me cadastro",
+                         "fazer meu cadastro", "criar minha conta", "1"]) {
+      expect(classifyInbound(frase), frase).toBe("PARTICIPATE");
+    }
+  });
 });

@@ -56,8 +56,13 @@ describe('durable interactive priority and current queue facts',()=>{
   queueGroupAutomation(db,config,group,'Fila 1 foi aberta','historical-closed',{event:'QUEUE_OPEN',deliveryClass:'QUEUE',queueSnapshot:snapshot});
   db.prepare('UPDATE rounds SET closed_at=? WHERE id=?').run(at.toISOString(),round);
   await flushWhatsAppOutbox(db,config,10);
-  expect(sent[0].text).toContain('fila deste registro já foi encerrada');
+  expect(sent[0].text).toContain('fila deste aviso já foi encerrada');
   expect(sent[0].text).not.toContain('agora aparece como Fila 1');
+  // AUDITORIA / a mensagem se contradizia na tela do grupo: dizia "encerrada" e logo
+  // abaixo listava "Fila 1 - recebendo links". Sao duas filas diferentes com o mesmo
+  // rotulo, porque o numero e reaproveitado. Agora o aviso explica isso.
+  expect(sent[0].text).toContain('reaproveitado');
+  expect(sent[0].text).toContain('Filas abertas agora');
  });
  it('reserves the last group slot for night without exceeding the hard daily cap',async()=>{
   for(let n=0;n<6;n++)queueGroupAutomation(db,config,group,'Upload '+n,'reserve-'+n,{event:'UPLOAD_NOTICE',deliveryClass:'QUEUE'});

@@ -66,6 +66,14 @@ export function ensureBotAiUsage(db: AppDatabase) {
     failures INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   );`);
+  // AUDITORIA / MEDICAO HONESTA. A primeira versao somava "o modelo disse NENHUMA"
+  // junto com "a chamada quebrou" na mesma coluna. O painel entao mostrava
+  // "2 sem resposta útil" para duas respostas perfeitamente corretas do modelo — e o
+  // dono concluiu, com razao, que a IA estava quebrada. Numero ambiguo e pior que
+  // numero nenhum: manda caçar bug onde nao ha.
+  for (const col of ["nenhuma INTEGER NOT NULL DEFAULT 0", "last_reason TEXT"]) {
+    try { db.exec(`ALTER TABLE bot_ai_usage ADD COLUMN ${col};`); } catch { /* ja existe */ }
+  }
 }
 
 export function readBotAiSettings(db: AppDatabase, env: NodeJS.ProcessEnv = process.env): BotAiSettings {
@@ -102,16 +110,18 @@ export function reserveAiCall(db: AppDatabase, cap: number): boolean {
     ON CONFLICT(day) DO UPDATE SET calls=bot_ai_usage.calls+1,updated_at=excluded.updated_at`).run(day, stamp);
   return true;
 }
-function recordOutcome(db: AppDatabase, field: "hits" | "failures") {
+function recordOutcome(db: AppDatabase, field: "hits" | "nenhuma" | "failures", reason?: string) {
   ensureBotAiUsage(db);
-  db.prepare(`UPDATE bot_ai_usage SET ${field}=${field}+1,updated_at=? WHERE day=?`).run(new Date().toISOString(), today());
+  db.prepare(`UPDATE bot_ai_usage SET ${field}=${field}+1,last_reason=COALESCE(?,last_reason),updated_at=? WHERE day=?`)
+    .run(reason ?? null, new Date().toISOString(), today());
 }
 
 /** Quanto a IA foi usada hoje (o painel mostra ao Owner). */
-export function botAiUsageToday(db: AppDatabase): { calls: number; hits: number; failures: number } {
+export function botAiUsageToday(db: AppDatabase): { calls: number; hits: number; nenhuma: number; failures: number; lastReason: string | null } {
   ensureBotAiUsage(db);
-  const row = db.prepare("SELECT calls,hits,failures FROM bot_ai_usage WHERE day=?").get(today()) as { calls: number; hits: number; failures: number } | undefined;
-  return row ?? { calls: 0, hits: 0, failures: 0 };
+  const row = db.prepare("SELECT calls,hits,COALESCE(nenhuma,0) AS nenhuma,failures,last_reason AS lastReason FROM bot_ai_usage WHERE day=?")
+    .get(today()) as { calls: number; hits: number; nenhuma: number; failures: number; lastReason: string | null } | undefined;
+  return row ?? { calls: 0, hits: 0, nenhuma: 0, failures: 0, lastReason: null };
 }
 
 const SYSTEM_PROMPT = [
@@ -168,16 +178,20 @@ export async function aiClassifyIntent(
         messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: limpo }],
       }),
     });
-    if (!response.ok) { recordOutcome(db, "failures"); return undefined; }
+    if (!response.ok) { recordOutcome(db, "failures", `HTTP_${response.status}`); return undefined; }
     const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
     const bruto = (data.choices?.[0]?.message?.content ?? "").trim().toUpperCase().replace(/[^A-Z_]/g, "");
     // Lista fechada: o que nao esta nela nao existe. E o que impede a IA de
     // "inventar" uma acao que o bot nao sabe executar.
     const rotulo = (AI_LABELS as readonly string[]).includes(bruto) ? (bruto as AiLabel) : undefined;
-    recordOutcome(db, rotulo && rotulo !== "NENHUMA" ? "hits" : "failures");
-    return rotulo === "NENHUMA" ? undefined : rotulo;
-  } catch {
-    recordOutcome(db, "failures");
+    // Tres desfechos distintos, nao dois: acertou, disse que nao sabe, ou quebrou.
+    if (!rotulo) { recordOutcome(db, "failures", "RESPOSTA_FORA_DA_LISTA:" + bruto.slice(0, 24)); return undefined; }
+    if (rotulo === "NENHUMA") { recordOutcome(db, "nenhuma", "NENHUMA"); return undefined; }
+    recordOutcome(db, "hits", rotulo);
+    return rotulo;
+  } catch (cause) {
+    const motivo = cause instanceof Error && cause.name === "AbortError" ? "TIMEOUT" : "REDE:" + String(cause).slice(0, 40);
+    recordOutcome(db, "failures", motivo);
     return undefined;
   } finally {
     clearTimeout(timer);

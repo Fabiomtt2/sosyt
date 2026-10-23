@@ -84,4 +84,29 @@ describe("IA de intencao: interpreta, nunca escreve", () => {
     expect(AI_LABELS).toContain("NENHUMA");
     expect(new Set(AI_LABELS).size).toBe(AI_LABELS.length);
   });
+  // AUDITORIA / NUMERO AMBIGUO E PIOR QUE NUMERO NENHUM.
+  // A primeira versao somava "o modelo disse NENHUMA" com "a chamada quebrou" na
+  // mesma coluna. O painel mostrou "2 sem resposta útil" para duas respostas
+  // perfeitamente corretas, e o dono concluiu — com razao — que a IA estava quebrada.
+  it("separa 'a IA disse que nao sabe' de 'a IA quebrou'", async () => {
+    expect(await aiClassifyIntent(db, "mensagem que o modelo nao reconhece", { env, fetchImpl: resposta("NENHUMA") })).toBeUndefined();
+    let uso = botAiUsageToday(db);
+    expect(uso).toMatchObject({ calls: 1, hits: 0, nenhuma: 1, failures: 0 });
+    expect(uso.lastReason).toBe("NENHUMA");
+
+    expect(await aiClassifyIntent(db, "outra mensagem qualquer aqui", { env, fetchImpl: resposta("HELP", false) })).toBeUndefined();
+    uso = botAiUsageToday(db);
+    expect(uso).toMatchObject({ nenhuma: 1, failures: 1 });
+    expect(uso.lastReason, "o motivo tecnico precisa ficar registrado").toContain("HTTP_");
+  });
+
+  it("registra o motivo quando a resposta vem fora da lista fechada", async () => {
+    await aiClassifyIntent(db, "mensagem para classificar agora", { env, fetchImpl: resposta("DAR_DESCONTO") });
+    expect(botAiUsageToday(db).lastReason).toContain("RESPOSTA_FORA_DA_LISTA");
+  });
+
+  it("acerto guarda qual porta foi escolhida", async () => {
+    await aiClassifyIntent(db, "mensagem para classificar agora", { env, fetchImpl: resposta("GROUP_ACCESS") });
+    expect(botAiUsageToday(db)).toMatchObject({ hits: 1, lastReason: "GROUP_ACCESS" });
+  });
 });

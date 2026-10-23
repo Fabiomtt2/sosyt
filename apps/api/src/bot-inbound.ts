@@ -92,7 +92,17 @@ const TRIGGERS: Array<{ intent: InboundIntent; phrases: string[] }> = [
     "nao chegou", "nao recebi", "reenviar codigo", "reenvia o codigo", "codigo nao", "sem codigo",
   ] },
   { intent: "STATUS", phrases: ["status", "e ai saiu", "ja saiu", "foi aprovado", "minha solicitacao", "novidade"] },
-  { intent: "PARTICIPATE", phrases: ["quero participar", "quero entrar", "como participo", "como entro", "participar", "continuar", "comecar", "cadastrar"] },
+  // AUDITORIA / CADASTRO NAO PODE COMECAR POR ACIDENTE.
+  // "continuar", "comecar" e "participar" soltos casavam por INCLUSAO: quem escrevia
+  // "vou continuar depois" ou "ja comecei a participar" era jogado em WAITING_NAME, e
+  // a mensagem SEGUINTE virava o nome — gerando conta e SENHA para quem nunca pediu.
+  // Era a "senha solta depois de uma mensagem" relatada pelo dono. Agora so frases
+  // que declaram a intencao, e o atalho "1" (que ja casa por igualdade exata).
+  { intent: "PARTICIPATE", phrases: [
+    "quero participar", "quero entrar", "quero me cadastrar", "quero fazer parte",
+    "como participo", "como me cadastro", "fazer cadastro", "fazer meu cadastro",
+    "me cadastrar", "criar conta", "criar minha conta", "quero criar conta",
+  ] },
   { intent: "HELP", phrases: ["ajuda", "socorro", "nao entendi", "me ajuda", "duvida", "como funciona"] },
   { intent: "THANKS", phrases: ["obrigado", "obrigada", "obrigado!", "valeu", "vlw", "muito obrigado", "muito obrigada", "gratidao", "agradecido", "brigado", "brigada"] },
   { intent: "GREETING", phrases: ["oi", "ola", "bom dia", "boa tarde", "boa noite", "e ai", "opa", "menu"] },

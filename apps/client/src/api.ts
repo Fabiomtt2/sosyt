@@ -377,7 +377,7 @@ export type OwnerDiagnostics = {
   release: string;
   gamificacao: { ativa: boolean; xp: boolean; boosterSexta: boolean; trocas: boolean; rankingMensal: boolean };
   ia: { ativa: boolean; modelo: string | null; provedor: string | null; chaveConfigurada: boolean; tetoDiario: number;
-        hoje: { calls: number; hits: number; failures: number }; observacao: string };
+        hoje: { calls: number; hits: number; nenhuma: number; failures: number; lastReason: string | null }; observacao: string };
   bot: { modo: string; motorPronto: boolean; funcoes: Array<{ codigo: string; ligada: boolean }> };
   filas: { total: number; vazias: number; lista: Array<{ id: string; numero: number; status: string; participantes: number; videos: number; vagas: number; vazia: boolean; expiraEmHoras: number }> };
   entradaEmGrupo: Record<string, number>;

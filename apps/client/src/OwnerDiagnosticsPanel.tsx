@@ -57,7 +57,10 @@ export function OwnerDiagnosticsPanel() {
         <Luz on={data.ia.ativa}>IA de interpretação</Luz>
         <Luz on={data.ia.chaveConfigurada}>Chave do provedor</Luz>
       </ul>
-      <p className="muted">Modelo: <code>{data.ia.modelo ?? "—"}</code> · hoje: <strong>{data.ia.hoje.calls}</strong> consulta(s), {data.ia.hoje.hits} entendida(s), {data.ia.hoje.failures} sem resposta útil · teto diário {data.ia.tetoDiario}.</p>
+      <p className="muted">Modelo: <code>{data.ia.modelo ?? "—"}</code> · teto diário {data.ia.tetoDiario}.</p>
+      <p className="muted">Hoje: <strong>{data.ia.hoje.calls}</strong> consulta(s) — <strong>{data.ia.hoje.hits}</strong> entendida(s), {data.ia.hoje.nenhuma} em que a IA disse que não sabia, {data.ia.hoje.failures} com falha técnica.</p>
+      {data.ia.hoje.nenhuma > 0 && data.ia.hoje.failures === 0 && <p className="notice">Dizer <em>&quot;não sei&quot;</em> é a IA funcionando: ela recusa em vez de inventar. Só o número de <strong>falha técnica</strong> indica defeito.</p>}
+      {data.ia.hoje.failures > 0 && <p className="error">Última falha técnica: <code>{data.ia.hoje.lastReason ?? "motivo não registrado"}</code></p>}
       <p className="muted">{data.ia.observacao}</p>
 
       <h3>Bot</h3>
