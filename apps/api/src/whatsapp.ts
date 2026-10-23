@@ -22,6 +22,7 @@ import { effectiveWhatsAppConfig, readWhatsAppIntegration } from "./integrations
 import { materializeApprovedMembership, recordGroupVerification, recordMemberVerification } from "./group-verification.js";
 import { classifyInbound, ensureBotOptOut, extractPreferredName, looksLikeName, nameRejectionReason, replyFor, setOptOut, MEDIA_REPLY, TOO_LONG_REPLY } from "./bot-inbound.js";
 import { humanHandoffAlert, humanSupportNumber } from "./bot-human-handoff.js";
+import { variedInboundReply } from "./bot-menu-variants.js";
 import { openHumanRelay, routeHumanRelay } from "./bot-human-relay.js";
 import { renderAutomation } from "./bot-dispatch.js";
 import { supportAvailableNow } from "./support-availability.js";
@@ -755,7 +756,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             // derruba a nota de qualidade que entrega o codigo de acesso de todos.
             if (intent === "OPT_OUT" || intent === "OPT_IN") {
               setOptOut(db, msg.from, intent === "OPT_OUT");
-              queue(db,msg.from,{type:"text",text:{preview_url:false,body:replyFor(intent)!}},`${msg.id}:${intent}`,expires,runtimeConfig);
+              queue(db,msg.from,{type:"text",text:{preview_url:false,body:variedInboundReply(db,intent) ?? replyFor(intent)!}},`${msg.id}:${intent}`,expires,runtimeConfig);
               continue;
             }
             const relay=routeHumanRelay(db,runtimeConfig,{phone:msg.from,text,enabled:featureEnabled(db,"HUMAN_HANDOFF")});
@@ -844,7 +845,7 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
             if (intent === "GREETING" && needsName) {
               db.prepare("INSERT INTO whatsapp_conversations (phone,stage,updated_at) VALUES (?,'WAITING_NAME',?) ON CONFLICT(phone) DO UPDATE SET stage='WAITING_NAME',updated_at=excluded.updated_at").run(msg.from,now());
               const greeting=welcomeCopy(db,runtimeConfig,msg.from,"Oi! 👋 Que bom ter você no SOS YOUTUBER! 💛");
-              const body=[greeting,"Como prefere ser chamado? Pode responder só com seu nome. 😊",replyFor("GREETING")].filter(Boolean).join("\n\n");
+              const body=[greeting,"Como prefere ser chamado? Pode responder só com seu nome. 😊",variedInboundReply(db,"GREETING") ?? replyFor("GREETING")].filter(Boolean).join("\n\n");
               queue(db,msg.from,{type:"text",text:{preview_url:false,body}},`${msg.id}:greeting`,expires,runtimeConfig);
               continue;
             }
@@ -962,7 +963,8 @@ function processInboundMessages(db:AppDatabase,runtimeConfig:Config,messages:Inb
                   : "Ainda não concluímos seu cadastro. 💛 Responda *1* para começar; vou pedir como prefere ser chamado e preparar seu acesso."
                 : undefined;
               const liveProgress=botProgressReply(db,msg.from,localRoute?.progressCommand ?? text);
-              const padrao=status ?? liveProgress ?? localRoute?.explanation ?? replyFor(intent) ?? replyFor("UNKNOWN")!;
+              // AUDITORIA / a mensagem mais vista e a que mais cansa: varia abertura e fecho.
+              const padrao=status ?? liveProgress ?? localRoute?.explanation ?? variedInboundReply(db,intent) ?? replyFor(intent) ?? variedInboundReply(db,"UNKNOWN") ?? replyFor("UNKNOWN")!;
               // AUDITORIA / O TEXTO DO OWNER NAO PODE ENGOLIR O MENU. supportReply devolve
               // o texto customizado de SUPPORT_AUTO quando existe — e isso sobrepunha
               // TODAS as respostas: "oi" deixava de abrir o menu, "2" nao explicava mais
