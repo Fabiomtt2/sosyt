@@ -11,6 +11,7 @@ import { scheduleBotAutomations, dispatchBotAutomations, recordBotAutomationEven
 import { ensureBotPassword, readBotPasswordSettings, saveBotPasswordSettings } from "./bot-password.js";
 import { readGamificationBot, saveGamificationBot, dispatchGamificationEvents } from "./gamification-bot.js";
 import { gamificationData, gamificationRanks, dropLabel } from "./gamification-view.js";
+import { adminDiagnostics } from "./admin-diagnostics.js";
 import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, settleClosedMonths } from "./gamification.js";
 import { presentationOf } from "./presentation.js";
 import { paymentReceipt } from "./payment-receipts.js";
@@ -22,6 +23,7 @@ import { sendDirectMessage, listInbox, readThread, unreadCount } from "./mailbox
 import { sendGlobalMessage, listGlobalMessages } from "./global-chat.js";
 import { ownerAccounts,effectiveOwnerAccounts } from "./owners.js";
 import { credentialState, setCredential } from "./admin-credentials.js";
+import { closeRound } from "./queues.js";
 import { myRounds, currentRoundFor, currentRoundViewFor, skipTargetFor, joinRound, leaveRound, isParticipant, vacanciesIn, ensureOpenQueue, closeRoundIfFullyConsumed, activeRounds, applyAbandonmentCooldown, resumeRound, expireRounds, QUEUE_LIFETIME_MS } from "./queues.js";
 import { listInventory, itemQuantity, grantItem, consumeItem, giftItem, ITEM_SKIP, ROOT_ITEM_QUANTITY } from "./inventory.js";
 import { effectiveSuper, grantSuper, superState, activePins, pinSlotsFree, createPin, SUPER_PIN_MINUTES } from "./super.js";
@@ -558,6 +560,25 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.get("/admin/gamification/bot",{preHandler:rootOwnerGuard},async()=>readGamificationBot(db));
   app.post("/admin/gamification/bot",{preHandler:rootOwnerGuard},async(request)=>saveGamificationBot(db,request.body,request.user.sub));
   app.post("/admin/gamification/settle",{preHandler:rootOwnerGuard},async()=>settleClosedMonths(db));
+
+  // AUDITORIA / O DONO PRECISA VER O SISTEMA, NAO SO CONFIGURA-LO.
+  // "Se não consigo ver o que está tudo ativo, não tenho como observar bugs."
+  app.get("/admin/diagnostics",{preHandler:ownerGuard},async()=>adminDiagnostics(db,config));
+
+  // AUDITORIA / O OWNER NAO TINHA NENHUM CONTROLE SOBRE FILAS.
+  // Filas extras vazias ficavam na tela ate expirarem sozinhas (72h), poluindo a
+  // navegacao e diluindo a comunidade. Fechar e permitido APENAS quando a fila esta
+  // vazia: com gente dentro ou video enviado, o trabalho de alguem seria descartado.
+  app.post("/admin/rounds/:id/close",{preHandler:rootOwnerGuard},async(request,reply)=>{
+    const id=z.string().uuid().parse((request.params as {id:string}).id);
+    const fila=db.prepare("SELECT display_number AS numero FROM rounds WHERE id=? AND closed_at IS NULL").get(id) as {numero:number}|undefined;
+    if(!fila)return reply.code(404).send({message:"Fila não encontrada ou já encerrada."});
+    const pessoas=(db.prepare("SELECT COUNT(*) AS n FROM round_participants WHERE round_id=? AND left_at IS NULL").get(id) as {n:number}).n;
+    const videos=(db.prepare("SELECT COUNT(*) AS n FROM submissions WHERE round_id=?").get(id) as {n:number}|undefined)?.n ?? 0;
+    if(pessoas>0||videos>0)return reply.code(409).send({code:"QUEUE_NOT_EMPTY",message:`A fila ${fila.numero} tem ${pessoas} participante(s) e ${videos} vídeo(s). Encerrar descartaria o trabalho de alguém.`});
+    closeRound(db,id);
+    return {ok:true,numero:fila.numero};
+  });
   const settle=()=>{try{settleClosedMonths(db);}catch(error){app.log.error(error,"Gamification month settlement failed");}};
   let gamificationTimer:ReturnType<typeof setInterval>|undefined;
   if(config.NODE_ENV!=="test"){const tick=()=>{expireRounds(db);settle();try{reconcileApprovedBotAccounts();}catch(error){app.log.error(error,"Bot account reconciliation failed");}try{runDailyAutomations(db,config);scheduleBotAutomations(db,config);dispatchBotAutomations(db,config);}catch(error){app.log.error(error,"Bot automations failed");}notifyJourney();};tick();gamificationTimer=setInterval(tick,5_000);gamificationTimer.unref();}
@@ -590,7 +611,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"ia-bot-delegacao-20261023",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"diagnostico-owner-20261023",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});

@@ -6,7 +6,7 @@ import { useModalLifecycle } from "./useModalLifecycle";
 
 const money=(cents=0)=>(cents/100).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
-export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"automations"|"comms"|"access"|"avatars"|"gamification"|"community";
+export type OwnerMenuTarget="requests"|"users"|"purchases"|"groups"|"removed"|"integrations"|"store"|"bot"|"automations"|"comms"|"access"|"avatars"|"gamification"|"community"|"diagnostics";
 
 export function OwnerDeskMenu({data,onClose,onNavigate,onWhatsApp,onPayments,onRefresh,onVersion,onLogout,onAvatarChanged,onParticipate,onManageOwners}:{
   data:OwnerOverview;onClose:()=>void;onNavigate:(target:OwnerMenuTarget)=>void;onWhatsApp:()=>void;onPayments:()=>void;onRefresh:()=>void;onVersion:()=>void;onLogout:()=>void;onAvatarChanged:(avatar?:UserAvatar)=>void;

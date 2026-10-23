@@ -371,6 +371,18 @@ export type BotAutomationRuntime = {
  events:Array<{event:string;status:string;reason?:string|null;total:number}>;
 };
 
+
+/** Retrato do que está ativo agora — o painel precisava disso para deixar de adivinhar. */
+export type OwnerDiagnostics = {
+  release: string;
+  gamificacao: { ativa: boolean; xp: boolean; boosterSexta: boolean; trocas: boolean; rankingMensal: boolean };
+  ia: { ativa: boolean; modelo: string | null; provedor: string | null; chaveConfigurada: boolean; tetoDiario: number;
+        hoje: { calls: number; hits: number; failures: number }; observacao: string };
+  bot: { modo: string; motorPronto: boolean; funcoes: Array<{ codigo: string; ligada: boolean }> };
+  filas: { total: number; vazias: number; lista: Array<{ id: string; numero: number; status: string; participantes: number; videos: number; vagas: number; vazia: boolean; expiraEmHoras: number }> };
+  entradaEmGrupo: Record<string, number>;
+};
+
 export const ownerApi = {
   community:()=>ownerRequest<OwnerCommunityData>("/admin/community"),
   saveCommunity:(body:OwnerCommunityConfig)=>ownerRequest<{config:OwnerCommunityConfig}>("/admin/community",{method:"PUT",body:JSON.stringify(body)}),
@@ -402,6 +414,9 @@ export const ownerApi = {
   login: (body: { name: string; identifier: string; groupCode: "#"; secret: string }) => request<{ token: string; role: "owner" }>("/admin/login", { method: "POST", body: JSON.stringify(body) }),
   directLogin: (body: {phone:string;secret:string}) => request<{token:string;role:"owner"}>("/admin/login", {method:"POST",body:JSON.stringify({identifier:body.phone,groupCode:"#",secret:body.secret})}),
   overview: (month: string) => ownerRequest<OwnerOverview>(`/admin/overview?month=${month}`),
+  // AUDITORIA / "Se não consigo ver o que está tudo ativo, não tenho como observar bugs."
+  diagnostics: () => ownerRequest<OwnerDiagnostics>("/admin/diagnostics"),
+  closeRound: (id: string) => ownerRequest<{ok:true;numero:number}>(`/admin/rounds/${id}/close`, { method: "POST" }),
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
   groupSettings: (code: string, joinUrl: string) => ownerRequest<{ ok: true; group: OwnerOverview["groups"][number] }>("/admin/groups", { method: "POST", body: JSON.stringify({ code, joinUrl }) }),
   approveMember: (phone: string, groupCode: string, name?: string) => ownerRequest("/admin/members", { method: "POST", body: JSON.stringify({ phone, groupCode, name }) }),

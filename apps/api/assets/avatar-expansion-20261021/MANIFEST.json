@@ -1,0 +1,91 @@
+{
+  "generated": "2026-10-21",
+  "status": "PENDING_IMPORT_UI_QA",
+  "currentFiles": 7,
+  "requiredTotal": 260,
+  "remaining": 253,
+  "entries": [
+    {
+      "path": "OWNER/PEOPLE/owner-alquimista-urbano-v1.webp",
+      "bytes": 37242,
+      "sha256": "fa91eaa753627e4155f038ef808ab9451254f22e84788f714115f02529b2f5d5",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-arquivista-velada-v1.webp",
+      "bytes": 33358,
+      "sha256": "eaadbbe1bc45c18f273bac1b6302c88962d6ea787dfa75916c66c442e8a7a63c",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-cartografa-noturna-v1.webp",
+      "bytes": 47794,
+      "sha256": "ac72ce0bfa662269f2e88780c2026fca08dd7320e1200e4672761753798a04fe",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-engenheira-lunar-v1.webp",
+      "bytes": 33304,
+      "sha256": "8ae6c1d40656add7e057bbbf12ce97f5eaab0a5136629b201a09584dc09f8e7d",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-hacker-matrix-v1.webp",
+      "bytes": 48918,
+      "sha256": "36bd803a5f1ada49a8a9d64ac5bac78e088d5a980553e7c9e52e65f64253578e",
+      "size": [
+        320,
+        320
+      ],
+      "frames": 8,
+      "animated": true
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-observador-cobre-v1.webp",
+      "bytes": 41476,
+      "sha256": "e520e2a44bfc9e71df910435a2cd905843432024dda0d393041293e27f34e716",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    },
+    {
+      "path": "OWNER/PEOPLE/owner-oraculo-silencioso-v1.webp",
+      "bytes": 20210,
+      "sha256": "b4c16a0d627070dc48a56e57390d1b87dc6020fd39edbf0d6462639881581548",
+      "size": [
+        512,
+        512
+      ],
+      "frames": 1,
+      "animated": false
+    }
+  ],
+  "notes": [
+    "Generated with built-in image_gen, original masters preserved separately",
+    "Animation contains8realframes; UIhaloQA not yet performed",
+    "No catalog imported or privilege changed"
+  ]
+}

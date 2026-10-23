@@ -26,6 +26,9 @@ export default defineConfig(() => {
         // O manifest fica: ele serve para instalar o app e para o Capacitor/Android,
         // e nao depende de cache offline.
         selfDestroying: true,
+        // Retire existing workers without registering a new self-destructing one
+        // on every page load (which can repeatedly navigate the current tab).
+        injectRegister: false,
         registerType: "autoUpdate",
         manifest: {
           name: "SOS YouTube",
