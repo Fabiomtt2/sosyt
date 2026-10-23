@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { hashPassword } from "./password.js";
 import { createDatabase, type AppDatabase } from "./db.js";
 import { randomUUID } from "node:crypto";
 
@@ -476,4 +477,39 @@ describe("Owner e acesso por grupo", () => {
     expect(owner.watchRewards).toEqual(self.watchRewards);
   });
 
+  // AUDITORIA / NINGUEM PODIA SER PROMOVIDO A ADMINISTRADOR.
+  //
+  // A lista de candidatos usava JOIN em group_memberships e a promocao exigia
+  // hasMembership. Era coerente quando a entrada passava por aprovacao manual; deixou
+  // de ser quando o fluxo virou "o bot cadastra e o login com a senha do bot prova o
+  // numero". Como a inclusao no grupo falha com frequencia (privacidade do WhatsApp),
+  // participantes legitimos nao apareciam na tela e a promocao devolvia 409.
+  it("participante que provou o numero pela senha do bot pode virar administrador sem vinculo de grupo", async () => {
+    const stamp = new Date().toISOString(), soSenha = randomUUID();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'1',?,?)")
+      .run(soSenha, "Pessoa Sem Grupo", "5571988887777", stamp, stamp);
+    db.prepare("INSERT INTO wallets(user_id,updated_at) VALUES(?,?)").run(soSenha, stamp);
+    db.prepare("INSERT INTO user_passwords(user_id,password_hash,must_change,attempts,locked_until,updated_at) VALUES(?,?,1,0,NULL,?)")
+      .run(soSenha, hashPassword("SenhaDoBot1234"), stamp);
+    // de proposito: NENHUMA linha em group_memberships
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone=?").get("5571988887777")).toBeUndefined();
+
+    const lista = await app.inject({ method: "GET", url: "/admin/owners", headers: authorization(ownerToken) });
+    expect(lista.statusCode).toBe(200);
+    expect(lista.json().candidates.map((c: {id: string}) => c.id), "candidato sumia da lista").toContain(soSenha);
+
+    const promovido = await app.inject({ method: "POST", url: "/admin/owners", headers: authorization(ownerToken), payload: { userId: soSenha } });
+    expect(promovido.statusCode, promovido.body).toBe(200);          // era 409
+    expect(promovido.json().role).toBe("ADMIN_OWNER");
+  });
+
+  it("quem nunca provou o numero continua de fora da promocao", async () => {
+    const stamp = new Date().toISOString(), semProva = randomUUID();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'1',?,?)")
+      .run(semProva, "Desconhecido", "5571988886666", stamp, stamp);
+    const lista = await app.inject({ method: "GET", url: "/admin/owners", headers: authorization(ownerToken) });
+    expect(lista.json().candidates.map((c: {id: string}) => c.id)).not.toContain(semProva);
+    const negado = await app.inject({ method: "POST", url: "/admin/owners", headers: authorization(ownerToken), payload: { userId: semProva } });
+    expect(negado.statusCode).toBe(409);
+  });
 });

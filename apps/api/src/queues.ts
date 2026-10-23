@@ -209,6 +209,23 @@ export function skipTargetFor(db: AppDatabase, userId: string,targetRoundId?:str
     WHERE rp.user_id=? AND (rp.left_at IS NULL OR p.finalized_at IS NOT NULL)`).all(userId) as Array<{ id: string }>).map(row => row.id));
   const candidate = activeRounds(db).find((r) => r.status === "OPEN" && Date.parse(r.createdAt)+QUEUE_LIFETIME_MS>Date.now() && !mineIds.has(r.id) && vacanciesIn(db, r.id) > 0);
   if (candidate) return candidate;
+  // AUDITORIA / O ROOT TESTANDO NAO PODE POLUIR A PRODUCAO COM FILAS VAZIAS.
+  //
+  // O Pular promete nunca ser desperdicado: se a pessoa ja esta em todas as filas
+  // abertas, ele cria uma nova. Para quem PAGA o item isso e justo e fica como esta.
+  //
+  // Mas o ROOT tem Pular ilimitado (ver queue-skip.ts: `root ? ROOT_ITEM_QUANTITY`).
+  // Cada toque dele no botao abria mais uma fila — foi assim que surgiram filas 3 e 4
+  // que participante nenhum consegue encher. Com poucos ativos, cada fila extra dilui
+  // o grupo: ninguem chega aos 10 links, nenhuma fecha, ninguem recebe.
+  //
+  // Entao o ilimitado perde justamente o poder de CRIAR. O ROOT continua podendo
+  // pular para qualquer fila existente com vaga; so nao fabrica filas sem querer.
+  // A recusa acontece antes de consumeItem e dentro da transacao: nada e cobrado.
+  if (db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND active=1 AND role='ROOT_OWNER'").get(userId)) {
+    throw new QueueEntryError("QUEUE_ROOT_NO_SPAWN",
+      "Seu Pular é ilimitado, então criar uma fila nova aqui encheria o sistema de filas vazias que ninguém fecha. Você já está em todas as filas abertas com vaga — espere uma encher ou abra uma fila pelo painel, de propósito.");
+  }
   const id = openRound(db);
   return db.prepare(`SELECT id,sequence,status,display_number AS displayNumber,created_at AS createdAt,closed_at AS closedAt
     FROM rounds WHERE id=?`).get(id) as QueueRow;

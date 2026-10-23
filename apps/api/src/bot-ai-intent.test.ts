@@ -8,7 +8,7 @@ import { createDatabase, type AppDatabase } from "./db.js";
 import { aiClassifyIntent, readBotAiSettings, saveBotAiSettings, botAiUsageToday, AI_LABELS } from "./bot-ai-intent.js";
 
 const resposta = (conteudo: string, ok = true) =>
-  vi.fn(async () => ({ ok, json: async () => ({ choices: [{ message: { content: conteudo } }] }) }) as unknown as Response);
+  vi.fn<typeof fetch>(async () => ({ ok, json: async () => ({ choices: [{ message: { content: conteudo } }] }) }) as unknown as Response);
 
 describe("IA de intencao: interpreta, nunca escreve", () => {
   let db: AppDatabase;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type AppDatabase } from "./db.js";
+import { randomUUID } from "node:crypto";
 import { activeRounds, closeRound, closeRoundIfFullyConsumed, isParticipant, joinRound, leaveRound, myRounds, openRound, QUEUE_LIFETIME_MS, QueueEntryError, skipTargetFor } from "./queues.js";
 
 // These tests exercise queue persistence and navigation, not watch-credit issuance.
@@ -132,5 +133,25 @@ describe("queue convergence: stable labels and preserved work", () => {
     const next = skipTargetFor(db, "a");
     expect(next.id).not.toBe(round);
     expect(myRounds(db, "a").map(row => row.id)).toEqual([round]);
+  });
+  // AUDITORIA / o ROOT tem Pular ILIMITADO. Sem esta trava, cada toque dele no botao
+  // abria mais uma fila — foi assim que a producao ganhou filas 3 e 4 que participante
+  // nenhum conseguia encher, diluindo o grupo ate nenhuma fechar.
+  it("ROOT com Pular infinito NAO fabrica filas, mas participante que paga continua criando", () => {
+    const round = initial();
+    joinRound(db, round, "a", "PASS");
+    // participante comum: a promessa do item pago fica intacta
+    const nova = skipTargetFor(db, "a");
+    expect(nova.id).not.toBe(round);
+
+    // mesmo cenario, agora como ROOT
+    const agora = new Date().toISOString();
+    db.prepare(`INSERT INTO owner_access (id,user_id,phone,normalized_name,role,active,created_at,updated_at)
+      VALUES (?,?,?,?,'ROOT_OWNER',1,?,?)`).run(randomUUID(), "b", "15550000002", "b", agora, agora);
+    for (const r of activeRounds(db)) joinRound(db, r.id, "b", "PASS");
+    const antes = activeRounds(db).length;
+    expect(() => skipTargetFor(db, "b")).toThrowError(QueueEntryError);
+    try { skipTargetFor(db, "b"); } catch (error) { expect(error).toMatchObject({ code: "QUEUE_ROOT_NO_SPAWN", statusCode: 409 }); }
+    expect(activeRounds(db).length, "o ROOT nao pode ter criado fila").toBe(antes);
   });
 });

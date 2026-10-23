@@ -1318,10 +1318,23 @@ export async function registerOwnerRoutes(
       FROM owner_access oa JOIN users u ON u.id=oa.user_id ORDER BY oa.active DESC,oa.updated_at DESC`).all() as Array<Record<string,unknown>>;
     const dynamicByUser=new Set(dynamicRows.filter((row)=>row.active===1).map((row)=>String(row.userId)));
     const staticPhones=new Set(effectiveOwnerAccounts(db,config).map((item)=>item.phone));
-    const users=db.prepare(`SELECT u.id,u.name,u.phone,u.group_code AS groupCode
-      FROM users u JOIN group_memberships gm ON gm.phone=u.phone AND gm.revoked_at IS NULL
-      JOIN groups g ON g.code=gm.group_code AND g.enabled=1
-      WHERE u.deleted_at IS NULL ORDER BY u.name`).all() as Array<{id:string;name:string;phone:string;groupCode:string}>;
+    // AUDITORIA / A LISTA DE CANDIDATOS VINHA VAZIA — ninguem podia ser promovido.
+    //
+    // O JOIN exigia vinculo de grupo APROVADO e grupo habilitado. Era coerente quando
+    // a entrada no projeto passava por aprovacao manual do Owner; deixou de ser quando
+    // o fluxo mudou para "o bot cadastra e o login com a senha do bot prova o numero".
+    // Hoje a inclusao no grupo frequentemente falha pela privacidade do WhatsApp, entao
+    // participantes legitimos e ativos simplesmente nao existiam para esta tela.
+    //
+    // Agora o vinculo e OPCIONAL (LEFT JOIN) e a prova aceita e a mesma do login: ter
+    // senha emitida pelo bot. Quem nunca provou o numero continua de fora.
+    const users=db.prepare(`SELECT DISTINCT u.id,u.name,u.phone,u.group_code AS groupCode
+      FROM users u
+      LEFT JOIN group_memberships gm ON gm.phone=u.phone AND gm.revoked_at IS NULL
+      LEFT JOIN groups g ON g.code=gm.group_code AND g.enabled=1
+      LEFT JOIN user_passwords up ON up.user_id=u.id
+      WHERE u.deleted_at IS NULL AND (g.code IS NOT NULL OR up.user_id IS NOT NULL)
+      ORDER BY u.name`).all() as Array<{id:string;name:string;phone:string;groupCode:string}>;
     const candidates=users.filter((user)=>!dynamicByUser.has(user.id)&&!staticPhones.has(user.phone));
     return {owners:[...staticRows,...dynamicRows.filter(row=>!String(row.createdByOwnerId??"").startsWith("root:"))],candidates};
   });
@@ -1333,7 +1346,12 @@ export async function registerOwnerRoutes(
       | undefined;
     if (!user) return reply.code(404).send({message:"Usuário verificado não encontrado."});
     if(effectiveOwnerAccounts(db,config).some(owner=>owner.phone===user.phone)||db.prepare("SELECT 1 FROM owner_access WHERE user_id=? AND role=\'ROOT_OWNER\' AND active=1").get(user.id))return reply.code(409).send({message:"Owner principal não pode ser rebaixado a administrador."});
-    if (isParticipantBlocked(db,user.id)||!hasMembership(db,user.phone,user.groupCode)) return reply.code(409).send({message:"Este participante precisa manter um acesso ativo e aprovado antes da promoção."});
+    // AUDITORIA / mesma correcao da lista acima e do deadlock do login: a prova de que
+    // a pessoa e real passou a ser a senha emitida pelo bot (ela so chega no WhatsApp
+    // dela), nao mais o vinculo de grupo. Quem decide a promocao continua sendo o ROOT
+    // — esta guarda e sanidade, nao a fronteira de seguranca (ver rootOwnerGuard).
+    const provouNumero=Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(user.id));
+    if (isParticipantBlocked(db,user.id)||(!hasMembership(db,user.phone,user.groupCode)&&!provouNumero)) return reply.code(409).send({message:"Este participante precisa ter acesso ativo e já ter entrado com a senha enviada pelo bot antes da promoção."});
     const actor=resolveOwnerContext(request)!;
     const now=new Date().toISOString();
     const existing=db.prepare("SELECT id,created_at AS createdAt FROM owner_access WHERE user_id=? OR phone=? LIMIT 1").get(user.id,user.phone) as {id:string;createdAt:string}|undefined;
