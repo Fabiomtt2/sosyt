@@ -219,3 +219,12 @@
 @media (prefers-color-scheme: dark) {
   .journey-my-rank { border-color:rgba(255,255,255,.16); background:rgba(255,255,255,.05); }
 }
+
+/* AUDITORIA / bloco "o que os participantes veem", para o Owner inspecionar o produto. */
+.journey-admin-preview { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid rgba(0,0,0,.1); }
+.journey-admin-preview h4 { margin: 1rem 0 .25rem; font-size: .95rem; }
+.journey-admin-preview .muted { font-size: .86rem; }
+.journey-odds-list { list-style: none; padding: 0; margin: .4rem 0 0; display: grid; gap: .2rem; }
+.journey-odds-list li { display: flex; justify-content: space-between; gap: 1rem; font-size: .84rem; }
+.journey-odds-list em { font-style: normal; font-variant-numeric: tabular-nums; opacity: .8; }
+@media (prefers-color-scheme: dark) { .journey-admin-preview { border-top-color: rgba(255,255,255,.14); } }

@@ -398,6 +398,7 @@ export type OwnerDiagnostics = {
     chaveDeLeitura: boolean; clienteOAuth: boolean; podeCriarPlaylist: boolean; consequencia: string;
     recusas: { recusasNaSemana: number; pessoasAfetadas: number; ultimoMotivo: string | null; ultimaEm: string | null; causaProvavel: string | null };
   };
+  pagamento: { provedor: string; ambiente: string; pronto: boolean; consequencia: string };
   filas: { total: number; vazias: number; lista: Array<{ id: string; numero: number; status: string; participantes: number; videos: number; vagas: number; vazia: boolean; expiraEmHoras: number }> };
   entradaEmGrupo: Record<string, number>;
 };

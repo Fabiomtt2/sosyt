@@ -34,30 +34,35 @@ describe("multi-fila", () => {
     expect(numbers()).toEqual([1, 2, 3]);
   });
 
-  it("caso (B): encerra a 2 com outra OPEN viva -> a 3 desce para 2", () => {
-    openRound(db); openRound(db);                       // 1,2,3 (a 1 e OPEN)
+  // AUDITORIA / REGRA NOVA (decisao do dono): o numero da fila e IDENTIDADE.
+  // Estes dois casos fixavam a compactacao — fechar uma fila renomeava a de maior
+  // numero para o lugar vago. Numeracao sempre sem buraco, mas o numero trocava de dono
+  // enquanto as pessoas usavam a fila, e os avisos ja enviados pelo bot ("sala 1,
+  // posicao 5") passavam a apontar para outra. O que estes testes protegiam de verdade
+  // — a 2 nunca se mexe e a fila nova pega o menor numero livre — continua aqui.
+  it("caso (B): encerrar a 2 deixa um buraco; ninguém é renomeado", () => {
+    openRound(db); openRound(db);                        // 1,2,3 (a 1 e OPEN)
     const r2 = activeRounds(db).find((r) => r.displayNumber === 2)!;
-    closeRound(db, r2.id);                               // existe OPEN -> compacta
-    expect(numbers()).toEqual([1, 2]);
-    // a antiga 3 e quem agora ocupa o 2
-    const r3 = activeRounds(db).find((r) => r.displayNumber === 2)!;
-    expect(r3.sequence).toBe(3);
+    const tres = activeRounds(db).find((r) => r.displayNumber === 3)!;
+    closeRound(db, r2.id);
+    expect(numbers(), "fica 1 e 3; o 2 vago espera a próxima").toEqual([1, 3]);
+    expect(activeRounds(db).find((r) => r.displayNumber === 3)!.sequence, "a 3 continua sendo a mesma fila").toBe(tres.sequence);
+    // e a proxima fila nova ocupa justamente o buraco
+    openRound(db);
+    expect(numbers()).toEqual([1, 2, 3]);
   });
 
-  it("caso (C): encerra a 1 -> antiga 3 ocupa 1, 2 continua e nova OPEN ocupa 3", () => {
+  it("caso (C): encerrar a 1 traz uma fila NOVA no número 1, sem mexer em 2 e 3", () => {
     openRound(db); openRound(db);                        // 1(OPEN),2,3
     db.prepare("UPDATE rounds SET status='READY' WHERE display_number IN (2,3)").run();
     const r1 = activeRounds(db).find((r) => r.displayNumber === 1)!;
-    closeRound(db, r1.id);                               // sem OPEN -> cria nova no menor livre (1)
+    closeRound(db, r1.id);
     expect(numbers()).toEqual([1, 2, 3]);
     const novaUm = activeRounds(db).find((r) => r.displayNumber === 1)!;
-    expect(novaUm.status).toBe("READY");
-    expect(novaUm.sequence).toBe(3);
-    const novaTres=activeRounds(db).find(r=>r.displayNumber===3)!;
-    expect(novaTres.status).toBe("OPEN");
-    expect(novaTres.sequence).toBeGreaterThan(3);          // e mesmo a fila nova
-    const dois = activeRounds(db).find((r) => r.displayNumber === 2)!;
-    expect(dois.sequence).toBe(2);                       // a 2 MANTEVE o numero
+    expect(novaUm.status, "o número 1 volta como fila aberta").toBe("OPEN");
+    expect(novaUm.sequence, "e é fila nova, não a antiga renomeada").toBeGreaterThan(3);
+    expect(activeRounds(db).find((r) => r.displayNumber === 2)!.sequence, "a 2 manteve o número").toBe(2);
+    expect(activeRounds(db).find((r) => r.displayNumber === 3)!.sequence, "a 3 manteve o número").toBe(3);
   });
 
   it("lowestFreeNumber enxerga buracos", () => {

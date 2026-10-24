@@ -28,13 +28,30 @@ export function lowestFreeNumber(db: AppDatabase): number {
   return n;
 }
 
-/** Reaproveita uma lacuna sem deslocar as filas intermediárias. */
-function reuseClosedNumber(db: AppDatabase, freedNumber: number): void {
-  const rows = activeRounds(db);
-  if (rows.length < 2 || rows.some(row => row.displayNumber === freedNumber)) return;
-  const last = rows.filter(row => row.displayNumber > freedNumber).at(-1);
-  if (last) db.prepare("UPDATE rounds SET display_number=? WHERE id=?").run(freedNumber, last.id);
-}
+/**
+ * AUDITORIA / O NUMERO DA FILA E IDENTIDADE, NAO POSICAO NUMA LISTA.
+ *
+ * Aqui existia `reuseClosedNumber`: ao fechar uma fila, ele pegava a fila de MAIOR
+ * numero e a renomeava para o numero vago, para a numeracao nunca ter buraco. A
+ * intencao era boa; o efeito, nao: o numero trocava de dono enquanto as pessoas usavam
+ * a fila. Quem estava na "Fila 4" de manha estava em outra fila a tarde, com o mesmo
+ * nome.
+ *
+ * O dano real apareceu no grupo. O bot anuncia "Novo video do Clay na sala 1, posicao
+ * 5" e guarda avisos com o numero; depois de um fechamento, cada um desses avisos
+ * passava a apontar para outra fila. Foi exatamente a mensagem contraditoria que o dono
+ * fotografou — "a fila deste registro ja foi encerrada" logo acima de "Fila 1: 4/10
+ * recebendo links" — e que eu, na primeira passada, tratei como problema de texto.
+ *
+ * Decisao do dono depois de eu apresentar o custo dos dois lados: a fila nasce com um
+ * numero e morre com ele. Fila NOVA continua pegando o menor numero livre (a regra do
+ * "enche a 1 antes da 2" segue valendo, via lowestFreeNumber), mas fila existente nunca
+ * e renomeada. Buraco temporario na numeracao e aceitavel; identidade movel nao era.
+ *
+ * Isto reverte uma decisao deliberada do ASTRA, que tinha teste proprio
+ * ("closing 2 moves 3 into 2 without moving 1"). O teste foi reescrito para a regra
+ * nova, com o porque registrado.
+ */
 
 /** Cria uma fila nova no menor número livre. Retorna o id. */
 export function openRound(db: AppDatabase): string {
@@ -61,7 +78,6 @@ export function closeRound(db: AppDatabase, roundId: string): void {
       .get(roundId) as { number: number } | undefined;
     if (!round) return;
     db.prepare("UPDATE rounds SET closed_at=? WHERE id=? AND closed_at IS NULL").run(new Date().toISOString(), roundId);
-    reuseClosedNumber(db, round.number);
     if(round.number===1&&!activeRounds(db).some(row=>row.displayNumber===1))openRound(db);
     ensureOpenQueue(db);
   })();

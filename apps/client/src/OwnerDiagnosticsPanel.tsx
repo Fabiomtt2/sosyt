@@ -84,6 +84,10 @@ export function OwnerDiagnosticsPanel() {
       {data.youtube.recusas.recusasNaSemana === 0 && data.youtube.podeCriarPlaylist &&
         <p className="muted">Nenhuma autorização recusada nos últimos 7 dias.</p>}
 
+      <h3>Pagamento</h3>
+      <ul className="diag-list"><Luz on={data.pagamento.pronto}>Cobrança Pix ({data.pagamento.provedor})</Luz></ul>
+      <p className={data.pagamento.pronto ? "muted" : "error"}>{data.pagamento.consequencia}</p>
+
       <h3>Filas ativas ({data.filas.total}{data.filas.vazias > 0 ? `, ${data.filas.vazias} vazia(s)` : ""})</h3>
       <ul className="diag-queues">
         {data.filas.lista.map((f) => (

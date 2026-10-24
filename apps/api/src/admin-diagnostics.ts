@@ -16,12 +16,14 @@ import { botMode, BOT_FEATURES, featureEnabled } from "./bot.js";
 import { effectiveWhatsAppConfig, effectiveYouTubeConfig } from "./integrations.js";
 import { activeRounds, vacanciesIn, QUEUE_LIFETIME_MS } from "./queues.js";
 import { youTubeDenialSummary } from "./youtube-denials.js";
+import { readPaymentIntegration } from "./integrations.js";
 
 export function adminDiagnostics(db: AppDatabase, config: Config) {
   config = effectiveYouTubeConfig(db,config);
   const gam = gamificationConfig(db);
   const ai = readBotAiSettings(db);
   const wa = effectiveWhatsAppConfig(db, config);
+  const pagamento = readPaymentIntegration(db, config);
   const agora = Date.now();
 
   const filas = activeRounds(db).map((r) => {
@@ -46,7 +48,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "recusas-visiveis-20261024",
+    release: "vitrine-vidro-avatares-20261024",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".
@@ -82,6 +84,15 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
       consequencia: config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET
         ? "Participantes conseguem conectar o canal e criar playlists."
         : "Sem GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET nenhum participante consegue criar playlist. A YOUTUBE_API_KEY não substitui o cliente OAuth.",
+    },
+    // AUDITORIA / a loja podia estar muda sem ninguem saber. O token do provedor pode
+    // vir do ambiente OU do painel, entao so olhar a variavel nao conclui nada — e
+    // PAYMENTS_DEV_MODE=false sem provedor significa loja que nao cobra ninguem.
+    pagamento: {
+      provedor: pagamento.provider, ambiente: pagamento.environment, pronto: pagamento.ready,
+      consequencia: pagamento.ready
+        ? "A loja consegue gerar cobrança Pix."
+        : "Sem provedor de pagamento configurado, ninguém consegue comprar Passe, Pular ou SUPER. Configure o token em Integrações.",
     },
     filas: { total: filas.length, vazias: filas.filter((f) => f.vazia).length, lista: filas },
     entradaEmGrupo: Object.fromEntries(entradaGrupo.map((r) => [r.status, r.n])),

@@ -181,8 +181,10 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     <div className="journey-heading"><div><p className="journey-eyebrow">COMUNIDADE</p><h2 id="journey-heading">{data.administrative ? "Acesso administrativo" : "Sua jornada"}</h2><p>{data.administrative ? "XP administrativo ∞ · acesso ilimitado. Sua conta fica fora da competição e das recompensas de progressão." : "O progresso será exibido quando estiver disponível."}</p></div></div>
     <div className="journey-ranks"><div className="journey-block-heading"><Trophy size={20} aria-hidden="true"/><div><h3>Criadores em movimento</h3><p>Conheça as jornadas da comunidade.</p></div></div>
       <div className="journey-ranking-tabs" role="group" aria-label="Período do ranking"><button type="button" aria-pressed={rankingTab === "monthly"} onClick={() => setRankingTab("monthly")}>Este mês</button><button type="button" aria-pressed={rankingTab === "allTime"} onClick={() => setRankingTab("allTime")}>Desde o início</button></div>
+      <MinhaPosicao viewer={data.ranks.viewer?.[rankingTab]} periodo={rankingTab} comoFunciona={data.ranks.comoFunciona}/>
       <Ranking entries={data.ranks[rankingTab]} label={rankingTab === "monthly" ? "Ranking de experiência do mês" : "Ranking de experiência desde o início"}/>
     </div>
+    {data.administrative && <VisaoDoParticipante data={data}/>}
   </section>;
 
   return <section className="journey-panel" aria-labelledby="journey-heading">
@@ -280,6 +282,71 @@ function MinhaPosicao({ viewer, periodo, comoFunciona }: { viewer?: ViewerRank; 
           {explicando ? "ocultar" : "como é calculado"}
         </button>
         {explicando && <p className="journey-rank-explain">{comoFunciona}</p>}
+      </>}
+    </div>
+  );
+}
+
+/**
+ * AUDITORIA / "NÃO CONSIGO VER A GAMIFICAÇÃO" — e era verdade.
+ *
+ * A conta do dono e administrativa, entao `progress` vem nulo e a Jornada caia num ramo
+ * reduzido: so o titulo e o ranking da comunidade. Booster, niveis e trocas nao eram
+ * escondidos por bug — simplesmente nao eram desenhados para quem esta fora da
+ * competicao. O resultado pratico e que o dono do produto nao conseguia inspecionar o
+ * proprio produto, e concluiu varias vezes (com aparencia de razao) que features nao
+ * tinham sido implementadas.
+ *
+ * Aqui nao ha dado inventado: sao as REGRAS REAIS configuradas, lidas da mesma resposta
+ * que o participante recebe. O que muda e so a moldura — "isto e o que eles veem" em vez
+ * de "voce nao tem isto".
+ */
+function VisaoDoParticipante({ data }: { data: GamificationData }) {
+  const [aberto, setAberto] = useState(false);
+  const m = data.milestones;
+  return (
+    <div className="journey-admin-preview">
+      <button type="button" className="secondary" aria-expanded={aberto} onClick={() => setAberto(v => !v)}>
+        {aberto ? "Ocultar o que os participantes veem" : "Ver o que os participantes veem"}
+      </button>
+      {aberto && <>
+        <p className="muted">
+          Sua conta fica fora da competição, então estes blocos não aparecem para você na
+          forma normal. Abaixo estão as <strong>regras reais em vigor</strong> — é exatamente
+          o que um participante encontra.
+        </p>
+
+        <h4>Presente de sexta (Booster)</h4>
+        <p className="muted">
+          Disponível <strong>somente às sextas-feiras, das 06:00 às 23:59</strong> (horário da
+          Bahia), uma abertura por pessoa por dia. Sorteio no servidor — recarregar a página ou
+          mudar o relógio do aparelho não muda o resultado.
+        </p>
+        <ul className="journey-odds-list">
+          {data.booster.odds.map(o => (
+            <li key={o.code}><span>{o.label}</span><em>{(o.probability * 100).toFixed(1).replace(".", ",")}%</em></li>
+          ))}
+        </ul>
+
+        {m && <>
+          <h4>Níveis e recompensas</h4>
+          <p className="muted">
+            A cada <strong>{m.every}</strong> níveis, bônus de <strong>{m.coins}</strong> moeda(s).
+            A cada <strong>{m.trialEvery}</strong> níveis, <strong>{m.trialDays}</strong> dia(s) de SUPER.
+          </p>
+        </>}
+
+        <h4>Trocas por moedas de recompensa</h4>
+        <p className="muted">
+          Pular: <strong>{data.redemption.SKIP}</strong> moedas · Passe: <strong>{data.redemption.PASS}</strong> moedas.
+          {data.redemptionEnabled === false && " As trocas estão pausadas no momento."}
+        </p>
+
+        <p className="notice">
+          Para experimentar a tela como participante de verdade — com nível, barra de XP e o
+          presente clicável — é preciso entrar com uma conta comum. A sua, por ser
+          administrativa, nunca verá esses elementos.
+        </p>
       </>}
     </div>
   );

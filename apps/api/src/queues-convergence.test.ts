@@ -21,31 +21,50 @@ describe("queue convergence: stable labels and preserved work", () => {
   }
   const label = (id: string) => activeRounds(db).find(row => row.id === id)?.displayNumber;
 
-  it("closing 1 moves only 3 into 1 and preserves 2", () => {
+  // AUDITORIA / estes dois fixavam o renomeamento (fechar a 1 movia a 3 para 1). A
+  // garantia que importa — a 2 nunca se mexe e a contagem fica certa — continua aqui.
+  // O que muda: ninguem e renomeado; o numero 1 volta a existir como fila NOVA.
+  it("fechar a 1 não renomeia ninguém; o número 1 volta como fila nova", () => {
     const one = initial(), two = openRound(db), three = openRound(db);
     closeRound(db, one);
-    expect(label(three)).toBe(1);
-    expect(label(two)).toBe(2);
-    expect(activeRounds(db)).toHaveLength(2);
+    expect(label(two), "a 2 nunca se mexe").toBe(2);
+    expect(label(three), "a 3 continua sendo a 3").toBe(3);
+    const nova = activeRounds(db).find(row => row.displayNumber === 1);
+    expect(nova, "o número 1 volta a existir").toBeTruthy();
+    expect(nova!.id).not.toBe(one);                     // e e outra fila, nao a antiga
+    expect(nova!.status).toBe("OPEN");
+    expect(activeRounds(db)).toHaveLength(3);
   });
 
-  it("does the same when every queue is READY, then opens a new 3", () => {
+  it("o mesmo quando todas estão READY: nasce uma 1 aberta e as outras ficam onde estão", () => {
     const one = initial(), two = openRound(db), three = openRound(db);
     db.prepare("UPDATE rounds SET status='READY'").run();
     closeRound(db, one);
-    expect(label(three)).toBe(1);
     expect(label(two)).toBe(2);
-    expect(activeRounds(db).map(row => [row.displayNumber, row.status])).toEqual([[1, "READY"], [2, "READY"], [3, "OPEN"]]);
+    expect(label(three)).toBe(3);
+    expect(activeRounds(db).map(row => [row.displayNumber, row.status]))
+      .toEqual([[1, "OPEN"], [2, "READY"], [3, "READY"]]);
   });
 
-  it("closing 2 moves 3 into 2 without moving 1", () => {
+  // AUDITORIA / REGRA NOVA, DECIDIDA PELO DONO: o numero da fila e IDENTIDADE.
+  //
+  // Este teste fixava o oposto — fechar a 2 renomeava a 3 para 2, mantendo a numeracao
+  // compacta. A intencao era evitar buracos; o efeito era o numero trocar de dono
+  // enquanto as pessoas usavam a fila, e todo aviso que o bot ja tinha mandado ("Novo
+  // video na sala 1, posicao 5") passava a apontar para outra fila. Foi a mensagem
+  // contraditoria que o dono fotografou no grupo.
+  it("fechar a 2 NAO renomeia a 3 — cada fila morre com o número com que nasceu", () => {
     const one = initial(), two = openRound(db), three = openRound(db);
+    expect([label(one), label(two), label(three)]).toEqual([1, 2, 3]);
     closeRound(db, two);
-    expect(label(one)).toBe(1);
-    expect(label(three)).toBe(2);
+    expect(label(one), "a 1 nunca se move").toBe(1);
+    expect(label(three), "a 3 continua sendo a 3").toBe(3);
+    // O buraco no 2 e aceitavel e temporario: a proxima fila nova o ocupa.
+    expect(activeRounds(db).map(row => row.displayNumber)).toEqual([1, 3]);
+    expect(label(openRound(db)), "fila nova pega o menor número livre").toBe(2);
   });
 
-  it("a sole remaining 2 stays 2 and a new queue takes free label 1", () => {
+  it("uma 2 sozinha continua 2 e a fila nova ocupa o 1 livre", () => {
     const one = initial(), two = openRound(db);
     closeRound(db, one);
     expect(label(two)).toBe(2);

@@ -147,6 +147,40 @@ export function bundledLibraryRoot(): string {
 }
 
 /** Semeia a biblioteca que vem no repositório. Idempotente; nunca sobrescreve edição do Owner. */
+/** Pasta da expansao gerada pelo ASTRA em 21/10, que nunca chegou a ser importada. */
+export function expansionLibraryRoot(): string {
+  return fileURLToPath(new URL("../assets/avatar-expansion-20261021", import.meta.url));
+}
+
+/**
+ * AUDITORIA / 13 AVATARES PRONTOS QUE NINGUEM VIA.
+ *
+ * O ASTRA gerou uma expansao de avatares em 21/10 e deixou o proprio manifesto marcado
+ * como `PENDING_IMPORT_UI_QA`, com a nota "No catalog imported or privilege changed".
+ * Os arquivos estavam no repositorio, versionados, no formato TIER/CATEGORIA que este
+ * importador ja entende — faltava apenas alguem apontar a pasta para ele. Ficaram
+ * parados porque o plano era 260 e so 13 foram gerados; esperar os 253 restantes
+ * manteve os 13 invisiveis.
+ *
+ * Decisao do dono: aproveitar os 13 agora. Todos sao de tier OWNER, entao aparecem
+ * apenas para quem tem acesso administrativo — o gate de tier ja existente cuida disso,
+ * sem privilegio novo. Idempotente: `INSERT OR IGNORE` por slug, e reimportar nao
+ * duplica nem sobrescreve o que o Owner tiver editado.
+ */
 export function ensureBundledAvatarLibrary(db: AppDatabase): ImportReport {
-  return importAvatarLibrary(db, bundledLibraryRoot());
+  const base = importAvatarLibrary(db, bundledLibraryRoot());
+  const expansao = importAvatarLibrary(db, expansionLibraryRoot());
+  return {
+    imported: base.imported + expansao.imported,
+    skippedExisting: base.skippedExisting + expansao.skippedExisting,
+    rejected: [...base.rejected, ...expansao.rejected],
+    byTier: somar(base.byTier, expansao.byTier),
+    byCategory: somar(base.byCategory, expansao.byCategory),
+  };
+}
+
+function somar(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const total: Record<string, number> = { ...a };
+  for (const [chave, valor] of Object.entries(b)) total[chave] = (total[chave] ?? 0) + valor;
+  return total;
 }

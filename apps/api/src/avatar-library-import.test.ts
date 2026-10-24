@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AppDatabase } from "./db.js";
 import { listCatalog } from "./avatar-tiers.js";
 import {
-  AVATAR_MAX_BYTES, importAvatarLibrary, labelFromFileName, librarySlug, scanLibrary,
+  AVATAR_MAX_BYTES, ensureBundledAvatarLibrary, importAvatarLibrary, labelFromFileName, librarySlug, scanLibrary,
 } from "./avatar-library-import.js";
 
 /** WebP mínimo válido (cabeçalho RIFF/WEBP + recheio). */
@@ -149,11 +149,41 @@ describe("biblioteca versionada no repositório (120 do Sol/ASTRA)", () => {
     expect(rejected).toEqual([]);
     const fresh = new Database(":memory:") as AppDatabase;
     const report = ensureBundledAvatarLibrary(fresh);
-    expect(report.imported).toBe(120);
-    expect(report.byTier).toEqual({ COMMON: 70, SUPER: 30, OWNER: 20 });
+    // AUDITORIA / 120 da biblioteca + 13 da expansao que o ASTRA deixou marcada como
+    // PENDING_IMPORT e nunca foi apontada ao importador. Os 70/30/20 da biblioteca
+    // continuam intactos; os 13 entram todos como OWNER.
+    expect(report.imported).toBe(133);
+    expect(report.byTier).toEqual({ COMMON: 70, SUPER: 30, OWNER: 33 });
     // as categorias sazonais/evento que o dono pediu existem
     expect(Object.keys(report.byCategory).sort()).toContain("SEASONAL");
     expect(Object.keys(report.byCategory).sort()).toContain("EVENT");
     fresh.close();
+  });
+  // AUDITORIA / 13 AVATARES PRONTOS QUE NINGUEM VIA.
+  // O ASTRA gerou a expansao em 21/10 e deixou o manifesto como PENDING_IMPORT_UI_QA,
+  // com a nota "No catalog imported". Os arquivos estavam versionados, no formato
+  // TIER/CATEGORIA que o importador ja entende — faltava apontar a pasta.
+  it("a expansão do ASTRA entra no catálogo, como tier OWNER", () => {
+    const relatorio = ensureBundledAvatarLibrary(db);
+    expect(relatorio.rejected, "nenhum arquivo pode ser recusado").toEqual([]);
+    // O slug e um hash (cat-<sha>), entao a contagem e por TIER: a biblioteca traz 20
+    // avatares OWNER e a expansao soma 13.
+    const owner = db.prepare("SELECT COUNT(*) AS n FROM avatar_catalog WHERE tier='OWNER'").get() as { n: number };
+    expect(owner.n, "20 da biblioteca + 13 da expansão").toBe(33);
+    expect(relatorio.byTier.OWNER).toBe(33);
+  });
+
+  it("reimportar não duplica nem sobrescreve edição do Owner", () => {
+    ensureBundledAvatarLibrary(db);
+    const antes = (db.prepare("SELECT COUNT(*) AS n FROM avatar_catalog").get() as { n: number }).n;
+    // o Owner renomeia um avatar
+    const alvo = db.prepare("SELECT slug FROM avatar_catalog WHERE tier='OWNER' LIMIT 1").get() as { slug: string };
+    db.prepare("UPDATE avatar_catalog SET label='Nome escolhido pelo Owner' WHERE slug=?").run(alvo.slug);
+
+    const segunda = ensureBundledAvatarLibrary(db);
+    expect(segunda.imported, "a segunda importação não cria nada").toBe(0);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM avatar_catalog").get() as { n: number }).n).toBe(antes);
+    expect(db.prepare("SELECT label FROM avatar_catalog WHERE slug=?").get(alvo.slug))
+      .toEqual({ label: "Nome escolhido pelo Owner" });
   });
 });
