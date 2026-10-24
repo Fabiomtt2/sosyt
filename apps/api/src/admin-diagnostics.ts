@@ -44,7 +44,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "saudacao-nao-cadastra-20261023",
+    release: "xp-contribuicao-reacoes-20261024",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".
@@ -63,6 +63,20 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
       modo: botMode(db),
       motorPronto: Boolean(wa.EVOLUTION_URL && wa.EVOLUTION_INSTANCE),
       funcoes: BOT_FEATURES.map((f) => ({ codigo: f.code, ligada: featureEnabled(db, f.code) })),
+    },
+    // AUDITORIA / O BLOQUEIO MAIS CARO DO PRODUTO FICAVA INVISIVEL.
+    // Criar playlist exige o CLIENTE OAuth do Google (client id + secret). A
+    // YOUTUBE_API_KEY nao substitui: ela le dados publicos, nao autoriza escrever na
+    // conta de ninguem. Sem as duas, a rota de exportacao lanca antes de comecar e
+    // NENHUM participante consegue criar playlist — mas nada na tela dizia isso, e o
+    // dono passou dias achando que era defeito de codigo.
+    youtube: {
+      chaveDeLeitura: Boolean(config.YOUTUBE_API_KEY),
+      clienteOAuth: Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+      podeCriarPlaylist: Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+      consequencia: config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET
+        ? "Participantes conseguem conectar o canal e criar playlists."
+        : "Sem GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET nenhum participante consegue criar playlist. A YOUTUBE_API_KEY não substitui o cliente OAuth.",
     },
     filas: { total: filas.length, vazias: filas.filter((f) => f.vazia).length, lista: filas },
     entradaEmGrupo: Object.fromEntries(entradaGrupo.map((r) => [r.status, r.n])),

@@ -1,6 +1,7 @@
 // PROPOSAL ONLY: copy to src only after social/coin schemas and block filters are integrated.
 // Keep the existing /gamification/gift-coins route; replace its helper there, do not register twice.
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
+import { awardContributionXp } from "./gamification.js";
 import { z } from "zod";
 import type { AppDatabase } from "./db.js";
 import type { Config } from "./config.js";
@@ -45,7 +46,18 @@ export function registerCommunityRoutes(app:FastifyInstance,db:AppDatabase,confi
   app.post("/social/requests/:id",{...participant,config:{rateLimit:{max:60,timeWindow:"10 minutes"}}},async(request)=>{
     const {id}=userIdParam.parse(request.params);
     const {action}=z.object({action:z.enum(["ACCEPT","DECLINE","CANCEL","REMOVE"])}).parse(request.body);
-    return respondFriendship(db,request.user.sub,id,action);
+    const resultado=respondFriendship(db,request.user.sub,id,action);
+    // AUDITORIA / XP por CONECTAR. Vale para os dois lados: quem convidou e quem
+    // aceitou construiram o vinculo juntos. So no ACCEPT — convite pendente, recusado
+    // ou removido nao e contribuicao. Idempotente pelo id do convite.
+    if(action==="ACCEPT"){
+      const par=db.prepare("SELECT sender_id AS senderId,recipient_id AS recipientId FROM friendships WHERE id=?").get(id) as {senderId:string;recipientId:string}|undefined;
+      for(const quem of [par?.senderId,par?.recipientId]) if(quem) {
+        try { awardContributionXp(db,quem,"FRIEND",id,{amizade:id}); }
+        catch(error) { app.log.error(error,"Friendship XP failed"); }
+      }
+    }
+    return resultado;
   });
   app.put("/social/blocks/:id",participant,async(request)=>{
     const {id}=userIdParam.parse(request.params);

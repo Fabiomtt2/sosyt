@@ -11,6 +11,8 @@ import { scheduleBotAutomations, dispatchBotAutomations, recordBotAutomationEven
 import { ensureBotPassword, readBotPasswordSettings, saveBotPasswordSettings } from "./bot-password.js";
 import { readGamificationBot, saveGamificationBot, dispatchGamificationEvents } from "./gamification-bot.js";
 import { gamificationData, gamificationRanks, dropLabel } from "./gamification-view.js";
+import { awardContributionXp } from "./gamification.js";
+import { react, summary as reactionSummary, summaryForRound, ensureSubmissionReactions, ReactionError } from "./submission-reactions.js";
 import { adminDiagnostics } from "./admin-diagnostics.js";
 import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, settleClosedMonths } from "./gamification.js";
 import { presentationOf } from "./presentation.js";
@@ -379,6 +381,9 @@ function settlePayment(db: AppDatabase, paymentId: string, config:Config): boole
       WHERE user_id = ?`).run(payment.credits_millis, payment.extra_passes, now, payment.user_id);
     db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'PIX_PURCHASE', ?, ?, ?)")
       .run(randomUUID(), payment.user_id, payment.credits_millis, payment.id, now);
+    // AUDITORIA / XP so no CREDITO, nunca na intencao de pagar: o Pix gerado e
+    // abandonado nao e contribuicao. Idempotente pelo id do pagamento.
+    awardContributionXp(db, payment.user_id, "PURCHASE", payment.id, { creditsMillis: payment.credits_millis });
     // AUDITORIA / inventario: o produto pode conceder item (ex.: SKIP). Idempotente pelo id do pagamento.
     const bought = payment.product_benefits_json
       ? JSON.parse(payment.product_benefits_json) as { grantsItem?: string; qty: number; days: number }
@@ -565,6 +570,39 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // "Se não consigo ver o que está tudo ativo, não tenho como observar bugs."
   app.get("/admin/diagnostics",{preHandler:ownerGuard},async()=>adminDiagnostics(db,config));
 
+  // AUDITORIA / GOSTEI E NAO GOSTEI NAS FILAS (pedido do dono).
+  // Efeito ZERO fora daqui: nenhuma chamada ao YouTube, nenhum like remoto. O projeto
+  // promete "sem views automaticas, sem reproducao oculta" — mandar reacao para fora
+  // quebraria essa promessa e exporia os canais. E reagir nao da XP: um toque nao
+  // pode valer progresso, seria farmavel e distorceria o ranking.
+  ensureSubmissionReactions(db);
+  app.post("/submissions/:id/reaction",{preHandler:authGuard,config:{rateLimit:{max:60,timeWindow:"1 minute"}}},async(request,reply)=>{
+    const id=z.string().uuid().parse((request.params as {id:string}).id);
+    const {kind}=z.object({kind:z.enum(["LIKE","DISLIKE"])}).parse(request.body);
+    try {
+      const resultado=react(db,id,request.user.sub,kind);
+      // Referencia e o VIDEO, nao o clique: alternar like/deslike nao paga duas vezes.
+      awardContributionXp(db,request.user.sub,"REACTION",id,{kind});
+      return resultado;
+    }
+    catch(error) {
+      if(error instanceof ReactionError)return reply.code(error.statusCode).send({code:error.code,message:error.message});
+      throw error;
+    }
+  });
+
+  // Autoria aberta de proposito: o dono pediu para ver quem deu like e quem deu
+  // deslike. Em comunidade pequena, reacao anonima vira ferramenta de sabotagem.
+  app.get("/submissions/:id/reactions",{preHandler:authGuard},async(request)=>{
+    const id=z.string().uuid().parse((request.params as {id:string}).id);
+    return reactionSummary(db,id);
+  });
+
+  app.get("/rounds/:id/reactions",{preHandler:authGuard},async(request)=>{
+    const id=z.string().uuid().parse((request.params as {id:string}).id);
+    return summaryForRound(db,id,request.user.sub);
+  });
+
   // AUDITORIA / O OWNER NAO TINHA NENHUM CONTROLE SOBRE FILAS.
   // Filas extras vazias ficavam na tela ate expirarem sozinhas (72h), poluindo a
   // navegacao e diluindo a comunidade. Fechar e permitido APENAS quando a fila esta
@@ -611,7 +649,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"saudacao-nao-cadastra-20261023",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"xp-contribuicao-reacoes-20261024",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1","contribution-xp-v1","submission-reactions-v1","youtube-readiness-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -845,7 +883,12 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   app.post("/chat/global", { preHandler: authGuard, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const parsed = z.object({ body: z.string().min(1).max(500) }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "Escreva uma mensagem." });
-    try { return reply.send(sendGlobalMessage(db, request.user.sub, parsed.data.body,config)); }
+    try {
+      const enviada = sendGlobalMessage(db, request.user.sub, parsed.data.body, config);
+      // Uma vez por mensagem. O cooldown de 1 minuto do chat e o limitador natural.
+      if ("id" in enviada) awardContributionXp(db, request.user.sub, "CHAT", String(enviada.id), {});
+      return reply.send(enviada);
+    }
     catch (error) { const e = error as { statusCode?: number; message?: string; code?: string; retryAfterSeconds?: number; until?: string };
       return reply.code(e.statusCode ?? 400).send({ message: e.message ?? "Não foi possível enviar.", code: e.code, retryAfterSeconds: e.retryAfterSeconds, until: e.until }); }
   });
@@ -1569,6 +1612,11 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
         db.prepare("INSERT INTO wallet_ledger (id, user_id, kind, amount_millis, reference_id, created_at) VALUES (?, ?, 'SUBMISSION', -1000, ?, ?)")
           .run(randomUUID(), request.user.sub, submissionId, now);
         joinRound(db, open.id, request.user.sub, "FREE");   // AUDITORIA: participacao explicita
+        // AUDITORIA / XP POR CONTRIBUIR. Enviar um video para a fila e A contribuicao
+        // central do projeto, e ela e verificavel pelo servidor — ao contrario do tempo
+        // de reproducao, que no celular acontece dentro do app do YouTube e nenhuma
+        // pagina consegue observar. Idempotente pelo id da submissao.
+        awardContributionXp(db, request.user.sub, "SUBMISSION", submissionId, { roundId: open.id, slot: next.slot });
 
         // AUDITORIA / anuncio "fulano fez upload" no grupo da pessoa, com a URL do video.
         // Dentro da transacao: so anuncia upload que de fato persistiu. Nunca derruba o

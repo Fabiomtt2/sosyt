@@ -41,12 +41,12 @@ describe("gamificação integrada: guards, carteira, identidade e expiração",(
   recordVerifiedXp(db,a.user.id,round,0);
   expect((await app.inject({method:"GET",url:"/dashboard",headers:h(a.token)})).json().user.presentation.progress.level).toBe(2);
   expect((await app.inject({method:"POST",url:"/chat/global",headers:h(a.token),payload:{body:"Meu primeiro nível!"}})).statusCode).toBe(200);
-  expect((await app.inject({method:"GET",url:"/chat/global",headers:h(b.token)})).json().messages[0].sender.presentation.progress).toMatchObject({level:2,xp:100});
+  expect((await app.inject({method:"GET",url:"/chat/global",headers:h(b.token)})).json().messages[0].sender.presentation.progress).toMatchObject({level:2,xp:101})   // 100 do video + 1 da mensagem no chat;
   const consent=requestDirectConversation(db,a.user.id,b.user.id);respondDirectConversation(db,b.user.id,requestId(consent),true);
   await app.inject({method:"POST",url:"/mail/dm",headers:h(a.token),payload:{toUserId:b.user.id,body:"Vamos criar juntos."}});
   expect((await app.inject({method:"GET",url:"/mail/thread/"+a.user.id,headers:h(b.token)})).json().messages[0].sender.presentation.progress.level).toBe(2);
   const ranks=await app.inject({method:"GET",url:"/gamification/rankings",headers:h(b.token)});
-  expect(ranks.json().monthly[0]).toMatchObject({name:"Ana",xp:100,position:1});expect(ranks.body).not.toContain("5571999990623");
+  expect(ranks.json().monthly[0]).toMatchObject({name:"Ana",xp:101,position:1});expect(ranks.body).not.toContain("5571999990623");
  });
  it("trial real dá SUPER por sete dias e Root pode revogar também a trial",async()=>{
   const a=await user("5571999990625","Ana");

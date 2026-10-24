@@ -89,7 +89,13 @@ function levelAt(xp:number,curve:GamificationConfig["curve"]) {
   while(steps>0&&threshold(steps)>xp)steps--;
   return {level:steps+1,nextLevelXp:threshold(steps+1),levelStartXp:threshold(steps)};
 }
-function totalXp(db:AppDatabase,id:string) {return (db.prepare("SELECT COALESCE(SUM(xp_delta),0) AS xp FROM gamification_events WHERE user_id=? AND kind='VIDEO_XP'").get(id) as {xp:number}).xp;}
+// AUDITORIA / O XP DE CONTRIBUICAO PRECISA CONTAR NO NIVEL E NO RANKING.
+// Este filtro somava apenas VIDEO_XP. Enquanto o unico XP vinha do tempo de video
+// isso era inofensivo; com o XP por contribuicao, enviar video/fazer amizade/comprar
+// registrava evento mas NAO subia nivel nem aparecia no ranking — pontos invisiveis,
+// o pior tipo de recompensa. LEVEL_UP tem delta zero, entao nao polui a soma.
+const XP_KINDS = "('VIDEO_XP','CONTRIBUTION_XP')";
+function totalXp(db:AppDatabase,id:string) {return (db.prepare("SELECT COALESCE(SUM(xp_delta),0) AS xp FROM gamification_events WHERE user_id=? AND kind IN "+XP_KINDS).get(id) as {xp:number}).xp;}
 function emit(db:AppDatabase,userId:string,kind:string,referenceId:string,payload:Record<string,unknown>,xp=0) {
   const id=randomUUID(),now=stamp();
   const result=db.prepare("INSERT OR IGNORE INTO gamification_events(id,user_id,kind,reference_id,xp_delta,payload_json,created_at) VALUES(?,?,?,?,?,?,?)")
@@ -138,6 +144,75 @@ function coverageOf(raw:string|undefined,index:number,duration:number) {
   return coverage;
 }
 /** Called inside the verified-observation transaction; supplied client totals are intentionally ignored. */
+/**
+ * AUDITORIA / SUBIR DE NIVEL NAO PERTENCE A UMA FONTE DE XP SO.
+ *
+ * Esta logica vivia dentro do XP de video. Com o XP por contribuicao (abaixo) ela
+ * precisa valer para as duas fontes — senao quem ganha XP contribuindo acumularia
+ * pontos sem nunca subir de nivel nem receber as moedas do nivel.
+ */
+function settleLevels(db:AppDatabase,userId:string,c:GamificationConfig,profile:{level:number;curveJson:string},allowCoinRewards:boolean) {
+  const clock=bahiaClock();
+  db.prepare("INSERT OR IGNORE INTO gamification_months(month,snapshot_json) VALUES(?,?)").run(clock.month,JSON.stringify({enabled:c.monthlyEnabled,rewards:c.monthlyRewards}));
+  const level=levelAt(totalXp(db,userId),JSON.parse(profile.curveJson)).level;
+  const levelRewards:Array<{level:number;coins:number;trialDays:number}>=[];
+  for(let next=profile.level+1;next<=level;next++){
+    const coins=allowCoinRewards?c.levelCoins+(next%c.milestoneEvery===0?c.milestoneCoins:0):0,days=next%c.trialEvery===0?c.trialDays:0;
+    const reference="level:"+next,event=emit(db,userId,"LEVEL_UP",reference,{level:next,coins,trialDays:days,config:c});
+    if(event){rewardCoins(db,userId,coins,reference);if(days)trial(db,userId,days,reference+":"+userId,"LEVEL_MILESTONE");botEvent(db,"LEVEL_UP",userId,event,{level:next,coins,trialDays:days});levelRewards.push({level:next,coins,trialDays:days});}
+  }
+  db.prepare("UPDATE gamification_users SET level=MAX(level,?) WHERE user_id=?").run(level,userId);
+  return levelRewards;
+}
+
+/**
+ * AUDITORIA / XP POR CONTRIBUIR, NAO POR SER VIGIADO.
+ *
+ * Decisao do dono, e ela corrige uma injustica real: o XP nascia apenas do tempo de
+ * reproducao verificado pelo monitor anti-fraude. No celular o video abre DENTRO do
+ * aplicativo do YouTube, onde nenhuma pagina consegue observar nada — entao quem
+ * participa pelo telefone (a maioria) nunca pontuava. O monitor continua valendo para
+ * o player embutido, mas deixa de ser a unica porta.
+ *
+ * As acoes aqui sao verificaveis pelo servidor e independem do aparelho: enviar um
+ * video para a fila, conectar-se a alguem da comunidade e sustentar o projeto
+ * comprando um item. Reagir (gostei/nao gostei) NAO da XP de proposito: seria
+ * farmavel com um toque e distorceria o ranking.
+ *
+ * Idempotente pela referencia: a mesma contribuicao nunca paga duas vezes.
+ */
+// REACTION e CHAT foram decisao do dono depois de eu levantar o risco de farm. Ele
+// reafirmou, entao entram — mas com o desenho que preserva a intencao sem o abuso:
+// a reacao paga UMA VEZ POR VIDEO (alternar like/deslike no mesmo video nao rende de
+// novo, porque a referencia e o video) e o chat paga por mensagem, onde o cooldown de
+// 1 minuto ja e o freio natural. Valores baixos de proposito: contribuir de verdade
+// (enviar video) continua valendo 100x mais que reagir.
+export const CONTRIBUTION_XP={SUBMISSION:100,FRIEND:20,PURCHASE:30,REACTION:1,CHAT:1} as const;
+export type ContributionKind=keyof typeof CONTRIBUTION_XP;
+
+export function awardContributionXp(db:AppDatabase,userId:string,kind:ContributionKind,referenceId:string,payload:Record<string,unknown>={}) {
+  const vazio={xpDelta:0,levelRewards:[] as Array<{level:number;coins:number;trialDays:number}>};
+  const c=gamificationConfig(db);
+  if(!c.enabled||!c.xpEnabled)return vazio;
+  userExists(db,userId);
+  // Root nao compete nem coleta recompensa de progressao (mesma regra do XP de video).
+  if(isRootProgress(db,userId))return vazio;
+  const xp=CONTRIBUTION_XP[kind];
+  return db.transaction(()=>{
+    const profile=ensureProfile(db,userId,c);
+    const event=emit(db,userId,"CONTRIBUTION_XP",kind+":"+referenceId,{kind,...payload},xp);
+    if(!event)return vazio;                       // ja contabilizado antes
+    // AUDITORIA / CONTRIBUICAO DA XP E NIVEL, MAS NAO CUNHA MOEDA.
+    //
+    // Com moeda, a economia se desfazia sozinha: enviar um video custa 1 moeda e vale
+    // 100 XP, o que sobe para o nivel 2 na hora e o nivel 2 paga 1 moeda — a primeira
+    // contribuicao saia de graca. Um teste pegou isso (carteira 10 onde devia ser 9).
+    // O progresso (XP, nivel, emblema, ranking) e o reconhecimento pedido pelo dono; a
+    // moeda continua vindo do tempo verificado e das compras, que e o que a sustenta.
+    return {xpDelta:xp,levelRewards:settleLevels(db,userId,c,profile,false)};
+  })();
+}
+
 export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,videoIndex:number,_coverageSeconds?:number,_duration?:number,allowCoinRewards=true) {
   if(!Number.isInteger(videoIndex)||videoIndex<0||videoIndex>9)fail(400,"Vídeo inválido.","INVALID_VIDEO");
   const c=gamificationConfig(db);
@@ -163,17 +238,7 @@ export function recordVerifiedXp(db:AppDatabase,userId:string,roundId:string,vid
     if(!delta)return {xpDelta:0,levelRewards:[] as Array<{level:number;coins:number;trialDays:number}>};
     emit(db,userId,"VIDEO_XP",roundId+":"+videoIndex+":"+target,{roundId,videoIndex,coverageSeconds:coverage,durationSeconds:snap.duration,xpPerVideo:snap.xpPerVideo},delta);
     db.prepare("UPDATE gamification_sources SET coverage_seconds=MAX(coverage_seconds,?),awarded_xp=? WHERE user_id=? AND round_id=? AND video_index=?").run(coverage,target,userId,roundId,videoIndex);
-    const clock=bahiaClock();
-    db.prepare("INSERT OR IGNORE INTO gamification_months(month,snapshot_json) VALUES(?,?)").run(clock.month,JSON.stringify({enabled:c.monthlyEnabled,rewards:c.monthlyRewards}));
-    const level=levelAt(totalXp(db,userId),JSON.parse(profile.curveJson)).level;
-    const levelRewards:Array<{level:number;coins:number;trialDays:number}>=[];
-    for(let next=profile.level+1;next<=level;next++){
-      const coins=allowCoinRewards?c.levelCoins+(next%c.milestoneEvery===0?c.milestoneCoins:0):0,days=next%c.trialEvery===0?c.trialDays:0;
-      const reference="level:"+next,event=emit(db,userId,"LEVEL_UP",reference,{level:next,coins,trialDays:days,config:c});
-      if(event){rewardCoins(db,userId,coins,reference);if(days)trial(db,userId,days,reference+":"+userId,"LEVEL_MILESTONE");botEvent(db,"LEVEL_UP",userId,event,{level:next,coins,trialDays:days});levelRewards.push({level:next,coins,trialDays:days});}
-    }
-    db.prepare("UPDATE gamification_users SET level=MAX(level,?) WHERE user_id=?").run(level,userId);
-    return {xpDelta:delta,levelRewards};
+    return {xpDelta:delta,levelRewards:settleLevels(db,userId,c,profile,allowCoinRewards)};
   })();
 }
 export function boosterView(db:AppDatabase,userId:string) {
@@ -223,13 +288,13 @@ export function redeemRewardItem(db:AppDatabase,userId:string,itemCode:"SKIP"|"P
 }
 function monthlyRows(db:AppDatabase,month:string) {
   return db.prepare(`SELECT u.id AS userId,u.name,SUM(e.xp_delta) AS xp,MAX(e.created_at) AS reachedAt
-    FROM gamification_events e JOIN users u ON u.id=e.user_id WHERE e.kind='VIDEO_XP' AND u.deleted_at IS NULL
+    FROM gamification_events e JOIN users u ON u.id=e.user_id WHERE e.kind IN ('VIDEO_XP','CONTRIBUTION_XP') AND u.deleted_at IS NULL
     AND NOT EXISTS(SELECT 1 FROM owner_access oa WHERE oa.user_id=u.id AND oa.active=1)
     AND substr(datetime(e.created_at,'-3 hours'),1,7)=? GROUP BY u.id HAVING xp>0 ORDER BY xp DESC,reachedAt ASC,u.id ASC`).all(month) as Array<{userId:string;name:string;xp:number;reachedAt:string}>;
 }
 export function leaderboards(db:AppDatabase) {
   const permanent=db.prepare(`SELECT u.id AS userId,u.name,SUM(e.xp_delta) AS xp,MAX(e.created_at) AS reachedAt
-    FROM gamification_events e JOIN users u ON u.id=e.user_id WHERE e.kind='VIDEO_XP' AND u.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM owner_access oa WHERE oa.user_id=u.id AND oa.active=1)
+    FROM gamification_events e JOIN users u ON u.id=e.user_id WHERE e.kind IN ('VIDEO_XP','CONTRIBUTION_XP') AND u.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM owner_access oa WHERE oa.user_id=u.id AND oa.active=1)
     GROUP BY u.id HAVING xp>0 ORDER BY xp DESC,reachedAt ASC,u.id ASC`).all() as Array<{userId:string;name:string;xp:number;reachedAt:string}>;
   return {month:bahiaClock().month,monthly:monthlyRows(db,bahiaClock().month).slice(0,100),permanent:permanent.map(row=>{
     const profile=db.prepare("SELECT curve_json AS curve FROM gamification_users WHERE user_id=?").get(row.userId) as {curve:string};

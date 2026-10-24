@@ -206,7 +206,7 @@ export function scheduleParticipationSignals(db: AppDatabase,config: Config,at=n
     if(!gamificationConfig(db).enabled || !gamificationConfig(db).xpEnabled) return {created};
     const activity=db.prepare(`SELECT u.id,u.name,MAX(e.created_at) AS lastAt
       FROM users u JOIN gamification_events e ON e.user_id=u.id
-      WHERE u.deleted_at IS NULL AND e.kind='VIDEO_XP' AND e.xp_delta>0 AND e.created_at<=?
+      WHERE u.deleted_at IS NULL AND e.kind IN ('VIDEO_XP','CONTRIBUTION_XP') AND e.xp_delta>0 AND e.created_at<=?
       GROUP BY u.id`).all(at.toISOString()) as Array<{id:string;name:string;lastAt:string}>;
     const today=dayOf(at);
     for(const user of activity) {
@@ -215,7 +215,7 @@ export function scheduleParticipationSignals(db: AppDatabase,config: Config,at=n
       db.prepare("INSERT INTO bot_automation_activity(user_id,last_activity_at,first_seen_at) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET last_activity_at=excluded.last_activity_at").run(user.id,user.lastAt,at.toISOString());
       // Bootstrap observes current facts only. A restart cannot replay old milestones.
       if(previous && dayOf(user.lastAt)===today && Date.parse(user.lastAt)>Date.parse(previous) && automationSettings(db,"STREAK_MILESTONE").enabled) {
-        const days=(db.prepare("SELECT created_at AS at FROM gamification_events WHERE user_id=? AND kind='VIDEO_XP' AND xp_delta>0 AND created_at>=? AND created_at<=?").all(user.id,new Date(at.getTime()-31*DAY).toISOString(),at.toISOString()) as Array<{at:string}>);
+        const days=(db.prepare("SELECT created_at AS at FROM gamification_events WHERE user_id=? AND kind IN ('VIDEO_XP','CONTRIBUTION_XP') AND xp_delta>0 AND created_at>=? AND created_at<=?").all(user.id,new Date(at.getTime()-31*DAY).toISOString(),at.toISOString()) as Array<{at:string}>);
         const active=new Set(days.map(d=>dayNumber(dayOf(d.at))));
         let streak=0;for(let day=dayNumber(today);active.has(day);day--)streak++;
         if([3,7,30].includes(streak)) {
@@ -261,7 +261,7 @@ export function scheduleBotAutomations(db: AppDatabase,config: Config,at: Date =
         }
       }else if(meta.event==="WEEKLY_XP_RANK") {
         const rows=db.prepare(`SELECT u.id,u.name,SUM(e.xp_delta) AS xp,MAX(e.created_at) AS reachedAt FROM gamification_events e JOIN users u ON u.id=e.user_id
-          WHERE e.kind='VIDEO_XP' AND e.created_at>=? AND e.created_at<=? AND u.deleted_at IS NULL
+          WHERE e.kind IN ('VIDEO_XP','CONTRIBUTION_XP') AND e.created_at>=? AND e.created_at<=? AND u.deleted_at IS NULL
           GROUP BY u.id HAVING xp>0 ORDER BY xp DESC,reachedAt ASC,u.id ASC`)
           .all(new Date(at.getTime()-7*DAY).toISOString(),at.toISOString()) as Array<{id:string;name:string;xp:number}>;
         const ranking=rows.filter(r=>eligibleUser(db,config,r.id));

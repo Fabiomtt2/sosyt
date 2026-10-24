@@ -67,6 +67,13 @@ export function OwnerDiagnosticsPanel() {
       <p className="muted">Modo <code>{data.bot.modo}</code> · motor {data.bot.motorPronto ? "pronto" : "não configurado"}.</p>
       <ul className="diag-list">{data.bot.funcoes.map((f) => <Luz key={f.codigo} on={f.ligada}>{f.codigo}</Luz>)}</ul>
 
+      <h3>YouTube e criação de playlist</h3>
+      <ul className="diag-list">
+        <Luz on={data.youtube.clienteOAuth}>Cliente OAuth do Google (criar playlist)</Luz>
+        <Luz on={data.youtube.chaveDeLeitura}>Chave de leitura do YouTube</Luz>
+      </ul>
+      <p className={data.youtube.podeCriarPlaylist ? "muted" : "error"}>{data.youtube.consequencia}</p>
+
       <h3>Filas ativas ({data.filas.total}{data.filas.vazias > 0 ? `, ${data.filas.vazias} vazia(s)` : ""})</h3>
       <ul className="diag-queues">
         {data.filas.lista.map((f) => (
