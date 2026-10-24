@@ -14,6 +14,7 @@ import { gamificationData, gamificationRanks, dropLabel } from "./gamification-v
 import { awardContributionXp } from "./gamification.js";
 import { react, summary as reactionSummary, summaryForRound, ensureSubmissionReactions, ReactionError } from "./submission-reactions.js";
 import { adminDiagnostics } from "./admin-diagnostics.js";
+import { recordYouTubeDenial, ensureYouTubeDenials } from "./youtube-denials.js";
 import { gamificationConfig, saveGamificationConfig, recordVerifiedXp, claimBooster, redeemRewardItem, settleClosedMonths } from "./gamification.js";
 import { presentationOf } from "./presentation.js";
 import { paymentReceipt } from "./payment-receipts.js";
@@ -576,6 +577,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // quebraria essa promessa e exporia os canais. E reagir nao da XP: um toque nao
   // pode valer progresso, seria farmavel e distorceria o ranking.
   ensureSubmissionReactions(db);
+  ensureYouTubeDenials(db);
   app.post("/submissions/:id/reaction",{preHandler:authGuard,config:{rateLimit:{max:60,timeWindow:"1 minute"}}},async(request,reply)=>{
     const id=z.string().uuid().parse((request.params as {id:string}).id);
     const {kind}=z.object({kind:z.enum(["LIKE","DISLIKE"])}).parse(request.body);
@@ -649,7 +651,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"ranking-caminho-20261024",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1","contribution-xp-v1","submission-reactions-v1","youtube-readiness-v1","owner-team-tab-v1","oauth-denied-reason-v1","viewer-rank-position-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"recusas-visiveis-20261024",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1","contribution-xp-v1","submission-reactions-v1","youtube-readiness-v1","owner-team-tab-v1","oauth-denied-reason-v1","viewer-rank-position-v1","oauth-denial-metrics-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -1878,6 +1880,9 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     // de novo para sempre. Agora o motivo chega na tela.
     if (query.error || !query.code) {
       const motivo = query.error === "access_denied" ? "blocked" : "cancelled";
+      // Registrado para o Owner MEDIR o bloqueio em vez de depender de relato solto.
+      try { recordYouTubeDenial(db, state.sub, query.error ?? "sem_codigo"); }
+      catch (error) { app.log.error(error, "YouTube denial record failed"); }
       return reply.redirect(`${config.WEB_APP_URL}?youtube=${motivo}`);
     }
     const tokens = await exchangeGoogleCode(effectiveYouTubeConfig(db,config), query.code);

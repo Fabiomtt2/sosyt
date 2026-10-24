@@ -64,4 +64,27 @@ describe("diagnóstico e controle de filas do Owner", () => {
     const r = await app.inject({ method: "POST", url: `/admin/rounds/${randomUUID()}/close`, headers: headers() });
     expect(r.statusCode).toBe(404);
   });
+  // AUDITORIA / "outras pessoas não conseguem criar playlist" — relato do dono, sem
+  // nenhum numero por tras. Enquanto a tela de permissao do Google estiver em modo
+  // Teste, todo e-mail fora da lista recebe access_denied: o participante ve bloqueio
+  // e nos nao viamos nada. Diagnostico por relato solto e adivinhacao.
+  it("conta as recusas do Google e aponta a causa provável", async () => {
+    const { recordYouTubeDenial } = await import("./youtube-denials.js");
+    const stamp = new Date().toISOString();
+    for (const id of ["p1", "p1", "p2"]) {
+      db.prepare("INSERT OR IGNORE INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'1',?,?)")
+        .run(id, id, "55719000000" + id.slice(1), stamp, stamp);
+      recordYouTubeDenial(db, id, "access_denied");
+    }
+    const d = (await app.inject({ method: "GET", url: "/admin/diagnostics", headers: headers() })).json();
+    expect(d.youtube.recusas.recusasNaSemana).toBe(3);
+    expect(d.youtube.recusas.pessoasAfetadas, "três recusas, duas pessoas").toBe(2);
+    expect(d.youtube.recusas.causaProvavel).toContain("modo Teste");
+  });
+
+  it("sem recusas, não inventa problema", async () => {
+    const d = (await app.inject({ method: "GET", url: "/admin/diagnostics", headers: headers() })).json();
+    expect(d.youtube.recusas.recusasNaSemana).toBe(0);
+    expect(d.youtube.recusas.causaProvavel).toBeNull();
+  });
 });

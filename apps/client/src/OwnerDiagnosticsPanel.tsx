@@ -73,6 +73,16 @@ export function OwnerDiagnosticsPanel() {
         <Luz on={data.youtube.chaveDeLeitura}>Chave de leitura do YouTube</Luz>
       </ul>
       <p className={data.youtube.podeCriarPlaylist ? "muted" : "error"}>{data.youtube.consequencia}</p>
+      {data.youtube.recusas.recusasNaSemana > 0 && <>
+        <p className="error">
+          O Google recusou <strong>{data.youtube.recusas.recusasNaSemana}</strong> autorização(ões) nos últimos 7 dias,
+          de <strong>{data.youtube.recusas.pessoasAfetadas}</strong> participante(s).
+          {data.youtube.recusas.ultimoMotivo && <> Último motivo: <code>{data.youtube.recusas.ultimoMotivo}</code>.</>}
+        </p>
+        {data.youtube.recusas.causaProvavel && <p className="notice">{data.youtube.recusas.causaProvavel}</p>}
+      </>}
+      {data.youtube.recusas.recusasNaSemana === 0 && data.youtube.podeCriarPlaylist &&
+        <p className="muted">Nenhuma autorização recusada nos últimos 7 dias.</p>}
 
       <h3>Filas ativas ({data.filas.total}{data.filas.vazias > 0 ? `, ${data.filas.vazias} vazia(s)` : ""})</h3>
       <ul className="diag-queues">

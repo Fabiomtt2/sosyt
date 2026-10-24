@@ -15,6 +15,7 @@ import { readBotAiSettings, botAiUsageToday } from "./bot-ai-intent.js";
 import { botMode, BOT_FEATURES, featureEnabled } from "./bot.js";
 import { effectiveWhatsAppConfig, effectiveYouTubeConfig } from "./integrations.js";
 import { activeRounds, vacanciesIn, QUEUE_LIFETIME_MS } from "./queues.js";
+import { youTubeDenialSummary } from "./youtube-denials.js";
 
 export function adminDiagnostics(db: AppDatabase, config: Config) {
   config = effectiveYouTubeConfig(db,config);
@@ -45,7 +46,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "ranking-caminho-20261024",
+    release: "recusas-visiveis-20261024",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".
@@ -75,6 +76,9 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
       chaveDeLeitura: Boolean(config.YOUTUBE_API_KEY),
       clienteOAuth: Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
       podeCriarPlaylist: Boolean(config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET),
+      // Quantas pessoas o Google barrou nos ultimos 7 dias. Sem isso o dono so sabia
+      // de bloqueio por relato no WhatsApp, caso a caso.
+      recusas: youTubeDenialSummary(db),
       consequencia: config.GOOGLE_CLIENT_ID && config.GOOGLE_CLIENT_SECRET
         ? "Participantes conseguem conectar o canal e criar playlists."
         : "Sem GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET nenhum participante consegue criar playlist. A YOUTUBE_API_KEY não substitui o cliente OAuth.",
