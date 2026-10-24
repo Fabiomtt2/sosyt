@@ -2333,3 +2333,26 @@ td.store-row-actions{display:table-cell;vertical-align:top}
 .automations-panel .automation-preview p,.automations-panel .automation-audit-diff{overflow-wrap:anywhere}
 
 .playlist-size-choice{display:grid;gap:8px;margin:18px 0;font-weight:700}.playlist-size-choice select{width:100%;padding:12px;border:1px solid #dbcbd8;border-radius:12px;background:#fffaf2;color:#4e2948;font:inherit}
+
+/* AUDITORIA / gostei e nao gostei nos videos da fila (pedido do dono).
+   Discretos de proposito: a reacao e sinal da comunidade, nao o centro da tela —
+   o centro continua sendo o video e quem o enviou. */
+.submission-reactions { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; margin-top:.5rem; }
+.submission-reactions .reaction {
+  display:inline-flex; align-items:center; gap:.3rem; padding:.25rem .55rem;
+  border:1px solid rgba(0,0,0,.12); border-radius:999px; background:transparent;
+  font: inherit; font-size:.82rem; line-height:1; cursor:pointer;
+}
+.submission-reactions .reaction:hover:not(:disabled) { border-color:rgba(0,0,0,.28); }
+.submission-reactions .reaction:disabled { opacity:.45; cursor:default; }
+.submission-reactions .reaction.on { border-color:currentColor; font-weight:700; }
+.submission-reactions .reaction-authors {
+  flex-basis:100%; margin:.35rem 0 0; font-size:.8rem; display:grid;
+  grid-template-columns:auto 1fr; gap:.15rem .5rem;
+}
+.submission-reactions .reaction-authors dt { font-weight:700; }
+.submission-reactions .reaction-authors dd { margin:0; }
+@media (prefers-color-scheme: dark) {
+  .submission-reactions .reaction { border-color:rgba(255,255,255,.22); }
+  .submission-reactions .reaction:hover:not(:disabled) { border-color:rgba(255,255,255,.44); }
+}

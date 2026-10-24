@@ -160,6 +160,9 @@ export type ChatState = { removed: boolean; messages: ChatMessage[]; pinned: Cha
 export type ChatModerateAction = "MUTE" | "UNMUTE" | "COOLDOWN" | "REMOVE" | "RESTORE";
 export type CommerceProduct={code:string;title:string;amountCents:number;credits:number;extraPasses:number;description:string;imageDataUrl?:string;grantsItem?:string;grantsItemQty?:number;subscriptionDays?:number};
 export type Slot = {
+  /** Id da submissao. A API sempre devolveu; o tipo do cliente nao expunha, entao as
+      reacoes (que sao por video) nao tinham como se referir a ele. */
+  id?: string;
   userId?: string; slot: number; youtubeUrl?: string; videoId?: string; userName?: string; groupCode?: string; createdAt?: string;
   videoTitle?: string; videoChannelTitle?: string; videoThumbnailUrl?: string;
   userChannelTitle?: string; userChannelThumbnailUrl?: string; presentation?:UserPresentation; avatar?: UserAvatar; adminRole?:"ROOT_OWNER"|"ADMIN_OWNER"; participantPhone?:string;

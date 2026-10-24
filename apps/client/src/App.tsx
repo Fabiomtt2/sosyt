@@ -3,6 +3,7 @@ import "./queue-grid.css";
 import { ActionErrorDialog } from "./ActionErrorDialog";
 import { LaunchFlash } from "./LaunchFlash";
 import { GamificationPanel, LevelBadge } from "./GamificationPanel";
+import { SubmissionReactions } from "./SubmissionReactions";
 import { JourneyModal } from "./JourneyModal";
 import { useCallback, useEffect, useState, useRef, type FormEvent } from "react";
 import { Capacitor } from "@capacitor/core";
@@ -405,10 +406,10 @@ function Login({ onDone }: { onDone: (role: "user" | "owner") => void }) {
   </main>;
 }
 
-function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own,onInspectParticipant,viewerChannel,onConnectChannel }: {
+function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own,onInspectParticipant,viewerChannel,onConnectChannel,viewerId }: {
   slot: Round["slots"][number]; next: boolean; eligible: boolean; draft?: string; onDraft?: (value: string) => void; onSubmit?: (event: FormEvent) => void;
   busy?: boolean; own?: boolean;onInspectParticipant?:(phone:string)=>void;
-  viewerChannel?:{title:string;thumbnailUrl?:string};onConnectChannel?:()=>void;
+  viewerChannel?:{title:string;thumbnailUrl?:string};onConnectChannel?:()=>void;viewerId?:string;
 }) {
   if (slot.youtubeUrl) return <article className="slot filled rich-slot">
     <div className="slot-number">{String(slot.slot).padStart(2, "0")}</div>
@@ -426,6 +427,11 @@ function SlotCard({ slot, next, eligible, draft, onDraft, onSubmit, busy, own,on
         </div>
         <div><strong>{slot.videoTitle ?? "Vídeo compartilhado no YouTube"}</strong><span className="video-channel-label">{slot.videoChannelTitle ? <>Canal que publicou este vídeo: <b>{slot.videoChannelTitle}</b></> : "Canal do vídeo aguardando sincronização"}</span><a href={slot.youtubeUrl} target="_blank" rel="noreferrer">Assistir no YouTube <ExternalLink size={13}/></a></div>
       </div>
+      {/* AUDITORIA / os botoes pedidos pelo dono. Nada daqui sai para o YouTube: o
+          projeto promete "sem views automaticas, sem reproducao oculta". Eu havia
+          entregue so as rotas — o ASTRA apontou, com razao, que endpoint sem botao
+          nao e funcionalidade entregue. */}
+      {slot.id&&viewerId&&<SubmissionReactions submissionId={slot.id} authorId={slot.userId} viewerId={viewerId}/>}
       {own&&<small className="slot-own-note">Seu vídeo está guardado nesta fila e continuará ligado à sua conta.</small>}
     </div>
   </article>;
@@ -451,7 +457,7 @@ function ReadyRound({ round, userId, connected, onConnect, onExport, onWatch, bu
     <div className="ready-icon"><Check /></div>
     <div><p className="eyebrow dark">FILA {round.number} · SUA SELEÇÃO</p><h3>{round.slots.filter(slot=>slot.videoId).length} vídeos na sua seleção</h3>{round.expiresAt&&<p className="task-note">Esta fila encerra em {new Date(round.expiresAt).toLocaleString("pt-BR")}. Validade: 3 dias desde a abertura.</p>}<p className="muted">Sua seleção e o progresso ficam salvos. Se chegarem mais vídeos, você pode criar uma nova versão maior até a fila expirar.</p></div>
     {round.export && <p className="creation-progress" role="status">{round.export.status === "SUCCESS" ? `Playlist criada · ${round.slots.filter(slot=>slot.videoId).length} vídeos incluídos` : `${round.export.addedCount ?? 0} de 10 vídeos incluídos · ${Math.min(100,(round.export.addedCount ?? 0)*10)}% da criação${round.export.status === "FAILED" ? " · tentativa interrompida; você pode retomar" : ""}`}</p>}
-    <details className="cycle-details"><summary>Ver vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={false} eligible={false} own={slot.userId === userId} busy={busy} onInspectParticipant={onInspectParticipant}/>)}</section></details>
+    <details className="cycle-details"><summary>Ver vídeos, autores e horários</summary><section className="board">{round.slots.map((slot) => <SlotCard key={slot.slot} viewerId={userId} slot={slot} next={false} eligible={false} own={slot.userId === userId} busy={busy} onInspectParticipant={onInspectParticipant}/>)}</section></details>
     {!viewerContributed ? <div className="admin-ready-view"><ShieldCheck size={18}/><div><strong>Visualização administrativa</strong><span>Você pode inspecionar os 10 participantes desta fila. Como não contribuiu nela, nenhuma playlist ou tarefa pessoal será criada.</span></div></div>
       : success ? <><div className="creator-kindness-note"><strong>Enquanto assiste, vale espalhar apoio 💜</strong><span>Se gostar de um vídeo, um joinha e um comentário gentil podem deixar o dia daquele criador mais especial.</span></div><div className="ready-actions"><a className="secondary" href={`https://www.youtube.com/playlist?list=${round.export?.playlistId}`} target="_blank" rel="noreferrer">Abrir playlist no YouTube <ExternalLink size={16} /></a><button className="primary compact" onClick={onWatch}>Acompanhar tarefa · {watchPercent}%</button></div>{(round.availableSlots?.filter(slot=>slot.videoId).length??0)>round.slots.filter(slot=>slot.videoId).length&&<button className="secondary" disabled={busy} onClick={connected?onExport:onConnect}>Criar nova versão com {round.availableSlots!.filter(slot=>slot.videoId).length} vídeos</button>}<small className="task-note">Fechar o acompanhamento apenas pausa. Dentro dele você pode abandonar a tarefa preservando seu percentual e as moedas já confirmadas.</small></>
       : <button className="primary compact" onClick={connected ? onExport : onConnect} disabled={busy}>{busy ? <LoaderCircle className="spin" /> : "Criar playlist"}</button>}
@@ -529,7 +535,7 @@ function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin
       returnedIntentHandled.current = true;
       history.replaceState(null,"",location.pathname);
       setError(estado === "blocked"
-        ? "A conexão com o Google não foi autorizada. Isso pode ocorrer se você recusou a permissão ou se a conta não está liberada no aplicativo Google. Tente conectar novamente; se o Google mostrar uma restrição, escreva Tenho dúvidas no WhatsApp do projeto. Sua fila e seus links foram preservados."
+        ? "O Google não autorizou esta conta. Na maioria das vezes é porque o aplicativo ainda está em fase de testes no Google e só contas liberadas pela equipe conseguem autorizar — avise a equipe com o e-mail que você usou, ou escreva *Tenho dúvidas* no WhatsApp do projeto. Se foi você quem recusou a permissão, é só tentar de novo."
         : "A conexão com o YouTube foi interrompida antes de concluir. Sua fila e seus links continuam preservados; você pode tentar de novo quando quiser.");
       return;
     }
@@ -613,7 +619,7 @@ function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin
         {notice && <div className="notice" role="status"><Check size={19} /><span>{notice}</span></div>}
         {error && <p className="error banner">{error}</p>}
         {filled>0&&filled<10&&data.openRound.slots.some(slot=>slot.userId===data.user.id)&&<section className="partial-playlist-choice"><h3>Já quer começar a assistir?</h3><p>Você pode criar sua playlist com os {filled} vídeos atuais. Receberá XP pelo acompanhamento válido, sem moedas nesta seleção. Você pode aguardar ou começar agora e criar uma nova versão quando os 10 chegarem, sem perder a anterior nem repetir recompensas.</p><button type="button" className="secondary" disabled={busy} onClick={()=>setCreationRound({...data.openRound,viewerContributed:true})}>Criar playlist com {filled} vídeos</button></section>}
-        <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} onInspectParticipant={administrativeParticipant?setAdminParticipantPhone:undefined} viewerChannel={data.user.youtubeChannel} onConnectChannel={()=>void connectYoutube()}/>)}</section>
+        <section className="board">{data.openRound.slots.map((slot) => <SlotCard key={slot.slot} viewerId={data.user.id} slot={slot} next={slot.slot === nextSlot} eligible={eligible && data.wallet.total >= 1} draft={url} onDraft={setUrl} onSubmit={submit} busy={busy} own={slot.userId === data.user.id} onInspectParticipant={administrativeParticipant?setAdminParticipantPhone:undefined} viewerChannel={data.user.youtubeChannel} onConnectChannel={()=>void connectYoutube()}/>)}</section>
       </> : <>
         <section className="hero-row task-hero">
           <div><p className="eyebrow dark">SUA TAREFA · FILA {data.readyRounds[0]?.number}</p><h1>Esta fila já foi preenchida.</h1><p className="muted">Você tem acesso à Fila {data.readyRounds[0]?.number}. Acompanhe os vídeos pelo player oficial. A cada 20 minutos registrados no player, acumulados entre sessões e filas, você recebe 1 moeda interna. O percentual mostra sua jornada, mas não determina a recompensa.</p></div>
