@@ -202,3 +202,20 @@
   background:linear-gradient(110deg,#c6702f,#b2558a 46%,#4f7fa8);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   text-shadow:0 1px 12px #c6ddea55;letter-spacing:.015em}
+
+/* AUDITORIA / "Ranking com caminho de ação" (especificacao do ASTRA, construida agora).
+   Discreto e acima do TOP: o que importa primeiro para quem olha e a propria posicao,
+   nao a lista de terceiros — principalmente quando o TOP ainda esta vazio. */
+.journey-my-rank {
+  display:flex; flex-direction:column; gap:.2rem; margin:.6rem 0 .9rem;
+  padding:.7rem .85rem; border-radius:14px;
+  border:1px solid rgba(0,0,0,.1); background:rgba(0,0,0,.03);
+}
+.journey-my-rank strong { font-size:1rem; }
+.journey-my-rank span { font-size:.86rem; opacity:.85; }
+.journey-my-rank small { font-size:.8rem; opacity:.75; }
+.journey-my-rank .text-button { align-self:flex-start; margin-top:.25rem; font-size:.78rem; }
+.journey-rank-explain { margin:.3rem 0 0; font-size:.8rem; opacity:.8; }
+@media (prefers-color-scheme: dark) {
+  .journey-my-rank { border-color:rgba(255,255,255,.16); background:rgba(255,255,255,.05); }
+}

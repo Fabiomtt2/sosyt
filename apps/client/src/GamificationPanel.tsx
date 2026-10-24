@@ -34,13 +34,19 @@ export type BoosterClaimResult = {
   superDays?: number;
   alreadyClaimed?: boolean;
 };
+export type ViewerRank = { ranked: boolean; total: number; position?: number; xp?: number; xpParaSubir?: number };
 export type GamificationData = {
   milestones?:{every:number;coins:number;trialEvery:number;trialDays:number};
   redemptionEnabled?:boolean;
   administrative?: boolean;
   unlimitedXp?: boolean;
   progress: JourneyProgress | null;
-  ranks: { monthly: JourneyRankEntry[]; allTime: JourneyRankEntry[] };
+  ranks: {
+    monthly: JourneyRankEntry[]; allTime: JourneyRankEntry[];
+    /** Posição de quem está olhando. Existe mesmo com o TOP vazio. */
+    viewer?: { monthly?: ViewerRank; allTime?: ViewerRank };
+    comoFunciona?: string;
+  };
   booster: {
     available: boolean;
     claimed: boolean;
@@ -233,6 +239,12 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
 
     <div className="journey-ranks">
       <div className="journey-ranking-heading"><div className="journey-block-heading"><Trophy size={20} aria-hidden="true"/><div><h3>Criadores em movimento</h3><p>Conheça as jornadas da comunidade.</p></div></div><div className="journey-ranking-tabs" role="group" aria-label="Período do ranking"><button type="button" aria-pressed={rankingTab === "monthly"} onClick={() => setRankingTab("monthly")}>Este mês</button><button type="button" aria-pressed={rankingTab === "allTime"} onClick={() => setRankingTab("allTime")}>Desde o início</button></div></div>
+      {/* AUDITORIA / "Ranking com caminho de ação" — especificacao do proprio ASTRA que
+          nunca chegou a ser construida. Sem ela a tela so mostrava o TOP 3, e para quem
+          ainda nao pontuou (quase todo mundo no comeco) dizia apenas "as primeiras
+          jornadas vao aparecer aqui" — o dono concluiu, com razao, que ranking nao
+          existia. Posicao propria e distancia para a pessoa da frente existem SEMPRE. */}
+      <MinhaPosicao viewer={data.ranks.viewer?.[rankingTab]} periodo={rankingTab} comoFunciona={data.ranks.comoFunciona}/>
       <Ranking entries={data.ranks[rankingTab]} label={rankingTab === "monthly" ? "Ranking de experiência do mês" : "Ranking de experiência desde o início"}/>
       <p className="journey-rank-note">Um reconhecimento pelo caminho percorrido. Cada pessoa pode seguir no seu próprio ritmo.</p>
     </div>
@@ -240,4 +252,35 @@ export function GamificationPanel({ data, onClaimBooster, onRedeem, onRefresh }:
     {notice && <p className="journey-feedback is-success" role="status"><Check size={18} aria-hidden="true"/>{notice}</p>}
     {error && <p className="journey-feedback is-error" role="alert">{error}</p>}
   </section>;
+}
+
+/** "Sua posição / próximo marco / como é calculado" — o cartão que faltava. */
+function MinhaPosicao({ viewer, periodo, comoFunciona }: { viewer?: ViewerRank; periodo: "monthly" | "allTime"; comoFunciona?: string }) {
+  const [explicando, setExplicando] = useState(false);
+  if (!viewer) return null;
+  const quando = periodo === "monthly" ? "neste mês" : "desde o início";
+  return (
+    <div className="journey-my-rank">
+      {viewer.ranked ? (
+        <>
+          <strong>Você está em {viewer.position}º {quando}</strong>
+          <span>{viewer.xp} XP · {viewer.total} {viewer.total === 1 ? "pessoa classificada" : "pessoas classificadas"}</span>
+          <small>{viewer.xpParaSubir && viewer.xpParaSubir > 0
+            ? `Faltam ${viewer.xpParaSubir} XP para alcançar quem está logo à frente.`
+            : "Você está na liderança. 🏆"}</small>
+        </>
+      ) : (
+        <>
+          <strong>Você ainda não pontuou {quando}</strong>
+          <small>Sua primeira contribuição já te coloca no ranking — enviar um vídeo para a fila é o caminho mais curto.</small>
+        </>
+      )}
+      {comoFunciona && <>
+        <button type="button" className="text-button compact" aria-expanded={explicando} onClick={() => setExplicando(v => !v)}>
+          {explicando ? "ocultar" : "como é calculado"}
+        </button>
+        {explicando && <p className="journey-rank-explain">{comoFunciona}</p>}
+      </>}
+    </div>
+  );
 }

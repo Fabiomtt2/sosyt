@@ -45,7 +45,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "equipe-admin-20261024",
+    release: "ranking-caminho-20261024",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".
