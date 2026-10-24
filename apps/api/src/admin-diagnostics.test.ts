@@ -87,4 +87,34 @@ describe("diagnóstico e controle de filas do Owner", () => {
     expect(d.youtube.recusas.recusasNaSemana).toBe(0);
     expect(d.youtube.recusas.causaProvavel).toBeNull();
   });
+  // AUDITORIA / "VER COMO USUÁRIO" — o pedido que eu tinha resolvido pela metade.
+  // /admin/participant-session usa o telefone do PROPRIO Owner, entao a conta continua
+  // em owner_access e o sistema a trata como administrativa: progress nulo, sem booster,
+  // fora do ranking. O dono passou o dia concluindo que features nao existiam quando
+  // estava, por desenho, do lado de fora delas.
+  it("a conta de demonstração é um participante comum, não um administrador", async () => {
+    const r = await app.inject({ method: "POST", url: "/admin/demo-session", headers: headers() });
+    expect(r.statusCode, r.body).toBe(200);
+    const { token, userId, name } = r.json();
+    expect(name).toBe("Demonstração do Owner");
+
+    // o que importa: NAO esta em owner_access, entao nao e administrativa
+    expect(db.prepare("SELECT 1 FROM owner_access WHERE user_id=?").get(userId), "não pode ser administrador").toBeUndefined();
+    // e tem carteira e vinculo de grupo, para atravessar as guardas de participação
+    expect(db.prepare("SELECT 1 FROM wallets WHERE user_id=?").get(userId)).toBeTruthy();
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone='5500000000000' AND revoked_at IS NULL").get()).toBeTruthy();
+
+    // o token abre o painel de participante e traz progresso de verdade (não nulo)
+    const painel = await app.inject({ method: "GET", url: "/dashboard", headers: { authorization: `Bearer ${token}` } });
+    expect(painel.statusCode, painel.body).toBe(200);
+    expect(painel.json().gamification.administrative, "precisa ser tratado como participante").toBe(false);
+    expect(painel.json().gamification.progress, "o participante tem progresso; o Owner não tinha").toBeTruthy();
+  });
+
+  it("chamar duas vezes reaproveita a mesma conta, sem duplicar", async () => {
+    const primeira = (await app.inject({ method: "POST", url: "/admin/demo-session", headers: headers() })).json();
+    const segunda = (await app.inject({ method: "POST", url: "/admin/demo-session", headers: headers() })).json();
+    expect(segunda.userId).toBe(primeira.userId);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM users WHERE phone='5500000000000'").get() as { n: number }).n).toBe(1);
+  });
 });

@@ -27,6 +27,19 @@ export function OwnerDiagnosticsPanel() {
   }, []);
   useEffect(() => { void carregar(); }, [carregar]);
 
+  const entrarComoDemo = async () => {
+    setBusy(true); setErro("");
+    try {
+      const sessao = await ownerApi.demoSession();
+      localStorage.setItem("conexao_token", sessao.token);
+      localStorage.removeItem("conexao_owner_token");   // sai do modo administrativo
+      location.assign("/");                              // recarrega ja como participante
+    } catch (cause) {
+      setErro(cause instanceof Error ? cause.message : "Não foi possível abrir a conta de demonstração.");
+      setBusy(false);
+    }
+  };
+
   const fechar = async (id: string, numero: number) => {
     setBusy(true);
     try { await ownerApi.closeRound(id); await carregar(); setErro(`Fila ${numero} encerrada.`); }
@@ -102,6 +115,21 @@ export function OwnerDiagnosticsPanel() {
 
       <h3>Entradas em grupo</h3>
       <p className="muted">{Object.entries(data.entradaEmGrupo).map(([estado, n]) => `${estado}: ${n}`).join(" · ") || "nenhuma pendência"}</p>
+
+      <h3>Ver como participante</h3>
+      <p className="muted">
+        Sua conta é administrativa: o sistema a mantém <strong>fora da competição</strong>, então
+        nível, XP, ranking e o presente de sexta nunca aparecem para ela — por desenho, não por
+        defeito. Para ver a tela como ela realmente é, entre com uma conta de participante comum.
+      </p>
+      <button type="button" className="primary" disabled={busy} onClick={() => void entrarComoDemo()}>
+        Entrar como participante de demonstração
+      </button>
+      <p className="muted">
+        Cria (uma vez) a conta <strong>Demonstração do Owner</strong> e troca sua sessão para ela.
+        É conta real, então aparece no ranking como qualquer outra — o nome deixa isso claro.
+        Para voltar, saia e entre de novo com sua credencial.
+      </p>
 
       <button type="button" className="secondary" disabled={busy} onClick={() => void carregar()}>Atualizar diagnóstico</button>
     </section>

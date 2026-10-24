@@ -1173,6 +1173,50 @@ export async function registerOwnerRoutes(
     });
   }
 
+  /**
+   * AUDITORIA / "VER COMO USUÁRIO" DE VERDADE.
+   *
+   * `/admin/participant-session` usa o TELEFONE DO PROPRIO OWNER, entao a conta
+   * resultante continua em `owner_access` e o sistema a trata como administrativa:
+   * `progress` nulo, booster indisponivel, excluida do ranking. O dono passou o dia
+   * concluindo que features nao existiam quando, na verdade, ele estava do lado de
+   * fora delas por desenho.
+   *
+   * Aqui nasce uma identidade SEPARADA, que nao esta em owner_access e por isso e um
+   * participante comum em todos os efeitos: ganha XP, aparece no ranking, enxerga o
+   * presente de sexta. E a unica forma honesta de ver a tela como ela e — qualquer
+   * "pre-visualizacao" com dados ficticios reproduziria a confusao entre tela e
+   * realidade que custou caro hoje.
+   *
+   * O telefone e um numero reservado e nao discavel (DDD 00), para nunca colidir com
+   * uma pessoa real. O nome e explicito na tela e no ranking, para ninguem confundir a
+   * demonstracao com um participante de verdade.
+   */
+  const DEMO_PHONE = "5500000000000";
+  const DEMO_NAME = "Demonstração do Owner";
+  app.post("/admin/demo-session", { preHandler: rootOwnerGuard }, async (request) => {
+    const now = new Date().toISOString();
+    let demo = db.prepare("SELECT id FROM users WHERE phone=? AND deleted_at IS NULL").get(DEMO_PHONE) as { id: string } | undefined;
+    if (!demo) {
+      const id = randomUUID();
+      db.transaction(() => {
+        db.prepare("INSERT INTO users (id,name,phone,group_code,created_at,updated_at) VALUES (?,?,?,'1',?,?)")
+          .run(id, DEMO_NAME, DEMO_PHONE, now, now);
+        db.prepare("INSERT INTO wallets (user_id,updated_at) VALUES (?,?)").run(id, now);
+        // Vinculo de grupo para a conta atravessar as guardas de participacao.
+        db.prepare(`INSERT INTO group_memberships (phone,group_code,approved_at,source) VALUES (?, '1', ?, 'OWNER')
+          ON CONFLICT(phone) DO UPDATE SET group_code='1',approved_at=excluded.approved_at,revoked_at=NULL`).run(DEMO_PHONE, now);
+      })();
+      demo = { id };
+    }
+    // Sessao de PARTICIPANTE: sem adminRole, para nada aqui herdar privilegio.
+    const token = app.jwt.sign(
+      { sub: demo.id, purpose: "session", aud: "conexao-session", displayName: DEMO_NAME, jti: request.user.jti },
+      { expiresIn: "8h" },
+    );
+    return { token, name: DEMO_NAME, userId: demo.id };
+  });
+
   app.post("/admin/participant-session", { preHandler: ownerGuard }, async (request) => {
     const owner=resolveOwnerContext(request)!;
     let user=db.prepare("SELECT id,name,phone,group_code AS groupCode,deleted_at AS deletedAt FROM users WHERE phone=?")

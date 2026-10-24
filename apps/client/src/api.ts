@@ -436,6 +436,8 @@ export const ownerApi = {
   overview: (month: string) => ownerRequest<OwnerOverview>(`/admin/overview?month=${month}`),
   // AUDITORIA / "Se não consigo ver o que está tudo ativo, não tenho como observar bugs."
   diagnostics: () => ownerRequest<OwnerDiagnostics>("/admin/diagnostics"),
+  // AUDITORIA / "ver como usuário" de verdade: identidade separada, participante comum.
+  demoSession: () => ownerRequest<{token:string;name:string;userId:string}>("/admin/demo-session", { method: "POST" }),
   closeRound: (id: string) => ownerRequest<{ok:true;numero:number}>(`/admin/rounds/${id}/close`, { method: "POST" }),
   group: (code: string, enabled: boolean) => ownerRequest("/admin/groups", { method: "POST", body: JSON.stringify({ code, enabled }) }),
   groupSettings: (code: string, joinUrl: string) => ownerRequest<{ ok: true; group: OwnerOverview["groups"][number] }>("/admin/groups", { method: "POST", body: JSON.stringify({ code, joinUrl }) }),
