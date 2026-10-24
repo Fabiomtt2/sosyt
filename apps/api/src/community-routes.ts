@@ -52,8 +52,13 @@ export function registerCommunityRoutes(app:FastifyInstance,db:AppDatabase,confi
     // ou removido nao e contribuicao. Idempotente pelo id do convite.
     if(action==="ACCEPT"){
       const par=db.prepare("SELECT sender_id AS senderId,recipient_id AS recipientId FROM friendships WHERE id=?").get(id) as {senderId:string;recipientId:string}|undefined;
-      for(const quem of [par?.senderId,par?.recipientId]) if(quem) {
-        try { awardContributionXp(db,quem,"FRIEND",id,{amizade:id}); }
+      // AUDITORIA / ACHADO DO ASTRA: a referencia era o id do CONVITE, entao desfazer e
+      // refazer o vinculo gerava outro convite e pagava XP de novo para o mesmo par —
+      // farm trivial entre duas contas. A referencia passa a ser o PAR (ids ordenados),
+      // que e estavel: reconectar com a mesma pessoa nunca paga duas vezes.
+      const parReferencia=[par?.senderId,par?.recipientId].filter(Boolean).sort().join(":");
+      for(const quem of [par?.senderId,par?.recipientId]) if(quem && parReferencia) {
+        try { awardContributionXp(db,quem,"FRIEND",parReferencia,{amizade:id}); }
         catch(error) { app.log.error(error,"Friendship XP failed"); }
       }
     }

@@ -16,6 +16,7 @@
 // deslike): numa comunidade pequena, reacao anonima vira ferramenta de sabotagem.
 // Assumir o que se curte mantem o ambiente responsavel.
 import type { AppDatabase } from "./db.js";
+import { assertSocialInteractionAllowed, isSocialBlocked } from "./social-blocks.js";
 
 export type ReactionKind = "LIKE" | "DISLIKE";
 
@@ -48,22 +49,23 @@ export function react(db: AppDatabase, submissionId: string, userId: string, kin
   if (!sub) throw new ReactionError("SUBMISSION_NOT_FOUND", "Este vídeo não está mais na fila.");
   // Ninguem vota no proprio video: seria ruido garantido no sinal da comunidade.
   if (sub.autor === userId) throw new ReactionError("OWN_SUBMISSION", "Você não pode reagir ao próprio vídeo.");
+  assertSocialInteractionAllowed(db, userId, sub.autor);
   const stamp = new Date().toISOString();
   return db.transaction(() => {
     const atual = db.prepare("SELECT kind FROM submission_reactions WHERE submission_id=? AND user_id=?").get(submissionId, userId) as { kind: ReactionKind } | undefined;
     if (atual?.kind === kind) {
       db.prepare("DELETE FROM submission_reactions WHERE submission_id=? AND user_id=?").run(submissionId, userId);
-      return { kind: null as ReactionKind | null, ...summary(db, submissionId) };
+      return { kind: null as ReactionKind | null, ...summary(db, submissionId, userId) };
     }
     db.prepare(`INSERT INTO submission_reactions (submission_id,user_id,kind,created_at,updated_at) VALUES (?,?,?,?,?)
       ON CONFLICT(submission_id,user_id) DO UPDATE SET kind=excluded.kind,updated_at=excluded.updated_at`)
       .run(submissionId, userId, kind, stamp, stamp);
-    return { kind, ...summary(db, submissionId) };
+    return { kind, ...summary(db, submissionId, userId) };
   })();
 }
 
 /** Contagem e AUTORIA das reacoes de um video (o dono pediu para ver quem reagiu). */
-export function summary(db: AppDatabase, submissionId: string) {
+export function summary(db: AppDatabase, submissionId: string, viewerId?: string) {
   ensureSubmissionReactions(db);
   // Avatar nao vem daqui de proposito: ele vive em tabela propria e ja tem rota
   // dedicada. Repetir a imagem em cada reacao incharia a resposta sem necessidade.
@@ -71,11 +73,13 @@ export function summary(db: AppDatabase, submissionId: string) {
     FROM submission_reactions r JOIN users u ON u.id=r.user_id
     WHERE r.submission_id=? AND u.deleted_at IS NULL ORDER BY r.updated_at DESC`)
     .all(submissionId) as Array<{ kind: ReactionKind; userId: string; name: string }>;
+  const visibleRows = viewerId ? rows.filter(row => !isSocialBlocked(db, viewerId, row.userId)) : rows;
   return {
-    likes: rows.filter((r) => r.kind === "LIKE").length,
-    dislikes: rows.filter((r) => r.kind === "DISLIKE").length,
-    quemGostou: rows.filter((r) => r.kind === "LIKE").map(({ userId, name }) => ({ userId, name })),
-    quemNaoGostou: rows.filter((r) => r.kind === "DISLIKE").map(({ userId, name }) => ({ userId, name })),
+    minhaReacao: viewerId ? (visibleRows.find(row => row.userId === viewerId)?.kind ?? null) : null,
+    likes: visibleRows.filter((r) => r.kind === "LIKE").length,
+    dislikes: visibleRows.filter((r) => r.kind === "DISLIKE").length,
+    quemGostou: visibleRows.filter((r) => r.kind === "LIKE").map(({ userId, name }) => ({ userId, name })),
+    quemNaoGostou: visibleRows.filter((r) => r.kind === "DISLIKE").map(({ userId, name }) => ({ userId, name })),
   };
 }
 
@@ -85,6 +89,6 @@ export function summaryForRound(db: AppDatabase, roundId: string, viewerId: stri
   const subs = db.prepare("SELECT id FROM submissions WHERE round_id=?").all(roundId) as Array<{ id: string }>;
   return Object.fromEntries(subs.map(({ id }) => {
     const minha = db.prepare("SELECT kind FROM submission_reactions WHERE submission_id=? AND user_id=?").get(id, viewerId) as { kind: ReactionKind } | undefined;
-    return [id, { ...summary(db, id), minhaReacao: minha?.kind ?? null }];
+    return [id, { ...summary(db, id, viewerId), minhaReacao: minha?.kind ?? null }];
   }));
 }

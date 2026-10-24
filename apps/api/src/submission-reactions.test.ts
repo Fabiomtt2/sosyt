@@ -1,4 +1,5 @@
 // AUDITORIA / gostei e nao gostei: sinal da comunidade, nunca moeda de progresso.
+import { blockSocialUser } from "./social.js";
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDatabase, type AppDatabase } from "./db.js";
@@ -39,6 +40,25 @@ describe("reações nos vídeos da fila", () => {
     expect(react(db, subId, ana, "DISLIKE").kind).toBe("DISLIKE");  // trocou
     const s = summary(db, subId);
     expect(s.likes).toBe(0); expect(s.dislikes).toBe(1);            // nunca conta nos dois
+  });
+
+  it("devolve a seleção atual no envio, na troca e na remoção", () => {
+    expect(react(db, subId, ana, "LIKE").minhaReacao).toBe("LIKE");
+    expect(summary(db, subId, ana).minhaReacao).toBe("LIKE");
+    expect(react(db, subId, ana, "DISLIKE").minhaReacao).toBe("DISLIKE");
+    expect(react(db, subId, ana, "DISLIKE").minhaReacao).toBeNull();
+  });
+
+  it("bloqueio impede reação nos dois sentidos sem alterar o histórico", () => {
+    react(db, subId, ana, "LIKE");
+    blockSocialUser(db, autor, ana);
+    expect(() => react(db, subId, ana, "DISLIKE")).toThrow(/interação não está disponível/);
+    expect(summary(db, subId, autor).likes).toBe(0);
+    expect(summary(db, subId, bruno).likes).toBe(1);
+    expect(summaryForRound(db, roundId, autor)[subId].quemGostou).toEqual([]);
+    expect(db.prepare("SELECT kind FROM submission_reactions WHERE submission_id=? AND user_id=?").get(subId, ana)).toEqual({kind:"LIKE"});
+    blockSocialUser(db, bruno, autor);
+    expect(() => react(db, subId, bruno, "LIKE")).toThrow(/interação não está disponível/);
   });
 
   it("ninguém reage ao próprio vídeo", () => {

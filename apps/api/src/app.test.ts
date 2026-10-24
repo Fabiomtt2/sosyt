@@ -77,5 +77,14 @@ describe("fluxo colaborativo", () => {
     expect(preserved.json().openRound.slots[0]).toMatchObject({ userName: "Ana Teste", groupCode: "12" });
 
   });
+  it("recusa do Google volta como 'blocked', não como 'você cancelou'", async () => {
+    // Sem code e com error=access_denied: e exatamente o que o Google manda quando a
+    // conta nao esta na lista de testadores do app.
+    const r = await app.inject({ method: "GET", url: "/youtube/callback?error=access_denied&state=invalido" });
+    // Estado malformado e lixo de barra de endereco, nao defeito: 400, nunca 500.
+    expect(r.statusCode).toBe(400);
+    const origem = await import("node:fs/promises").then(fs => fs.readFile(new URL("./app.ts", import.meta.url), "utf8"));
+    expect(origem).toContain('query.error === "access_denied" ? "blocked"');
+    expect(origem).not.toMatch(/if \(query\.error \|\| !query\.code\) return reply\.redirect\(`\$\{config\.WEB_APP_URL\}\?youtube=cancelled`\)/);
+  });
 });
-

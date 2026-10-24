@@ -13,10 +13,11 @@ import type { Config } from "./config.js";
 import { gamificationConfig } from "./gamification.js";
 import { readBotAiSettings, botAiUsageToday } from "./bot-ai-intent.js";
 import { botMode, BOT_FEATURES, featureEnabled } from "./bot.js";
-import { effectiveWhatsAppConfig } from "./integrations.js";
+import { effectiveWhatsAppConfig, effectiveYouTubeConfig } from "./integrations.js";
 import { activeRounds, vacanciesIn, QUEUE_LIFETIME_MS } from "./queues.js";
 
 export function adminDiagnostics(db: AppDatabase, config: Config) {
+  config = effectiveYouTubeConfig(db,config);
   const gam = gamificationConfig(db);
   const ai = readBotAiSettings(db);
   const wa = effectiveWhatsAppConfig(db, config);
@@ -44,7 +45,7 @@ export function adminDiagnostics(db: AppDatabase, config: Config) {
   ).all() as Array<{ status: string; n: number }>;
 
   return {
-    release: "youtube-oauth-20261024",
+    release: "equipe-admin-20261024",
     gamificacao: {
       // Esta flag esconde o botao da Jornada inteiro (ranking, niveis, booster).
       // E a primeira coisa a olhar quando "sumiu a gamificacao".

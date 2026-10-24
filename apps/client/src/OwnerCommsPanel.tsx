@@ -19,6 +19,8 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
   const [steps, setSteps] = useState<string[]>([]);
   const [youtube, setYoutube] = useState<YouTubeIntegrationState>();
   const [ytKey, setYtKey] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
   const [broadcast, setBroadcast] = useState("");
   const [mail, setMail] = useState<AdminMailMessage[]>([]);
   const [busy, setBusy] = useState(false);
@@ -94,6 +96,24 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
         </form>}
       </div>
 
+      {canEdit && <section className="comms-block" aria-label="Conexão Google e YouTube">
+        <h3><Youtube size={17}/> Criar playlists com Google/YouTube</h3>
+        <p>{youtube?.oauthConfigured ? "Credenciais configuradas. Cada participante ainda precisa autorizar sua própria conta no Google." : "Faltam as credenciais OAuth para criar playlists nas contas dos participantes."}</p>
+        <p className="muted">Esta integração é diferente da chave que valida os vídeos. Os tokens de acesso são renovados automaticamente. Se o aplicativo estiver em teste no Google, a autorização pode expirar em sete dias e será necessário conectar a conta novamente.</p>
+        <p className="muted">Para remover essa limitação do modo de teste, revise a publicação e as verificações exigidas no Google Auth Platform. Trocar o Client Secret não estende a autorização dos usuários.</p>
+        <p>Endereço de retorno autorizado: <code style={{overflowWrap:"anywhere"}}>{youtube?.redirectUri}</code></p>
+        <form className="comms-inline-form" onSubmit={async(e: FormEvent)=>{
+          e.preventDefault();
+          if(await run(()=>ownerApi.saveYouTubeIntegration({clientId:clientId.trim(),clientSecret:clientSecret.trim()}),"Credenciais OAuth salvas. A configuração já vale para novas conexões.")){setClientId("");setClientSecret("");}
+        }}>
+          <label>Client ID<input autoComplete="off" value={clientId} onChange={e=>setClientId(e.target.value)} placeholder={youtube?.clientId || "…apps.googleusercontent.com"}/></label>
+          <label>Client Secret<input type="password" autoComplete="new-password" value={clientSecret} onChange={e=>setClientSecret(e.target.value)} placeholder="Cole o segredo do mesmo cliente Google"/></label>
+          <p className="muted">Salve os dois campos juntos. O segredo fica protegido no servidor e não é exibido novamente. Mudar o Client ID pode exigir que os participantes reconectem suas contas.</p>
+          <button className="primary" disabled={busy||!clientId.trim()||clientSecret.trim().length<8}>Salvar credenciais Google</button>
+          {youtube?.oauthSource==="PANEL"&&<button type="button" className="secondary" disabled={busy} onClick={()=>void run(()=>ownerApi.saveYouTubeIntegration({clearOAuth:true}),"OAuth voltou a usar as variáveis do servidor.")}>Usar credenciais do servidor</button>}
+        </form>
+      </section>}
+
       {/* ---- correio interno: exclusivo do ROOT_OWNER ---- */}
       {canViewSensitive && <div className="comms-block">
         <div className="comms-block-head"><h3><Megaphone size={17} /> Aviso para todos</h3></div>
@@ -121,7 +141,7 @@ export function OwnerCommsPanel({ canEdit, canViewSensitive }: { canEdit: boolea
         </div>
       </div>}
 
-      {notice && <p className="bot-notice">{notice}</p>}
+      {notice && <p className="bot-notice" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
     </section>
   );

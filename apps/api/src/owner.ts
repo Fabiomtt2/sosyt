@@ -1333,7 +1333,14 @@ export async function registerOwnerRoutes(
       LEFT JOIN group_memberships gm ON gm.phone=u.phone AND gm.revoked_at IS NULL
       LEFT JOIN groups g ON g.code=gm.group_code AND g.enabled=1
       LEFT JOIN user_passwords up ON up.user_id=u.id
-      WHERE u.deleted_at IS NULL AND (g.code IS NOT NULL OR up.user_id IS NOT NULL)
+      -- AUDITORIA / CONTA REAL E ATIVA, NAO UM CAMINHO DE ENTRADA ESPECIFICO.
+      -- A primeira correcao aceitava vinculo de grupo OU senha do bot. Mas quem entrou
+      -- por codigo no WhatsApp (e o caso do Lincoln) nao tem nenhum dos dois e sumia da
+      -- lista — o dono pediu para promove-lo e nao conseguia nem encontra-lo. Entrar ao
+      -- menos uma vez (coluna last_seen_at) prova tanto quanto os outros dois: ninguem
+      -- entra sem possuir o numero. Linha fantasma, que nunca acessou, fica de fora.
+      WHERE u.deleted_at IS NULL
+        AND (g.code IS NOT NULL OR up.user_id IS NOT NULL OR u.last_seen_at IS NOT NULL)
       ORDER BY u.name`).all() as Array<{id:string;name:string;phone:string;groupCode:string}>;
     const candidates=users.filter((user)=>!dynamicByUser.has(user.id)&&!staticPhones.has(user.phone));
     return {owners:[...staticRows,...dynamicRows.filter(row=>!String(row.createdByOwnerId??"").startsWith("root:"))],candidates};
@@ -1350,8 +1357,10 @@ export async function registerOwnerRoutes(
     // a pessoa e real passou a ser a senha emitida pelo bot (ela so chega no WhatsApp
     // dela), nao mais o vinculo de grupo. Quem decide a promocao continua sendo o ROOT
     // — esta guarda e sanidade, nao a fronteira de seguranca (ver rootOwnerGuard).
-    const provouNumero=Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(user.id));
-    if (isParticipantBlocked(db,user.id)||(!hasMembership(db,user.phone,user.groupCode)&&!provouNumero)) return reply.code(409).send({message:"Este participante precisa ter acesso ativo e já ter entrado com a senha enviada pelo bot antes da promoção."});
+    // Mesma regra da lista acima: vinculo de grupo, senha do bot OU ja ter entrado.
+    const provouNumero=Boolean(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(user.id))
+      || Boolean(db.prepare("SELECT 1 FROM users WHERE id=? AND last_seen_at IS NOT NULL").get(user.id));
+    if (isParticipantBlocked(db,user.id)||(!hasMembership(db,user.phone,user.groupCode)&&!provouNumero)) return reply.code(409).send({message:"Este participante precisa ter acesso ativo e já ter entrado ao menos uma vez antes da promoção."});
     const actor=resolveOwnerContext(request)!;
     const now=new Date().toISOString();
     const existing=db.prepare("SELECT id,created_at AS createdAt FROM owner_access WHERE user_id=? OR phone=? LIMIT 1").get(user.id,user.phone) as {id:string;createdAt:string}|undefined;

@@ -512,4 +512,33 @@ describe("Owner e acesso por grupo", () => {
     const negado = await app.inject({ method: "POST", url: "/admin/owners", headers: authorization(ownerToken), payload: { userId: semProva } });
     expect(negado.statusCode).toBe(409);
   });
+  // AUDITORIA / O CASO LINCOLN: entrou por codigo no WhatsApp, sem senha do bot e sem
+  // vinculo de grupo. O dono pediu para promove-lo e ele nao aparecia nem na lista.
+  it("participante que apenas ENTROU (sem senha do bot, sem grupo) pode ser promovido", async () => {
+    const stamp = new Date().toISOString(), lincoln = randomUUID();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,last_seen_at,created_at,updated_at) VALUES(?,?,?,'1',?,?,?)")
+      .run(lincoln, "Lincoln", "5571955554444", stamp, stamp, stamp);
+    db.prepare("INSERT INTO wallets(user_id,updated_at) VALUES(?,?)").run(lincoln, stamp);
+    expect(db.prepare("SELECT 1 FROM user_passwords WHERE user_id=?").get(lincoln), "de propósito: sem senha do bot").toBeUndefined();
+    expect(db.prepare("SELECT 1 FROM group_memberships WHERE phone=?").get("5571955554444"), "de propósito: sem grupo").toBeUndefined();
+
+    const lista = await app.inject({ method: "GET", url: "/admin/owners", headers: authorization(ownerToken) });
+    expect(lista.json().candidates.map((c: {id: string}) => c.id), "precisa aparecer na lista").toContain(lincoln);
+
+    const promovido = await app.inject({ method: "POST", url: "/admin/owners", headers: authorization(ownerToken), payload: { userId: lincoln } });
+    expect(promovido.statusCode, promovido.body).toBe(200);
+    expect(promovido.json().role).toBe("ADMIN_OWNER");
+    // Promover nao pode apagar a conta de participante nem a carteira.
+    expect(db.prepare("SELECT COUNT(*) AS n FROM wallets WHERE user_id=?").get(lincoln)).toEqual({ n: 1 });
+  });
+
+  it("quem nunca entrou continua fora — linha fantasma não vira administrador", async () => {
+    const stamp = new Date().toISOString(), fantasma = randomUUID();
+    db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES(?,?,?,'1',?,?)")
+      .run(fantasma, "Nunca Entrou", "5571955553333", stamp, stamp);
+    const lista = await app.inject({ method: "GET", url: "/admin/owners", headers: authorization(ownerToken) });
+    expect(lista.json().candidates.map((c: {id: string}) => c.id)).not.toContain(fantasma);
+    const negado = await app.inject({ method: "POST", url: "/admin/owners", headers: authorization(ownerToken), payload: { userId: fantasma } });
+    expect(negado.statusCode).toBe(409);
+  });
 });

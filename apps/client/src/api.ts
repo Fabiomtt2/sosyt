@@ -1,3 +1,12 @@
+
+/** Reações de um vídeo da fila. A autoria é aberta por decisão do dono. */
+export type SubmissionReactions = {
+  likes: number; dislikes: number;
+  quemGostou: Array<{ userId: string; name: string }>;
+  quemNaoGostou: Array<{ userId: string; name: string }>;
+  minhaReacao?: "LIKE" | "DISLIKE" | null;
+};
+
 import type { GamificationData, BoosterClaimResult } from "./GamificationPanel";
 const configuredApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 const isBrowser = typeof window !== "undefined";
@@ -36,6 +45,9 @@ export type GoogleIdentityClaim={status:"PENDING"|"APPROVED"|"DECLINED";requestT
 export type GoogleIdentityRequest={id:string;name:string;phone:string;email:string;createdAt:string;groupCode?:string};
 export type CompanionDevice={id:string;label:string;createdAt:string;lastSeenAt?:string;signal?:string;playerMatches:number;authorized:number};
 export const api = {
+  reactions: (submissionId: string) => request<SubmissionReactions>(`/submissions/${submissionId}/reactions`),
+  react: (submissionId: string, kind: "LIKE" | "DISLIKE") =>
+    request<SubmissionReactions>(`/submissions/${submissionId}/reaction`, { method: "POST", body: JSON.stringify({ kind }) }),
   levelEmblems:()=>request<{emblems:LevelEmblem[]}>("/level-emblems"),
   preparePlaylist:(id:string,acceptPartial:boolean,videoCount?:number)=>request<{count:number;rewardEligible:boolean}>("/rounds/"+encodeURIComponent(id)+"/prepare-playlist",{method:"POST",body:JSON.stringify({acceptPartial,videoCount})}),
   passwordLogin:(phone:string,password:string)=>request<{token:string;mustChangePassword:boolean}>("/auth/password/login",{method:"POST",body:JSON.stringify({phone,password})}),
@@ -331,7 +343,7 @@ export type BotStatus = {
   features:BotFeature[]; missing:string[]; fullyActive:boolean;
 };
 export type NumberHealth = { status:"HEALTHY"|"DEGRADED"|"UNUSABLE"|"UNKNOWN";checkedAt:string;phone?:string;phoneNumberId?:string;qualityRating?:string;platformStatus?:string;detail:string;recommendation:string;shouldReplaceNumber:boolean };
-export type YouTubeIntegrationState = { apiKeyConfigured:boolean;source:"PANEL"|"ENVIRONMENT"|"NONE";verification:"VERIFIED"|"STRUCTURAL_ONLY";ready:boolean };
+export type YouTubeIntegrationState = { oauthConfigured:boolean;oauthSource:"PANEL"|"ENVIRONMENT"|"NONE";clientId:string;clientSecretConfigured:boolean;redirectUri:string;apiKeyConfigured:boolean;source:"PANEL"|"ENVIRONMENT"|"NONE";verification:"VERIFIED"|"STRUCTURAL_ONLY";ready:boolean };
 export type CredentialEntry = { ownerId:string; configured:boolean; mustChange:boolean; lockedUntil?:string; updatedAt?:string; phone?:string; name?:string };
 export type CredentialsState = { mine:CredentialEntry; admins:CredentialEntry[]; owners?:Array<{id:string;name:string;phone:string}> };
 export type SuperSubscriber = { userId:string; name:string; phone:string; expiresAt:string; autoRenew:number; source:string; revokedAt?:string };
@@ -453,7 +465,7 @@ export const ownerApi = {
   checkNumberHealth: () => ownerRequest<{ health: NumberHealth; replacementSteps: string[] }>("/admin/integrations/whatsapp/health", { method: "POST" }),
   // YouTube no painel
   youtubeIntegration: () => ownerRequest<YouTubeIntegrationState>("/admin/integrations/youtube"),
-  saveYouTubeIntegration: (body: { apiKey?: string; clear?: boolean }) =>
+  saveYouTubeIntegration: (body: { apiKey?: string; clear?: boolean; clientId?:string;clientSecret?:string;clearOAuth?:boolean }) =>
     ownerRequest<YouTubeIntegrationState>("/admin/integrations/youtube", { method: "POST", body: JSON.stringify(body) }),
   // correio interno
   // acesso: credenciais, telefone dos owners e SUPER

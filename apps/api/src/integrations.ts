@@ -368,19 +368,28 @@ export function effectivePaymentConfig(db: AppDatabase, config: Config): Payment
 // reinicio. Isso contrariava a expectativa do produto de gerenciar as tres APIs no
 // painel. Aqui a chave passa a seguir exatamente o mesmo padrao: valor cifrado em
 // integration_settings, com o ambiente como fallback.
-const youtubeKeys = { apiKey: "youtube.api_key" } as const;
+const youtubeKeys = { apiKey: "youtube.api_key", clientId: "youtube.oauth.client_id", clientSecret: "youtube.oauth.client_secret" } as const;
 
 const youtubeSettingsSchema = z.object({
+  clientId: z.string().trim().regex(/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/).optional(),
+  clientSecret: z.string().trim().min(8).max(4096).optional(),
+  clearOAuth: z.boolean().optional(),
   apiKey: z.string().trim().min(20).max(255).optional(),
   clear: z.boolean().optional()
 });
 
 export function readYouTubeIntegration(db: AppDatabase, config: Config) {
+  const oauth = effectiveYouTubeConfig(db, config);
   const apiKeyConfigured = configuredSecret(db, config, youtubeKeys.apiKey, config.YOUTUBE_API_KEY);
   const source = unseal(config, get(db, youtubeKeys.apiKey)) ? "PANEL" : config.YOUTUBE_API_KEY ? "ENVIRONMENT" : "NONE";
   return {
     apiKeyConfigured,
     source,
+    oauthConfigured: Boolean(oauth.GOOGLE_CLIENT_ID && oauth.GOOGLE_CLIENT_SECRET),
+    oauthSource: get(db, youtubeKeys.clientId) ? "PANEL" : config.GOOGLE_CLIENT_ID ? "ENVIRONMENT" : "NONE",
+    clientId: oauth.GOOGLE_CLIENT_ID ?? "",
+    clientSecretConfigured: Boolean(oauth.GOOGLE_CLIENT_SECRET),
+    redirectUri: config.GOOGLE_REDIRECT_URI,
     // STRUCTURAL_ONLY: sem chave o servidor nao confirma existencia, duracao nem
     // incorporacao do video; a conclusao de tarefa nao pode ser verificada.
     verification: apiKeyConfigured ? "VERIFIED" : "STRUCTURAL_ONLY",
@@ -390,9 +399,24 @@ export function readYouTubeIntegration(db: AppDatabase, config: Config) {
 
 export function saveYouTubeIntegration(db: AppDatabase, config: Config, raw: unknown) {
   const body = youtubeSettingsSchema.parse(raw);
-  if (body.clear) db.prepare("DELETE FROM integration_settings WHERE key=?").run(youtubeKeys.apiKey);
-  else if (body.apiKey) set(db, youtubeKeys.apiKey, seal(config, body.apiKey));
+  if (Boolean(body.clientId) !== Boolean(body.clientSecret)) throw Object.assign(new Error("Informe Client ID e Client Secret juntos para salvar a configuração OAuth."), {statusCode:400});
+  if (body.clearOAuth && body.clientId) throw Object.assign(new Error("Escolha salvar novas credenciais ou voltar às variáveis do servidor."), {statusCode:400});
+  db.transaction(() => {
+    if (body.clear) db.prepare("DELETE FROM integration_settings WHERE key=?").run(youtubeKeys.apiKey);
+    else if (body.apiKey) set(db, youtubeKeys.apiKey, seal(config, body.apiKey));
+    if (body.clearOAuth) db.prepare("DELETE FROM integration_settings WHERE key IN (?,?)").run(youtubeKeys.clientId,youtubeKeys.clientSecret);
+    else if (body.clientId && body.clientSecret) {
+      set(db,youtubeKeys.clientId,body.clientId);
+      set(db,youtubeKeys.clientSecret,seal(config,body.clientSecret));
+    }
+  })();
   return readYouTubeIntegration(db, config);
+}
+
+/** Resolve o par inteiro para não misturar Client ID do painel com segredo do ambiente. */
+export function effectiveYouTubeConfig(db: AppDatabase, config: Config): Config {
+  const clientId=get(db,youtubeKeys.clientId);
+  return clientId ? {...config, GOOGLE_CLIENT_ID:clientId, GOOGLE_CLIENT_SECRET:unseal(config,get(db,youtubeKeys.clientSecret))} : config;
 }
 
 /** Chave efetiva: painel tem precedencia, ambiente e fallback. */

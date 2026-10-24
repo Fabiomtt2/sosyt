@@ -258,7 +258,7 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
 
       <div className="owner-service-summary"><span><Bot size={16}/>WhatsApp: {data.whatsapp.configured ? "configuração disponível para envio" : "envio ainda indisponível"}</span><button className="text-button" onClick={()=>setTab("integrations")}>Ver integrações</button></div>
       <nav className="owner-tabs" aria-label="Seções administrativas">
-        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.role==="ROOT_OWNER" ? [["community","Amigos e presentes"] as const] : []), ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["integrations", "Integrações"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["automations","Atitudes do bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const,["gamification","Jornada"] as const,["diagnostics","Diagnóstico"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
+        {([["requests", "Solicitações ("+m.pendingRequests+")"], ["users", "Participantes"], ...(data.owner.role==="ROOT_OWNER" ? [["community","Amigos e presentes"] as const] : []), ...(data.owner.permissions.canViewSensitive ? [["purchases","Compras"] as const] : []), ["groups", "Grupos e acesso"], ["integrations", "Integrações"], ...(data.owner.permissions.canConfigure ? [["store","Loja"] as const,["bot","Bot"] as const,["automations","Atitudes do bot"] as const,["comms","Comunicação"] as const,["access","Acesso"] as const,["avatars","Avatares"] as const,["gamification","Jornada"] as const,["diagnostics","Diagnóstico"] as const] : []), ...(data.owner.permissions.canManageOwners ? [["team","Equipe administrativa"] as const] : []), ["removed", "Removidas ("+m.deletedUsers+")"]] as const).map(([key, title]) => <button key={key} className={tab === key ? "active" : ""} aria-pressed={tab === key} onClick={(event) => { setTab(key); event.currentTarget.scrollIntoView({behavior:"smooth",block:"nearest",inline:"center"}); }}>{title}</button>)}
       </nav>
 
       {tab === "integrations" && <section className="owner-panel integration-overview" aria-label="Integração WhatsApp">
@@ -324,6 +324,15 @@ export function OwnerDashboard({ onLogout,onParticipate }: { onLogout:()=>void;o
       {tab === "store" && <OwnerStorePanel canEdit={data.owner.permissions.canConfigure}/>}
       {tab === "bot" && <OwnerBotPanel/>}
       {tab === "diagnostics" && <OwnerDiagnosticsPanel/>}
+      {/* AUDITORIA / a gestao de administradores existia SO no menu lateral (☰ → Equipe
+          administrativa), atras de um icone. O dono procurou e nao achou: "não vejo ainda
+          como cadastrar outro usuário como admin". A funcao estava pronta e invisivel —
+          que para quem usa e o mesmo que nao existir. Agora e aba, ao lado de Diagnóstico. */}
+      {tab === "team" && data.owner.permissions.canManageOwners && <section className="card">
+        <h2>Equipe administrativa</h2>
+        <p className="muted">Promova um participante a <strong>Administrador</strong> (hierarquia abaixo do Root) ou revogue o acesso. Revogar preserva o perfil de participante.</p>
+        <button type="button" className="primary" onClick={()=>setShowOwnerTeam(true)}>Abrir equipe administrativa</button>
+      </section>}
       {tab === "automations" && data.owner.permissions.canConfigure && <OwnerAutomationsPanel/>}
       {tab === "comms" && <OwnerCommsPanel canEdit={data.owner.permissions.canConfigure} canViewSensitive={data.owner.permissions.canViewSensitive}/>}
       {tab === "access" && (data.owner.permissions.canManageOwners ? <OwnerAccessPanel users={data.users}/> : <OwnerSelfCredentialPanel/>)}

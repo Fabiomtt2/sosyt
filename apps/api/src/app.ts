@@ -52,7 +52,7 @@ import { verifyPasswordReset, PasswordResetError } from "./password-reset.js";
 import { administrativeSessionValid } from "./owners.js";
 import { groupVerificationState, verifiedGroupCodes } from "./group-verification.js";
 import { queueBotNotification, registerWhatsAppRoutes, sendWhatsAppOtp, whatsappConfigured, queueOwnerAlerts } from "./whatsapp.js";
-import { readPaymentIntegration, effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, initializeWhatsAppIntegration } from "./integrations.js";
+import { readPaymentIntegration, effectivePaymentConfig, effectiveWhatsAppConfig, effectiveYouTubeApiKey, effectiveYouTubeConfig, initializeWhatsAppIntegration } from "./integrations.js";
 import { normalizePhone } from "./phone.js";
 import type { Config } from "./config.js";
 import { devAuthEnabled } from "./config.js";
@@ -595,7 +595,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
   // deslike. Em comunidade pequena, reacao anonima vira ferramenta de sabotagem.
   app.get("/submissions/:id/reactions",{preHandler:authGuard},async(request)=>{
     const id=z.string().uuid().parse((request.params as {id:string}).id);
-    return reactionSummary(db,id);
+    return reactionSummary(db,id,request.user.sub);
   });
 
   app.get("/rounds/:id/reactions",{preHandler:authGuard},async(request)=>{
@@ -649,7 +649,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     return payload;
   });
   app.addHook("onRequest",async()=>{expireRounds(db);});
-  app.get("/health", async () => ({ ok: true,release:"youtube-oauth-20261024",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1","contribution-xp-v1","submission-reactions-v1","youtube-readiness-v1"] }));
+  app.get("/health", async () => ({ ok: true,release:"equipe-admin-20261024",capabilities:["gamification-v1","reward-redemption-v1","bot-password-v1","bot-automation-runtime-v1","phone-identity-lid-v1","bot-onboarding-password-v2","human-relay-v1","bot-live-progress-v1","queue-pass-v1","independent-queue-access-v1","community-consent-v1","partial-playlist-v1","human-relay-short-code-v1","benefit-gifts-v2","owner-benefits-v1","payment-readiness-v1","playlist-expansion-v1","community-group-only-v1","owner-credential-management-v2","selected-queue-access-v1","watch-presence-v1","human-relay-root-v2","pass-extra-url-v2","local-intent-routing-v1","delegated-owner-access-v1","ai-intent-routing-v1","varied-menu-v1","owner-delegation-without-group-v1","owner-diagnostics-v1","owner-queue-close-v1","contribution-xp-v1","submission-reactions-v1","youtube-readiness-v1","owner-team-tab-v1","oauth-denied-reason-v1"] }));
 
   app.post("/auth/login", { config: { rateLimit: { max: 30, timeWindow: "10 minutes" } } }, async (request, reply) => {
     if (!devAuthEnabled(config)) return reply.code(403).send({code:"IDENTITY_PROOF_REQUIRED",message:"Receba um código no WhatsApp ou use uma identidade Google já vinculada para entrar."});
@@ -1822,10 +1822,10 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
       authMethod:request.user.authMethod, authPhone:request.user.authPhone, googleSubject:request.user.googleSubject,
       accessPhone:account?.phone, accessGroup:account?.groupCode, sessionJti:request.user.jti };
     assertYouTubeAccess(access, query.roundId);
-    if(!config.GOOGLE_CLIENT_ID||!config.GOOGLE_CLIENT_SECRET)throw Object.assign(new Error("A conexão Google/YouTube ainda precisa ser ativada pelo Owner. Você pode enviar URLs sem conectar um canal. Para criar a playlist na sua conta, aguarde a configuração desta integração."),{statusCode:503,code:"YOUTUBE_OAUTH_NOT_CONFIGURED"});
+    if(!effectiveYouTubeConfig(db,config).GOOGLE_CLIENT_ID||!effectiveYouTubeConfig(db,config).GOOGLE_CLIENT_SECRET)throw Object.assign(new Error("A conexão Google/YouTube ainda precisa ser ativada pelo Owner. Você pode enviar URLs sem conectar um canal. Para criar a playlist na sua conta, aguarde a configuração desta integração."),{statusCode:503,code:"YOUTUBE_OAUTH_NOT_CONFIGURED"});
     const claims = { ...access, purpose: "youtube-oauth", aud: "conexao-oauth", returnTo: query.returnTo, jti: randomUUID() };
     const state = app.jwt.sign(claims, { expiresIn: "10m" });
-    const url = googleAuthorizationUrl(config, state);
+    const url = googleAuthorizationUrl(effectiveYouTubeConfig(db,config), state);
     db.prepare("DELETE FROM oauth_states WHERE expires_at < ?").run(new Date().toISOString());
     db.prepare("INSERT INTO oauth_states (state_hash, user_id, expires_at, round_id) VALUES (?, ?, ?, ?)").run(createHash("sha256").update(state).digest("hex"), request.user.sub, new Date(Date.now() + 600_000).toISOString(), query.roundId ?? null);
     return { url };
@@ -1859,18 +1859,31 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
 
   app.get("/youtube/callback", { config: { rateLimit: { max: 60, timeWindow: "10 minutes" } } }, async (request, reply) => {
     const query = z.object({ code: z.string().optional(), state: z.string(), error: z.string().optional() }).parse(request.query);
-    const state = app.jwt.verify<YouTubeAccessClaims & {purpose?:string;returnTo?:string;aud?:string}>(query.state);
+    // AUDITORIA / entrada malformada nao pode virar erro de servidor: `state` vem da
+    // barra de enderecos e qualquer um pode digitar qualquer coisa ali. Sem este
+    // try/catch a rota devolvia 500, que alem de feio sinaliza defeito onde ha so lixo.
+    let state: YouTubeAccessClaims & {purpose?:string;returnTo?:string;aud?:string};
+    try { state = app.jwt.verify(query.state); }
+    catch { return reply.code(400).send("Estado OAuth inválido."); }
     if (state.purpose !== "youtube-oauth" || state.aud !== "conexao-oauth") return reply.code(400).send("Estado OAuth inválido.");
     const stateHash = createHash("sha256").update(query.state).digest("hex");
     const intent = db.prepare("SELECT round_id FROM oauth_states WHERE state_hash=? AND user_id=?").get(stateHash,state.sub) as { round_id?: string | null } | undefined;
     const consumed = db.prepare("UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?").run(new Date().toISOString(), stateHash, state.sub, new Date().toISOString());
     if (!consumed.changes) return reply.code(400).send("Autorização expirada ou já utilizada. Conecte novamente.");
     assertYouTubeAccess(state,intent?.round_id);
-    if (query.error || !query.code) return reply.redirect(`${config.WEB_APP_URL}?youtube=cancelled`);
-    const tokens = await exchangeGoogleCode(config, query.code);
+    // AUDITORIA / NAO CULPAR A PESSOA POR UMA RECUSA DO GOOGLE.
+    // Tudo virava "cancelled", inclusive `access_denied` — que e o Google barrando
+    // porque a tela de permissao esta em modo Teste e o e-mail nao esta na lista de
+    // testadores. Dizer "voce cancelou" para quem foi bloqueado manda a pessoa tentar
+    // de novo para sempre. Agora o motivo chega na tela.
+    if (query.error || !query.code) {
+      const motivo = query.error === "access_denied" ? "blocked" : "cancelled";
+      return reply.redirect(`${config.WEB_APP_URL}?youtube=${motivo}`);
+    }
+    const tokens = await exchangeGoogleCode(effectiveYouTubeConfig(db,config), query.code);
     assertYouTubeAccess(state,intent?.round_id);
     let channel:{id?:string;title?:string;thumbnailUrl?:string}={};
-    try { channel=await fetchOwnYouTubeChannel(config,tokens.refreshToken); } catch { /* Optional enrichment must not prevent a valid connection. */ }
+    try { channel=await fetchOwnYouTubeChannel(effectiveYouTubeConfig(db,config),tokens.refreshToken); } catch { /* Optional enrichment must not prevent a valid connection. */ }
     assertYouTubeAccess(state,intent?.round_id);
     db.prepare(`INSERT INTO youtube_connections (user_id, refresh_token_cipher, scope, channel_id, channel_title, channel_thumbnail_url, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1922,7 +1935,7 @@ export async function buildApp(config: Config, providedDb?: AppDatabase) {
     try {
       assertYouTubeAccess(access,roundId);
       const playlistId = await createPrivatePlaylist(
-        config,
+        effectiveYouTubeConfig(db,config),
         decryptToken(connection.token, config),
         `Conexão Youtube — Ciclo ${round.sequence}`,
         videos.map((video) => video.videoId),

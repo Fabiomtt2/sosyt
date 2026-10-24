@@ -2,7 +2,7 @@ import {groupCodeFromSubject} from "./group-name.js";
 import {botPhoneAccessBlocked} from "./bot-account-access.js";
 import {currentQueueEventBody,type QueueEventSnapshot} from "./bot-queue-snapshot.js";
 import { botProgressReply } from "./bot-progress-replies.js";
-import { declinesBotSensitiveAction, localBotFallback } from "./bot-local-intents.js";
+import { declinesBotSensitiveAction, localBotFallback, classifyLocalBotIntent } from "./bot-local-intents.js";
 import { encryptToken, decryptToken } from "./youtube.js";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Readable } from "node:stream";
@@ -1134,7 +1134,14 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     const text=data.message.conversation??data.message.extendedTextMessage?.text;
     // IA (opcional, desligada por padrao): so pagamos/chamamos quando o caminho
     // gratuito nao entendeu. Qualquer falha devolve undefined e o bot age como antes.
-    const aiHint = text && classifyInbound(text) === "UNKNOWN" ? await aiClassifyIntent(db,text) : undefined;
+    // AUDITORIA / ACHADO DO ASTRA, e ele estava certo: eu descrevi uma escada de tres
+    // degraus (gatilho -> NLU local -> IA) e implementei dois. A condicao olhava so
+    // `classifyInbound`, entao mensagens que o NLU LOCAL resolveria de graca iam para a
+    // IA assim mesmo — latencia e cota gastas a toa. Agora a IA so e consultada quando
+    // os DOIS caminhos gratuitos falham, que e o que o comentario sempre prometeu.
+    const aiHint = text && classifyInbound(text) === "UNKNOWN" && !classifyLocalBotIntent(text)
+      ? await aiClassifyIntent(db,text)
+      : undefined;
     db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:senderJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}],aiHint))();
     return {ok:true};
   });

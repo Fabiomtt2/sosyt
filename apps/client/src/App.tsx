@@ -521,7 +521,19 @@ function DashboardPage({ onLogout,onOpenAdmin }: { onLogout:()=>void;onOpenAdmin
   useEffect(() => {
     if (!data || returnedIntentHandled.current) return;
     const params = new URLSearchParams(location.search); const roundId = params.get("round");
-    if (params.get("youtube") !== "connected") return;
+    // AUDITORIA / a recusa voltava em SILENCIO: o client so tratava "connected", entao
+    // quem era barrado pelo Google voltava ao site sem explicacao nenhuma e sem saber
+    // o que fazer. Silencio depois de falha e pior que mensagem errada.
+    const estado = params.get("youtube");
+    if (estado === "blocked" || estado === "cancelled") {
+      returnedIntentHandled.current = true;
+      history.replaceState(null,"",location.pathname);
+      setError(estado === "blocked"
+        ? "A conexão com o Google não foi autorizada. Isso pode ocorrer se você recusou a permissão ou se a conta não está liberada no aplicativo Google. Tente conectar novamente; se o Google mostrar uma restrição, escreva Tenho dúvidas no WhatsApp do projeto. Sua fila e seus links foram preservados."
+        : "A conexão com o YouTube foi interrompida antes de concluir. Sua fila e seus links continuam preservados; você pode tentar de novo quando quiser.");
+      return;
+    }
+    if (estado !== "connected") return;
     returnedIntentHandled.current = true;
     if (!roundId) {
       history.replaceState(null,"",location.pathname);

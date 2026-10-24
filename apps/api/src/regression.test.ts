@@ -504,11 +504,29 @@ describe("regressões de domínio e segurança", () => {
     const callback=await app.inject({url:`/youtube/callback?code=ok&state=${encodeURIComponent(state)}`});
     expect(callback.statusCode).toBe(302); expect(callback.headers.location).toContain(`&round=${roundId}`);
   });
-  it("cancelar OAuth consome intenção sem criar playlist ou consultar Google", async () => {
+  // AUDITORIA / access_denied NAO E CANCELAMENTO DO USUARIO.
+  // O dono tentou criar playlist e o Google respondeu access_denied porque a tela de
+  // permissao esta em modo Teste e o e-mail dele nao estava entre os testadores. Nos
+  // traduziamos isso como "voce cancelou" — mandando a pessoa tentar de novo para
+  // sempre, sem nunca dizer o que fazer. As garantias deste teste (302, intencao
+  // consumida, nenhuma chamada ao Google) continuam; so o rotulo ficou verdadeiro.
+  it("recusa do Google volta como 'blocked', consome a intenção e não consulta o Google", async () => {
     const user=await register(); const result=await app.inject({url:"/youtube/connect",headers:headers(user.token)});
     const state=new URL(result.json().url).searchParams.get("state")!;
     const callback=await app.inject({url:`/youtube/callback?error=access_denied&state=${encodeURIComponent(state)}`});
-    expect(callback.statusCode).toBe(302); expect(callback.headers.location).toContain("youtube=cancelled"); expect(fetchMock).not.toHaveBeenCalled();
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toContain("youtube=blocked");
+    expect(callback.headers.location).not.toContain("cancelled");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("cancelamento de verdade continua sendo tratado como cancelamento", async () => {
+    const user=await register(); const result=await app.inject({url:"/youtube/connect",headers:headers(user.token)});
+    const state=new URL(result.json().url).searchParams.get("state")!;
+    const callback=await app.inject({url:`/youtube/callback?state=${encodeURIComponent(state)}`});   // sem code, sem error
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toContain("youtube=cancelled");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
   it("Pix imediatamente aprovado credita exatamente uma vez", async () => {
     const user = await register(); config.MERCADO_PAGO_ACCESS_TOKEN = "test-token";
