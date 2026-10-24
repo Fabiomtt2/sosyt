@@ -1,3 +1,4 @@
+import * as botAi from "./bot-ai-intent.js";
 import {setParticipantAccess} from "./participant-access.js";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {buildApp} from "./app.js";
@@ -44,6 +45,17 @@ describe("bot → senha → login → grupo, sem cadastro manual",()=>{
   const user=db.prepare("SELECT id,phone FROM users WHERE phone=? AND deleted_at IS NULL").get(phone) as {id:string;phone:string};
   expect(user).toBeTruthy();return {...user,password:issuedPassword(user.id)};
  }
+ it("IA não recebe o nome solicitado nem reconsulta um webhook já processado",async()=>{
+  const ai=vi.spyOn(botAi,"aiClassifyIntent").mockResolvedValue(undefined);
+  await inbound("1");
+  await inbound("Pessoa Sintetica");
+  expect(ai).not.toHaveBeenCalled();
+  await inbound("zqxv 849 zqxv");
+  expect(ai).toHaveBeenCalledTimes(1);
+  sequence-=1;
+  await inbound("zqxv 849 zqxv");
+  expect(ai).toHaveBeenCalledTimes(1);
+ });
  it("nome informado em uma frase não vira texto inteiro no cadastro nem na saudação",async()=>{
    await inbound("1");
    await inbound("Meu nome é Ana Maria e quero participar");

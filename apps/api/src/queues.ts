@@ -58,9 +58,24 @@ export function openRound(db: AppDatabase): string {
   const id = randomUUID();
   const now = new Date().toISOString();
   const seq = (db.prepare("SELECT COALESCE(MAX(sequence),0) AS s FROM rounds").get() as { s: number }).s + 1;
-  db.prepare("INSERT INTO rounds (id,sequence,status,created_at,display_number) VALUES (?,?, 'OPEN', ?, ?)")
-    .run(id, seq, now, lowestFreeNumber(db));
-  return id;
+  const insert = db.prepare("INSERT INTO rounds (id,sequence,status,created_at,display_number) VALUES (?,?, 'OPEN', ?, ?)");
+  // AUDITORIA / CORRIDA QUE CRIAVA DUAS FILAS COM O MESMO NUMERO.
+  //
+  // `ensureOpenQueue` e chamado de quatro lugares (tick, fechamento, expiracao e
+  // entrada em fila). Duas execucoes proximas calculavam o mesmo "menor numero livre"
+  // e inseriam as duas — nascia uma segunda "Fila 2". Agora ha indice unico entre filas
+  // ativas; sem este laco, a corrida deixaria de duplicar mas passaria a ESTOURAR.
+  // Reconsultar e tentar o proximo numero resolve sem travar ninguem.
+  for (let tentativa = 0; tentativa < 50; tentativa += 1) {
+    try {
+      insert.run(id, seq, now, lowestFreeNumber(db));
+      return id;
+    } catch (cause) {
+      const conflito = cause instanceof Error && /UNIQUE constraint failed: rounds\.display_number/i.test(cause.message);
+      if (!conflito) throw cause;
+    }
+  }
+  throw Object.assign(new Error("Não foi possível abrir uma fila agora. Tente novamente."), { statusCode: 503, code: "QUEUE_NUMBER_EXHAUSTED" });
 }
 
 /** Garante ao menos uma fila OPEN. Retorna true se precisou criar. */

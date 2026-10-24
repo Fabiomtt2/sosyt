@@ -38,6 +38,21 @@ describe("comunidade HTTP: sessões reais, consentimento e auditoria Root",()=>{
     expect(response.statusCode,response.body).toBe(200);return response.json().invitationId as string;
   }
 
+  it("refazer amizade nos dois sentidos não repete XP para nenhuma conta",async()=>{
+    const a=await participant(41),b=await participant(42);
+    const respond=async(actor:{token:string},id:string,action:string)=>{
+      const result=await app.inject({method:"POST",url:"/social/requests/"+id,headers:bearer(actor.token),payload:{action}});
+      expect(result.statusCode,result.body).toBe(200);
+    };
+    const first=await invite(a,b);await respond(b,first,"ACCEPT");
+    const xp=()=>db.prepare("SELECT user_id,xp_delta FROM gamification_events WHERE kind='CONTRIBUTION_XP' ORDER BY user_id,id").all();
+    const original=xp();expect(original).toHaveLength(2);
+    await respond(a,first,"REMOVE");
+    const again=await invite(b,a);expect(again).not.toBe(first);
+    await respond(a,again,"ACCEPT");
+    expect(xp()).toEqual(original);
+  });
+
   it("Owner configurado gerencia antes de criar sessão participante",async()=>{
     const token=await owner();
     expect(db.prepare("SELECT id FROM users WHERE phone=?").get(rootPhone)).toBeUndefined();

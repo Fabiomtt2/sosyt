@@ -1139,7 +1139,15 @@ export async function registerWhatsAppRoutes(app: FastifyInstance, db: AppDataba
     // `classifyInbound`, entao mensagens que o NLU LOCAL resolveria de graca iam para a
     // IA assim mesmo — latencia e cota gastas a toa. Agora a IA so e consultada quando
     // os DOIS caminhos gratuitos falham, que e o que o comentario sempre prometeu.
-    const aiHint = text && classifyInbound(text) === "UNKNOWN" && !classifyLocalBotIntent(text)
+    const senderPhone = senderJid.split("@")[0];
+    const inboundId = `evo:${body.instance}:${data.key.id}`;
+    const alreadyReceived = db.prepare("SELECT 1 FROM whatsapp_received WHERE message_id=?").get(inboundId);
+    const conversation = db.prepare("SELECT stage FROM whatsapp_conversations WHERE phone=?").get(senderPhone) as {stage:string}|undefined;
+    // Do not send names, blocked accounts or already processed retries to the AI.
+    // The transactional processor still owns deduplication and all state changes.
+    const aiHint = text && text.length <= 500 && !alreadyReceived
+      && conversation?.stage !== "WAITING_NAME" && !botPhoneAccessBlocked(db,senderPhone)
+      && classifyInbound(text) === "UNKNOWN" && !classifyLocalBotIntent(text)
       ? await aiClassifyIntent(db,text)
       : undefined;
     db.transaction(()=>processInboundMessages(db,runtime,[{id:`evo:${body.instance}:${data.key.id}`,from:senderJid.split("@")[0],type:text?"text":"media",timestamp:String(data.messageTimestamp),text:text?{body:text}:undefined}],aiHint))();

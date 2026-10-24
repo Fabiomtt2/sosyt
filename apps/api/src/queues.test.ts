@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 // AUDITORIA / multi-fila: numeração confirmada pelo owner, visibilidade restrita,
 // item "Pular" (nunca desperdiçado) e presentes de inventário.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -143,5 +147,42 @@ describe("multi-fila", () => {
     db.prepare("INSERT INTO users(id,name,phone,group_code,created_at,updated_at) VALUES ('u-z','z','5571900000099','1',?,?)").run(now, now);
     expect(() => giftItem(db, "u-z", "u-z", ITEM_SKIP, 1)).toThrow(/si mesmo/i);
     expect(() => giftItem(db, "u-z", "u-x", ITEM_SKIP, 1)).toThrow();
+  });
+  // AUDITORIA / AS "FILAS BUGADAS" QUE O DONO FOTOGRAFOU.
+  // A lista mostrava "Fila 2 · 4/10" e o quadro, na MESMA sessao, "0 de 10" sob o
+  // titulo "Você está na Fila 2". Nao era cache: eram duas filas ativas com o mesmo
+  // numero, criadas por corrida entre as quatro chamadas de ensureOpenQueue.
+  it("duas filas ativas não podem dividir o mesmo número", () => {
+    const outra = openRound(db);
+    const existente = activeRounds(db).find(r => r.id !== outra)!;
+    expect(() => db.prepare("UPDATE rounds SET display_number=? WHERE id=?").run(existente.displayNumber, outra))
+      .toThrowError(/UNIQUE/i);
+  });
+
+  it("filas duplicadas que já existiam são reparadas: a mais antiga mantém o número", () => {
+    // Banco em ARQUIVO: o reparo roda na migracao, ao abrir. Com :memory: reabrir
+    // criaria um banco vazio e o teste nao provaria nada.
+    const arquivo = join(mkdtempSync(join(tmpdir(), "filas-dup-")), "producao.db");
+    const corrompido = createDatabase(arquivo);
+    // Simula o estado da producao, contornando o indice para inserir o registro
+    // invalido exatamente como a corrida o teria criado.
+    corrompido.exec("DROP INDEX IF EXISTS idx_rounds_display_number_ativo;");
+    const antiga = activeRounds(corrompido)[0]!;
+    const nova = randomUUID(), stamp = new Date().toISOString();
+    corrompido.prepare("INSERT INTO rounds (id,sequence,status,created_at,display_number) VALUES (?,?, 'OPEN', ?, ?)")
+      .run(nova, 99, stamp, antiga.displayNumber);     // duplicata com o mesmo numero
+    expect(activeRounds(corrompido).filter(r => r.displayNumber === antiga.displayNumber)).toHaveLength(2);
+    corrompido.close();
+
+    const reparado = createDatabase(arquivo);          // abrir roda a migracao de reparo
+    const comNumeroOriginal = (reparado.prepare(
+      "SELECT id FROM rounds WHERE closed_at IS NULL AND display_number=?",
+    ).all(antiga.displayNumber) as Array<{ id: string }>);
+    expect(comNumeroOriginal, "só uma fila pode ficar com o número").toHaveLength(1);
+    expect(comNumeroOriginal[0]!.id, "a mais antiga é quem mantém").toBe(antiga.id);
+    const movida = reparado.prepare("SELECT display_number AS n FROM rounds WHERE id=?").get(nova) as { n: number };
+    expect(movida.n, "a duplicata recebeu um número livre").not.toBe(antiga.displayNumber);
+    reparado.close();
+    rmSync(arquivo, { force: true });
   });
 });

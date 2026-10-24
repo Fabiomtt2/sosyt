@@ -592,6 +592,36 @@ export function createDatabase(filename: string): AppDatabase {
   db.exec("CREATE INDEX IF NOT EXISTS idx_participation_retry_block ON participation_requests(retry_block_until);");
   // Backfill: numero de exibicao pela ordem de criacao; participacao a partir das contribuicoes.
   db.exec("UPDATE rounds SET display_number = sequence WHERE display_number IS NULL;");
+
+  // AUDITORIA / DUAS FILAS COM O MESMO NUMERO — a causa das "filas bugadas".
+  //
+  // `openRound` calculava o menor numero livre e inserta, sem nenhuma trava. Como
+  // `ensureOpenQueue` e chamado de quatro lugares (o tick, o fechamento, a expiracao e
+  // a entrada em fila), duas execucoes proximas calculavam o MESMO numero e criavam
+  // duas filas ativas chamadas "Fila 2". O efeito na tela e exatamente o que o dono
+  // fotografou: a lista mostrando "Fila 2 · 4/10" e o quadro, na mesma sessao,
+  // mostrando "0 de 10" sob o titulo "Você está na Fila 2" — sao filas diferentes com
+  // o mesmo nome.
+  //
+  // Reparo de dados: quando ha duplicata, a fila MAIS ANTIGA fica com o numero (e a que
+  // as pessoas conhecem e que o bot ja anunciou) e as mais novas recebem numeros livres.
+  // Renumerar aqui nao contradiz a regra de numero estavel: estado com duas filas de
+  // mesmo nome e invalido, e mante-lo e pior do que corrigi-lo uma vez.
+  const duplicadas = db.prepare(`SELECT display_number AS numero, COUNT(*) AS n FROM rounds
+    WHERE closed_at IS NULL AND display_number IS NOT NULL GROUP BY display_number HAVING n > 1`)
+    .all() as Array<{ numero: number; n: number }>;
+  for (const { numero } of duplicadas) {
+    const mesmas = db.prepare(`SELECT id FROM rounds WHERE closed_at IS NULL AND display_number=?
+      ORDER BY sequence ASC`).all(numero) as Array<{ id: string }>;
+    for (const extra of mesmas.slice(1)) {          // a primeira (mais antiga) mantem o numero
+      const usados = new Set((db.prepare("SELECT display_number AS n FROM rounds WHERE closed_at IS NULL AND display_number IS NOT NULL").all() as Array<{ n: number }>).map(r => r.n));
+      let livre = 1; while (usados.has(livre)) livre += 1;
+      db.prepare("UPDATE rounds SET display_number=? WHERE id=?").run(livre, extra.id);
+    }
+  }
+  // E a garantia para nunca mais acontecer: duas filas ATIVAS nao podem dividir numero.
+  // Indice parcial (closed_at IS NULL) para nao conflitar com o historico ja encerrado.
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_rounds_display_number_ativo ON rounds(display_number) WHERE closed_at IS NULL AND display_number IS NOT NULL;");
   db.exec(`INSERT OR IGNORE INTO round_participants (round_id,user_id,joined_at,left_at,source)
     SELECT s.round_id, s.user_id, MIN(s.created_at), NULL, 'FREE' FROM submissions s GROUP BY s.round_id, s.user_id;`);
   db.exec(`UPDATE submissions SET author_name = (SELECT name FROM users WHERE id = submissions.user_id) WHERE author_name IS NULL;
